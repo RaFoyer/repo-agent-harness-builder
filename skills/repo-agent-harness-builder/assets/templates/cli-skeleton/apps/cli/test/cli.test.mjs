@@ -1,0 +1,700 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { setRepoRootForTests } from "../src/config.mjs";
+import { renderHelp } from "../src/help.mjs";
+import { main } from "../src/main.mjs";
+import { runCommand } from "../src/util/exec.mjs";
+import { redactSecrets } from "../src/util/exec.mjs";
+import { findSecretIndicators } from "../src/util/secrets.mjs";
+
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const sourceRoot = path.resolve(testDir, "../../..");
+let repoRoot = sourceRoot;
+
+function copyFixture(source, destination) {
+  fs.cpSync(source, destination, {
+    recursive: true,
+    filter: (src) => {
+      const rel = path.relative(source, src);
+      return rel === "" || !rel.split(path.sep).some((part) => part === ".git" || part === "node_modules" || part === "coverage");
+    }
+  });
+}
+
+async function withFixture(fn, options = {}) {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "harness-cli-test-"));
+  copyFixture(sourceRoot, fixtureRoot);
+  const previousRoot = repoRoot;
+  const previousEnv = process.env.NODE_ENV;
+  repoRoot = fixtureRoot;
+  process.env.NODE_ENV = "test";
+  setRepoRootForTests(fixtureRoot);
+  try {
+    if (options.git !== false) {
+      const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+      assert.equal(init.ok, true, init.stderr);
+    }
+    return await fn();
+  } finally {
+    repoRoot = previousRoot;
+    setRepoRootForTests(previousRoot);
+    if (previousEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnv;
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
+function fixtureTest(name, fn, options = {}) {
+  test(name, async () => withFixture(fn, options));
+}
+
+async function withFile(rel, content, fn) {
+  const fullPath = path.join(repoRoot, rel);
+  const original = fs.readFileSync(fullPath, "utf-8");
+  fs.writeFileSync(fullPath, content, "utf-8");
+  try {
+    return await fn();
+  } finally {
+    fs.writeFileSync(fullPath, original, "utf-8");
+  }
+}
+
+function capture() {
+  const out = [];
+  const err = [];
+  return {
+    io: {
+      stdout: (line = "") => out.push(line),
+      stderr: (line = "") => err.push(line)
+    },
+    out,
+    err
+  };
+}
+
+test("help lists core commands", () => {
+  const help = renderHelp();
+  assert.match(help, /preflight/);
+  assert.match(help, /precommit/);
+  assert.match(help, /secrets/);
+  assert.match(help, /connections/);
+  assert.match(help, /checklist/);
+});
+
+test("unknown commands fail with help pointer", async () => {
+  const { io, err } = capture();
+  const code = await main(["does-not-exist"], io);
+  assert.equal(code, 2);
+  assert.match(err.join("\\n"), /help/);
+});
+
+test("secret redaction hides common values", () => {
+  const text = redactSecrets(`${"tok"}en=abc123 ${"sk-"}testvalue ${"ghp_"}exampletoken`);
+  assert.doesNotMatch(text, /abc123/);
+  assert.equal(text.includes(`${"sk-"}testvalue`), false);
+  assert.equal(text.includes(`${"ghp_"}exampletoken`), false);
+  assert.match(text, /<redacted>/);
+});
+
+test("secret scanner detects JSON credential values", () => {
+  const findings = findSecretIndicators(JSON.stringify({ [`tok${"en"}`]: "super-secret-json-token" }));
+  assert.ok(findings.length > 0);
+  assert.match(findings.join("\n"), /token/);
+});
+
+test("secret scanner does not treat test-prefixed values as placeholders", () => {
+  const findings = findSecretIndicators(`${"api_key"}=corp-test-key-9f8a2c7e6d5b4a3c`);
+  assert.ok(findings.length > 0);
+  assert.match(findings.join("\n"), /api_key/);
+});
+
+test("secret scanner detects underscore-prefixed auth tokens and netrc entries", () => {
+  const findings = findSecretIndicators(`//registry/:_${"auth"}${"Tok"}en=${"npm_"}abcdefghijklmnopqrstuvwxyz\n${"mach"}ine example.com login user ${"pass"}word super-secret`);
+  assert.match(findings.join("\n"), /authToken|npm token|netrc/i);
+});
+
+test("secret scanner detects URL-embedded credentials and connection fields", () => {
+  const findings = findSecretIndicators(`${"DATABASE_URL"}=${"postgres"}://${"user"}:${"realpass"}@example.com/db\n${"dsn"}=${"mysql"}://${"user"}:${"realpass"}@example.com/db`);
+  assert.match(findings.join("\n"), /URL-embedded credential|DATABASE_URL|dsn/i);
+});
+
+test("secret scanner detects high-entropy values under off-pattern keys", () => {
+  const highEntropyValue = ["Hx9Qa7Lm2Pz8", "Rt5Nv3Cy6Kw1", "Bb4Uf0Sd9Je2", "Yg7Qm5"].join("");
+  const findings = findSecretIndicators(`apitoken_blob="${highEntropyValue}"`);
+  assert.match(findings.join("\n"), /high-entropy/i);
+});
+
+test("secret scanner detects credential substrings in key names", () => {
+  const lowerHexValue = ["a1b2c3d4e5f6", "a7b8c9d0e1f2", "a3b4c5d6e7f8", "a9b0"].join("");
+  const firstFieldName = `${"secret"}_${"value"}`;
+  const secondFieldName = `${"api"}${"token"}_blob`;
+  const findings = findSecretIndicators(`${firstFieldName}="${lowerHexValue}"\n${secondFieldName}="${lowerHexValue}"`);
+  assert.match(findings.join("\n"), /secret_value|apitoken_blob/);
+});
+
+test("secret scanner ignores non-credential parser token fields", () => {
+  const findings = findSecretIndicators("evidenceTokens = row.split('|').map((part) => part.trim())");
+  assert.equal(findings.length, 0);
+});
+
+fixtureTest("connections status blocks credential values in registry JSON", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connections[0][`tok${"en"}`] = "super-secret-json-token";
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /credential|secret|token/i);
+  });
+});
+
+fixtureTest("connections status blocks unsafe credentialRefs", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connections[0].status = "configured";
+  registry.connections[0].owner = "repo-maintainers";
+  registry.connections[0].credentialRefs = [`${"ya"}29.real-looking-token-value-that-is-not-a-reference`];
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /credentialRef|Google OAuth token/i);
+  });
+});
+
+fixtureTest("connections status blocks write-capable scopeRefs without approval", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connections[0].status = "configured";
+  registry.connections[0].owner = "repo-maintainers";
+  registry.connections[0].credentialRefs = ["env:GMAIL_TOKEN"];
+  registry.connections[0].allowedOperations = ["read"];
+  registry.connections[0].scopeRefs = ["gmail.send"];
+  delete registry.connections[0].writeApproval;
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /write-capable operations or scopes/i);
+  });
+});
+
+fixtureTest("connections status treats unknown OAuth scopes as write-capable by default", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connections[0].status = "configured";
+  registry.connections[0].owner = "repo-maintainers";
+  registry.connections[0].credentialRefs = ["env:GOOGLE_WORKSPACE_TOKEN"];
+  registry.connections[0].allowedOperations = ["read"];
+  registry.connections[0].scopeRefs = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/spreadsheets"
+  ];
+  delete registry.connections[0].writeApproval;
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /write-capable operations or scopes/i);
+  });
+});
+
+fixtureTest("connections status allows configured read-only scopes without writeApproval", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connections[0].status = "configured";
+  registry.connections[0].owner = "repo-maintainers";
+  registry.connections[0].credentialRefs = ["env:GOOGLE_WORKSPACE_TOKEN"];
+  registry.connections[0].allowedOperations = ["read"];
+  registry.connections[0].scopeRefs = ["https://www.googleapis.com/auth/drive.readonly"];
+  delete registry.connections[0].writeApproval;
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 0, err.join("\n"));
+  });
+});
+
+test("connections plan explains setup without secrets", async () => {
+  const { io, out } = capture();
+  const code = await main(["connections", "plan"], io);
+  assert.equal(code, 0);
+  assert.match(out.join("\\n"), /least-privilege/);
+  assert.match(out.join("\\n"), /credentials outside the repository/);
+});
+
+test("core command smoke paths run", async () => {
+  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["secrets", "help"], ["self", "check"]]) {
+    const { io, err } = capture();
+    const code = await main(argv, io);
+    assert.equal(code, 0, `${argv.join(" ")} failed: ${err.join("\n")}`);
+  }
+});
+
+test("checklist command explains inactive modules", async () => {
+  const { io, out } = capture();
+  const code = await main(["checklist"], io);
+  assert.equal(code, 0);
+  assert.match(out.join("\\n"), /inactive/);
+  assert.match(out.join("\\n"), /optional modules/);
+});
+
+fixtureTest("checklist command blocks active rows with missing evidence paths", async () => {
+  const checklistPath = "ops/HARNESS-CHECKLIST.md";
+  const original = fs.readFileSync(path.join(repoRoot, checklistPath), "utf-8");
+  const broken = `${original}\n| Missing active module | active | \`ops/protocols/DOES-NOT-EXIST.md\` |\n`;
+
+  await withFile(checklistPath, broken, async () => {
+    const { io, err } = capture();
+    const code = await main(["checklist"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Missing active module/);
+    assert.match(err.join("\n"), /DOES-NOT-EXIST/);
+  });
+});
+
+fixtureTest("precommit scans filesystem when git metadata is unavailable", async () => {
+  const nonGitFile = path.join(repoRoot, "non-git-secret.cfg");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (hadGit) fs.renameSync(path.join(repoRoot, ".git"), path.join(repoRoot, ".git.test-backup"));
+
+  fs.writeFileSync(nonGitFile, `${"pass"}word=non-git-secret-value\n`, "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /non-git-secret\.cfg/);
+    assert.match(err.join("\n"), /password/i);
+  } finally {
+    fs.rmSync(nonGitFile, { force: true });
+    if (hadGit) fs.renameSync(path.join(repoRoot, ".git.test-backup"), path.join(repoRoot, ".git"));
+  }
+});
+
+fixtureTest("precommit blocks symlinks when git metadata is unavailable", async () => {
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "harness-non-git-outside-"));
+  const outsideFixture = path.join(outsideDir, "external-fixture.txt");
+  const linkPath = path.join(repoRoot, "non-git-external-link.txt");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (hadGit) fs.renameSync(path.join(repoRoot, ".git"), path.join(repoRoot, ".git.test-backup"));
+
+  fs.writeFileSync(outsideFixture, `${"pass"}word=non-git-external-secret-value\n`, "utf-8");
+  fs.symlinkSync(outsideFixture, linkPath);
+  try {
+    const { io, out, err } = capture();
+    const code = await main(["precommit"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Symlink requires explicit/);
+    assert.doesNotMatch(out.join("\n"), /non-git-external-secret-value|password/i);
+    assert.doesNotMatch(err.join("\n"), /non-git-external-secret-value|password/i);
+  } finally {
+    fs.rmSync(linkPath, { force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+    if (hadGit) fs.renameSync(path.join(repoRoot, ".git.test-backup"), path.join(repoRoot, ".git"));
+  }
+});
+
+fixtureTest("precommit blocks dangling symlinks when git metadata is unavailable", async () => {
+  const linkPath = path.join(repoRoot, "non-git-dangling-link.txt");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (hadGit) fs.renameSync(path.join(repoRoot, ".git"), path.join(repoRoot, ".git.test-backup"));
+
+  fs.symlinkSync(path.join(os.tmpdir(), "missing-harness-target"), linkPath);
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Symlink requires explicit/);
+  } finally {
+    fs.rmSync(linkPath, { force: true });
+    if (hadGit) fs.renameSync(path.join(repoRoot, ".git.test-backup"), path.join(repoRoot, ".git"));
+  }
+});
+
+fixtureTest("precommit --all checks untracked files", async () => {
+  const untracked = path.join(repoRoot, "untracked-secret.json");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(untracked, JSON.stringify({ [`tok${"en"}`]: "super-secret-json-token" }) + "\n", "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /untracked-secret\.json/);
+    assert.match(err.join("\n"), /token/i);
+  } finally {
+    fs.rmSync(untracked, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit --all blocks symlinks without following outside the repo", async () => {
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "harness-outside-"));
+  const outsideFixture = path.join(outsideDir, "external-fixture.txt");
+  const linkPath = path.join(repoRoot, "linked-external-secret.txt");
+  fs.writeFileSync(outsideFixture, `${"pass"}word=external-secret-value\n`, "utf-8");
+  fs.symlinkSync(outsideFixture, linkPath);
+  try {
+    const { io, out, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Symlink requires explicit/);
+    assert.doesNotMatch(out.join("\n"), /external-secret-value|password/i);
+    assert.doesNotMatch(err.join("\n"), /external-secret-value|password/i);
+  } finally {
+    fs.rmSync(linkPath, { force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit --all blocks dangling symlinks without following outside the repo", async () => {
+  const linkPath = path.join(repoRoot, "dangling-external-link.txt");
+  fs.symlinkSync(path.join(os.tmpdir(), "missing-harness-target"), linkPath);
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Symlink requires explicit/);
+  } finally {
+    fs.rmSync(linkPath, { force: true });
+  }
+});
+
+fixtureTest("precommit keeps raw token-looking filenames for scanning", async () => {
+  const suspiciousName = `${"xox"}b-1234567890-fixture.txt`;
+  const suspiciousPath = path.join(repoRoot, suspiciousName);
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(suspiciousPath, JSON.stringify({ [`tok${"en"}`]: "filename-secret-json-token" }) + "\n", "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /fixture\.txt/);
+    assert.match(err.join("\n"), /token/i);
+  } finally {
+    fs.rmSync(suspiciousPath, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit blocks binary credential container filenames", async () => {
+  const keyFile = path.join(repoRoot, "client-keystore.p12");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(keyFile, Buffer.from([0, 1, 2, 3, 4]));
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /client-keystore\.p12/);
+    assert.match(err.join("\n"), /Sensitive filename/i);
+  } finally {
+    fs.rmSync(keyFile, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit blocks private key filenames even when content looks plain", async () => {
+  const keyFile = path.join(repoRoot, "server.key");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(keyFile, "plain fixture text\n", "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /server\.key/);
+    assert.match(err.join("\n"), /Sensitive filename/i);
+  } finally {
+    fs.rmSync(keyFile, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit blocks password vault filenames", async () => {
+  const vaultFile = path.join(repoRoot, "secrets.kdbx");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(vaultFile, Buffer.from([0, 1, 2, 3, 4]));
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /secrets\.kdbx/);
+    assert.match(err.join("\n"), /Sensitive filename/i);
+  } finally {
+    fs.rmSync(vaultFile, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit warns on ambiguous sensitive filenames and supports exact allowlist entries", async () => {
+  const certRel = "docs/security/public-root-ca.crt";
+  const certFile = path.join(repoRoot, certRel);
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.mkdirSync(path.dirname(certFile), { recursive: true });
+  fs.writeFileSync(certFile, "-----BEGIN CERTIFICATE-----\npublic-demo-certificate\n-----END CERTIFICATE-----\n", "utf-8");
+  try {
+    const first = capture();
+    const firstCode = await main(["precommit", "--all"], first.io);
+    assert.equal(firstCode, 0, first.err.join("\n"));
+    assert.match(first.out.join("\n"), /Sensitive-looking filename/);
+
+    const allowlistPath = "ops/precommit-allow.txt";
+    const originalAllowlist = fs.readFileSync(path.join(repoRoot, allowlistPath), "utf-8");
+    await withFile(allowlistPath, `${originalAllowlist.trimEnd()}\n${certRel}\n`, async () => {
+      const second = capture();
+      const secondCode = await main(["precommit", "--all"], second.io);
+      assert.equal(secondCode, 0, second.err.join("\n"));
+      assert.doesNotMatch(second.out.join("\n"), /Sensitive-looking filename/);
+    });
+  } finally {
+    fs.rmSync(certFile, { force: true });
+    fs.rmSync(path.dirname(certFile), { recursive: true, force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit blocks plaintext credential filenames", async () => {
+  const netrcFile = path.join(repoRoot, ".netrc");
+  const npmrcFile = path.join(repoRoot, ".npmrc");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(netrcFile, `${"mach"}ine example.com login user ${"pass"}word super-secret\n`, "utf-8");
+  fs.writeFileSync(npmrcFile, `//registry/:_${"auth"}${"Tok"}en=${"npm_"}abcdefghijklmnopqrstuvwxyz\n`, "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /\.netrc/);
+    assert.match(err.join("\n"), /\.npmrc/);
+  } finally {
+    fs.rmSync(netrcFile, { force: true });
+    fs.rmSync(npmrcFile, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit scans UTF-16 text files", async () => {
+  const utf16File = path.join(repoRoot, "utf16-secret.txt");
+  fs.writeFileSync(utf16File, Buffer.from(`\ufeff${"pass"}word=utf16-secret-value\n`, "utf16le"));
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /utf16-secret\.txt/);
+    assert.match(err.join("\n"), /password/i);
+  } finally {
+    fs.rmSync(utf16File, { force: true });
+  }
+});
+
+fixtureTest("precommit blocks unsupported binary files unless allowlisted", async () => {
+  const binaryFile = path.join(repoRoot, "binary-export.dat");
+  fs.writeFileSync(binaryFile, Buffer.from([0, 1, 2, 3, 4]));
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /binary-export\.dat/);
+    assert.match(err.join("\n"), /Binary or unsupported encoded/);
+  } finally {
+    fs.rmSync(binaryFile, { force: true });
+  }
+});
+
+fixtureTest("precommit installs and reports the harness-managed git hook", async () => {
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  const hookPath = path.join(repoRoot, ".git", "hooks", "pre-commit");
+  const backupPath = `${hookPath}.test-backup`;
+  const hadHook = fs.existsSync(hookPath);
+  if (hadHook) fs.renameSync(hookPath, backupPath);
+
+  try {
+    const install = capture();
+    const installCode = await main(["precommit", "install-hook"], install.io);
+    assert.equal(installCode, 0, install.err.join("\n"));
+    assert.match(fs.readFileSync(hookPath, "utf-8"), /repo-agent-harness precommit hook/);
+
+    const status = capture();
+    const statusCode = await main(["precommit", "hook-status"], status.io);
+    assert.equal(statusCode, 0, status.err.join("\n"));
+    assert.match(status.out.join("\n"), /installed/);
+  } finally {
+    fs.rmSync(hookPath, { force: true });
+    if (hadHook) fs.renameSync(backupPath, hookPath);
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit blocks large files that are not content-scanned", async () => {
+  const largeFile = path.join(repoRoot, "large-export.log");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(largeFile, Buffer.alloc(1_000_001, "a"));
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /large-export\.log/);
+    assert.match(err.join("\n"), /Large file requires explicit review/);
+  } finally {
+    fs.rmSync(largeFile, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit fails closed when git enumeration errors inside a repo", async () => {
+  const fakeBin = path.join(repoRoot, ".fake-git-bin");
+  const fakeGit = path.join(fakeBin, "git");
+  const originalPath = process.env.PATH;
+  fs.mkdirSync(fakeBin, { recursive: true });
+  fs.writeFileSync(fakeGit, `#!/usr/bin/env sh
+if [ "$1" = "rev-parse" ]; then
+  echo true
+  exit 0
+fi
+if [ "$1" = "-c" ]; then
+  shift 2
+fi
+echo "simulated git failure" >&2
+exit 1
+`, "utf-8");
+  fs.chmodSync(fakeGit, 0o755);
+  process.env.PATH = `${fakeBin}:${originalPath}`;
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /git diff --cached failed|Precommit cannot safely inspect/);
+  } finally {
+    process.env.PATH = originalPath;
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
+
+
+fixtureTest("precommit --all scans non-allowlisted text extensions", async () => {
+  const untracked = path.join(repoRoot, "app.cfg");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(untracked, `${"pass"}word=super-secret-config-value\n`, "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit", "--all"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /app\.cfg/);
+    assert.match(err.join("\n"), /password/i);
+  } finally {
+    fs.rmSync(untracked, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit scans staged content instead of cleaned worktree content", async () => {
+  const stagedFile = path.join(repoRoot, "staged-secret.json");
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(stagedFile, JSON.stringify({ [`tok${"en"}`]: "staged-secret-json-token" }) + "\n", "utf-8");
+  const add = runCommand("git", ["add", "staged-secret.json"], { cwd: repoRoot });
+  assert.equal(add.ok, true, add.stderr);
+  fs.writeFileSync(stagedFile, JSON.stringify({ ok: true }) + "\n", "utf-8");
+  try {
+    const { io, err } = capture();
+    const code = await main(["precommit"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /staged-secret\.json/);
+    assert.match(err.join("\n"), /token/i);
+  } finally {
+    runCommand("git", ["reset", "-q", "--", "staged-secret.json"], { cwd: repoRoot });
+    fs.rmSync(stagedFile, { force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});
+
+fixtureTest("precommit blocks staged symlinks instead of scanning link targets", async () => {
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "harness-staged-outside-"));
+  const outsideFixture = path.join(outsideDir, "staged-external-fixture.txt");
+  const linkRel = "staged-external-link.txt";
+  const linkPath = path.join(repoRoot, linkRel);
+  const hadGit = fs.existsSync(path.join(repoRoot, ".git"));
+  if (!hadGit) {
+    const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+    assert.equal(init.ok, true, init.stderr);
+  }
+
+  fs.writeFileSync(outsideFixture, `${"pass"}word=staged-external-secret-value\n`, "utf-8");
+  fs.symlinkSync(outsideFixture, linkPath);
+  const add = runCommand("git", ["add", linkRel], { cwd: repoRoot });
+  assert.equal(add.ok, true, add.stderr);
+  try {
+    const { io, out, err } = capture();
+    const code = await main(["precommit"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Staged symlink requires explicit/);
+    assert.doesNotMatch(out.join("\n"), /staged-external-secret-value|password/i);
+    assert.doesNotMatch(err.join("\n"), /staged-external-secret-value|password/i);
+  } finally {
+    runCommand("git", ["reset", "-q", "--", linkRel], { cwd: repoRoot });
+    fs.rmSync(linkPath, { force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+    if (!hadGit) fs.rmSync(path.join(repoRoot, ".git"), { recursive: true, force: true });
+  }
+});

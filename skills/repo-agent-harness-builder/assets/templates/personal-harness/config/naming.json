@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "defaultStyle": "leave-names-alone-unless-messy",
+  "dateFormat": "YYYY-MM-DD",
+  "rules": [
+    "Prefer readable names over clever abbreviations.",
+    "Do not rename official records unless the user approves.",
+    "Preserve file extensions.",
+    "Create rename plans before applying changes."
+  ]
+}

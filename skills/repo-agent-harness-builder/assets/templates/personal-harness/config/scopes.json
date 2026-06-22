@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scopeConfirmed": false,
+  "managedFolders": [],
+  "excludedPaths": [],
+  "explicitOptInRequired": [
+    "~/Library",
+    "~/Library/Mobile Documents",
+    "~/Library/CloudStorage",
+    "~/.ssh",
+    "~/.gnupg",
+    "~/.config",
+    "~/Pictures/Photos Library.photoslibrary",
+    "/Volumes",
+    "external drives",
+    "cloud drive internals",
+    "mail stores",
+    "backups"
+  ],
+  "approvedProtectedManagedFolders": []
+}

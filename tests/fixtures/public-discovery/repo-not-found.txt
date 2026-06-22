@@ -1,0 +1,71 @@
+
+> repo-agent-harness-builder@0.1.0 check:public-install-only
+> PUBLIC_INSTALL_ONLY=1 bash scripts/check.sh
+
+== public install discovery only ==
+
+│
+●   codex  Agent detected — installing non-interactively
+│
+◇  Source: https://github.com/RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git
+│
+◒  Cloning repository◐  Cloning repository◓  Cloning repository◑  Cloning repository◒  Cloning repository◐  Cloning repository◓  Cloning repository◑  Cloning repository◒  Cloning repository.◐  Cloning repository.◓  Cloning repository.◑  Cloning repository.◒  Cloning repository.◐  Cloning repository.◓  Cloning repository.│
+■  Failed to clone repository
+│
+│  Authentication failed for https://github.com/RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git.
+│
+│    - For private repos, ensure you have access
+│
+│    - Retry with SSH: npx skills add git@github.com:RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git
+│
+│    - Check access with: gh auth status -h github.com or ssh -T git@github.com
+│
+│  Tip: use the --yes (-y) and --global (-g) flags to install without prompts.
+│
+└  Installation failed
+
+■  Canceled
+
+│
+●   codex  Agent detected — installing non-interactively
+│
+◇  Source: https://github.com/RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git
+│
+◒  Cloning repository◐  Cloning repository◓  Cloning repository◑  Cloning repository◒  Cloning repository◐  Cloning repository◓  Cloning repository◑  Cloning repository◒  Cloning repository.◐  Cloning repository.◓  Cloning repository.◑  Cloning repository.◒  Cloning repository.◐  Cloning repository.◓  Cloning repository.│
+■  Failed to clone repository
+│
+│  Authentication failed for https://github.com/RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git.
+│
+│    - For private repos, ensure you have access
+│
+│    - Retry with SSH: npx skills add git@github.com:RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git
+│
+│    - Check access with: gh auth status -h github.com or ssh -T git@github.com
+│
+│  Tip: use the --yes (-y) and --global (-g) flags to install without prompts.
+│
+└  Installation failed
+
+■  Canceled
+
+│
+●   codex  Agent detected — installing non-interactively
+│
+◇  Source: https://github.com/RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git
+│
+◒  Cloning repository◐  Cloning repository◓  Cloning repository◑  Cloning repository◒  Cloning repository◐  Cloning repository◓  Cloning repository◑  Cloning repository◒  Cloning repository.◐  Cloning repository.◓  Cloning repository.◑  Cloning repository.◒  Cloning repository.◐  Cloning repository.◓  Cloning repository.◑  Cloning repository.│
+■  Failed to clone repository
+│
+│  Authentication failed for https://github.com/RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git.
+│
+│    - For private repos, ensure you have access
+│
+│    - Retry with SSH: npx skills add git@github.com:RaFoyer/repo-agent-harness-builder-definitely-missing-20260622.git
+│
+│    - Check access with: gh auth status -h github.com or ssh -T git@github.com
+│
+│  Tip: use the --yes (-y) and --global (-g) flags to install without prompts.
+│
+└  Installation failed
+
+■  Canceled

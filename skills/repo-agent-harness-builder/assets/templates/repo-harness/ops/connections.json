@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "principle": "Store connection metadata only. Never store token values, private keys, passwords, cookies, or OAuth client secrets in this file.",
+  "defaultAuthority": "repository",
+  "authorityClasses": [
+    {
+      "id": "repository",
+      "description": "Non-privileged internal documentation and durable agent protocols."
+    },
+    {
+      "id": "document-authority",
+      "description": "Role-scoped documents in Drive, SharePoint, Box, Notion, Confluence, or equivalent."
+    },
+    {
+      "id": "communication-authority",
+      "description": "Email, calendar, chat, and message threads."
+    },
+    {
+      "id": "data-authority",
+      "description": "Structured privileged data in SQLite, Postgres, app databases, or managed stores."
+    }
+  ],
+  "connections": [
+    {
+      "id": "example-google-workspace",
+      "provider": "google-workspace",
+      "authorityClass": "document-authority",
+      "status": "not-configured",
+      "owner": "repo-maintainers",
+      "accountRef": "group-or-user@example.com",
+      "allowedOperations": ["read"],
+      "credentialRefs": ["keychain:google-workspace-oauth"],
+      "scopeRefs": ["drive.readonly"],
+      "authoritativeFor": ["role-restricted documents"],
+      "revocation": "Remove OAuth grant and Drive permissions for this account or group.",
+      "notes": "Replace or remove this example before relying on it."
+    }
+  ]
+}

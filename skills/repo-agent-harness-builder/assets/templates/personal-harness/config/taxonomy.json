@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "rootFolderTemplate": [
+    "00_Inbox",
+    "10_Finance",
+    "20_Identity_and_Legal",
+    "30_Health",
+    "40_Home",
+    "50_Work",
+    "60_Projects",
+    "70_Personal",
+    "80_Reference",
+    "90_Archive"
+  ],
+  "lifecycle": [
+    "intake",
+    "classified",
+    "active",
+    "superseded",
+    "archived",
+    "quarantined"
+  ]
+}

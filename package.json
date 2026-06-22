@@ -1,0 +1,13 @@
+{
+  "name": "repo-agent-harness-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "bash scripts/check.sh",
+    "check:ci": "SKIP_ARCHIVE_PROJECT_INSTALL=1 bash scripts/check.sh",
+    "check:offline": "SKIP_SKILLS_DISCOVERY=1 bash scripts/check.sh",
+    "check:public-install": "CHECK_PUBLIC_INSTALL=1 bash scripts/check.sh",
+    "check:public-install-only": "PUBLIC_INSTALL_ONLY=1 bash scripts/check.sh"
+  }
+}

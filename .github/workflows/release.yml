@@ -1,0 +1,398 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm run check:offline
+      - run: npm run check:ci
+      - run: npm run check
+      - run: >
+          python3 skills/repo-agent-harness-builder/scripts/build_reference_package.py
+          --out-dir outputs
+          --source-ref "${GITHUB_REF_NAME}"
+          --source-commit "${GITHUB_SHA}"
+          --require-git-provenance
+      - name: Verify package
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          archive_path = Path("outputs/repo-agent-harness-reference.zip")
+          extract_dir = Path("outputs/extracted")
+          with zipfile.ZipFile(archive_path) as archive:
+              for info in archive.infolist():
+                  parts = Path(info.filename).parts
+                  if info.filename.startswith("/") or ".." in parts:
+                      raise SystemExit(f"unsafe zip entry: {info.filename}")
+              archive.extractall(extract_dir)
+              for info in archive.infolist():
+                  mode = (info.external_attr >> 16) & 0o777
+                  if mode:
+                      path = extract_dir / info.filename
+                      if path.exists():
+                          path.chmod(mode)
+          PY
+          python3 outputs/extracted/repo-agent-harness-reference/scripts/verify-package.py --root outputs/extracted/repo-agent-harness-reference --require-provenance
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            outputs/repo-agent-harness-reference.zip
+            outputs/repo-agent-harness-reference.zip.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: outputs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          zip_name="repo-agent-harness-reference.zip"
+          sha_name="repo-agent-harness-reference.zip.sha256"
+
+          has_asset() {
+            printf '%s\n' "$asset_names" | grep -Fxq "$1"
+          }
+
+          zip_contents_match() {
+            python3 - "$1" "$2" <<'PY'
+          import sys
+          import zipfile
+
+          left_path, right_path = sys.argv[1:3]
+
+          def entries(path):
+              with zipfile.ZipFile(path) as archive:
+                  result = {}
+                  for info in archive.infolist():
+                      if info.is_dir():
+                          continue
+                      result[info.filename] = archive.read(info.filename)
+                  return result
+
+          raise SystemExit(0 if entries(left_path) == entries(right_path) else 1)
+          PY
+          }
+
+          print_manual_recovery() {
+            echo "Manual recovery after maintainer review:" >&2
+            echo "  gh release delete-asset ${GITHUB_REF_NAME} $zip_name -y || true" >&2
+            echo "  gh release delete-asset ${GITHUB_REF_NAME} $sha_name -y || true" >&2
+            echo "  gh release upload ${GITHUB_REF_NAME} outputs/$zip_name outputs/$sha_name" >&2
+          }
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            asset_names="$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')"
+            zip_exists=0
+            sha_exists=0
+            if has_asset "$zip_name"; then zip_exists=1; fi
+            if has_asset "$sha_name"; then sha_exists=1; fi
+
+            mkdir -p existing-release-assets
+            if [ "$zip_exists" = "1" ] && [ "$sha_exists" = "1" ]; then
+              gh release download "${GITHUB_REF_NAME}" \
+                --pattern "$zip_name" \
+                --pattern "$sha_name" \
+                --dir existing-release-assets \
+                --clobber
+              if (cd existing-release-assets && sha256sum -c "$sha_name") && \
+                zip_contents_match "outputs/$zip_name" "existing-release-assets/$zip_name"; then
+                echo "Release assets already exist, checksum-verify, and match this build's extracted contents; leaving them unchanged."
+                exit 0
+              fi
+              echo "Release ${GITHUB_REF_NAME} already has assets with different bytes. Refusing to overwrite." >&2
+              print_manual_recovery
+              exit 1
+            fi
+
+            if [ "$zip_exists" = "1" ] || [ "$sha_exists" = "1" ]; then
+              missing_assets=()
+              generated_sha_from_existing_zip=0
+              if [ "$zip_exists" = "1" ]; then
+                gh release download "${GITHUB_REF_NAME}" --pattern "$zip_name" --dir existing-release-assets --clobber
+                if zip_contents_match "outputs/$zip_name" "existing-release-assets/$zip_name"; then
+                  (cd existing-release-assets && sha256sum "$zip_name" > "$sha_name")
+                  missing_assets+=("existing-release-assets/$sha_name")
+                  generated_sha_from_existing_zip=1
+                else
+                  echo "Release ${GITHUB_REF_NAME} has an existing $zip_name with different extracted contents. Refusing to overwrite." >&2
+                  print_manual_recovery
+                  exit 1
+                fi
+              else
+                missing_assets+=("outputs/$zip_name")
+              fi
+              if [ "$sha_exists" = "1" ]; then
+                gh release download "${GITHUB_REF_NAME}" --pattern "$sha_name" --dir existing-release-assets --clobber
+                if ! cmp -s "outputs/$sha_name" "existing-release-assets/$sha_name"; then
+                  echo "Release ${GITHUB_REF_NAME} has an existing $sha_name that does not match this build output and the zip asset is missing. Refusing to guess the missing zip bytes." >&2
+                  print_manual_recovery
+                  exit 1
+                fi
+              else
+                if [ "$generated_sha_from_existing_zip" != "1" ]; then
+                  missing_assets+=("outputs/$sha_name")
+                fi
+              fi
+              echo "Release ${GITHUB_REF_NAME} has a partial matching asset pair; uploading missing asset(s)."
+              gh release upload "${GITHUB_REF_NAME}" "${missing_assets[@]}"
+              exit 0
+            fi
+
+            gh release upload "${GITHUB_REF_NAME}" \
+              "outputs/$zip_name" \
+              "outputs/$sha_name"
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              "outputs/$zip_name" \
+              "outputs/$sha_name" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Repo Agent Harness Builder release ${GITHUB_REF_NAME}."
+          fi
+
+  published-assets-smoke:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download and verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          run_with_retries() {
+            local attempt=1
+            local max_attempts=4
+            local delay_seconds=5
+            until "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                return 1
+              fi
+              attempt=$((attempt + 1))
+              sleep "$delay_seconds"
+              delay_seconds=$((delay_seconds * 2))
+            done
+          }
+
+          download_and_check_assets() {
+            rm -f release-assets/repo-agent-harness-reference.zip release-assets/repo-agent-harness-reference.zip.sha256
+            gh release download "${GITHUB_REF_NAME}" \
+              --pattern repo-agent-harness-reference.zip \
+              --pattern repo-agent-harness-reference.zip.sha256 \
+              --dir release-assets \
+              --clobber
+            (cd release-assets && sha256sum -c repo-agent-harness-reference.zip.sha256)
+          }
+
+          mkdir -p release-assets extracted-release
+          if ! run_with_retries download_and_check_assets; then
+            {
+              echo "### Published asset verification failed"
+              echo
+              echo "Downloading and checksum-verifying the published release assets did not succeed after bounded retries."
+              echo "Treat this as a release asset availability or integrity failure until investigated."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          archive_path = Path("release-assets/repo-agent-harness-reference.zip")
+          extract_dir = Path("extracted-release")
+          with zipfile.ZipFile(archive_path) as archive:
+              for info in archive.infolist():
+                  parts = Path(info.filename).parts
+                  if info.filename.startswith("/") or ".." in parts:
+                      raise SystemExit(f"unsafe zip entry: {info.filename}")
+              archive.extractall(extract_dir)
+              for info in archive.infolist():
+                  mode = (info.external_attr >> 16) & 0o777
+                  if mode:
+                      path = extract_dir / info.filename
+                      if path.exists():
+                          path.chmod(mode)
+          PY
+          python3 extracted-release/repo-agent-harness-reference/scripts/verify-package.py --root extracted-release/repo-agent-harness-reference --require-provenance
+
+  public-install-smoke:
+    needs: published-assets-smoke
+    runs-on: ubuntu-latest
+    concurrency:
+      group: public-install-smoke-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Public source discovery smoke
+        id: public_discovery
+        continue-on-error: true
+        timeout-minutes: 7
+        env:
+          PUBLIC_INSTALL_REPO: ${{ github.repository }}
+          MAX_ATTEMPTS: "4"
+          RETRY_DELAY_SECONDS: "5"
+        run: |
+          out_file="${RUNNER_TEMP:-.}/public-source-discovery.out"
+          set +e
+          npm run check:public-install-only >"$out_file" 2>&1
+          status=$?
+          set -e
+          cat "$out_file"
+          classifier_status="$(bash scripts/classify-public-discovery.sh "$out_file")"
+          if [ "$classifier_status" = "confirmed_failure" ]; then
+            echo "status=confirmed_failure" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if [ "$status" -eq 0 ]; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "status=$classifier_status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Report transient public source discovery warning
+        if: always() && steps.public_discovery.outputs.status != 'ok' && steps.public_discovery.outputs.status != 'confirmed_failure'
+        run: |
+          {
+            echo "### Public source discovery inconclusive"
+            echo
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Ref: ${GITHUB_REF_NAME}"
+            echo "Classifier status: ${{ steps.public_discovery.outputs.status }}"
+            echo
+            echo "The post-publish source discovery smoke did not produce a confirmed discovery miss. This is treated as an advisory transient/infrastructure warning."
+            echo
+            echo "The recipient trust path was verified separately by downloading the published zip and .sha256 and running the package verifier."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Public source discovery inconclusive::Mutable public source discovery had a transient or unclassified failure; release assets were already verified."
+      - name: Report public source discovery failure
+        if: always() && steps.public_discovery.outputs.status == 'confirmed_failure'
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          scratch="${RUNNER_TEMP:-.}"
+          label="public-install-smoke"
+          title="Public source discovery failed for ${GITHUB_REPOSITORY}"
+          marker="repo-agent-harness-builder-public-install-smoke"
+          label_ready=0
+          if gh label create "$label" --description "Public skill source discovery smoke failures" --color "C5DEF5" >/dev/null 2>&1 || \
+            gh label edit "$label" --description "Public skill source discovery smoke failures" --color "C5DEF5" >/dev/null 2>&1; then
+            label_ready=1
+          fi
+
+          body="$(cat <<EOF
+          <!-- $marker -->
+
+          The post-publish public source discovery smoke failed for ${GITHUB_REF_NAME}.
+
+          This does not invalidate the release archive trust path; recipients should use the release zip, .sha256, MANIFEST.json, and scripts/verify-package.py.
+
+          Maintainer diagnostic:
+
+          \`\`\`bash
+          PUBLIC_INSTALL_REPO=${GITHUB_REPOSITORY} npm run check:public-install-only
+          \`\`\`
+          EOF
+          )"
+
+          {
+            echo "### Public source discovery failed"
+            echo
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Ref: ${GITHUB_REF_NAME}"
+            echo
+            echo "The publish job completed before this diagnostic ran. Do not re-tag, roll back, or treat the release archive as untrusted solely because this job failed."
+            echo
+            echo "This is advisory only; the release archive trust path is the zip, .sha256, MANIFEST.json, and package verifier."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Post-publish public source discovery failed::Release assets were already published; mutable public source discovery failed and a follow-up issue will be created or updated."
+
+          issues=""
+          if [ "$label_ready" = "1" ]; then
+            issues="$(gh issue list --state open --label "$label" --limit 100 --json number,body --jq '.[] | select((.body // "") | contains("'"$marker"'")) | .number' 2>/dev/null || true)"
+          fi
+          if [ -z "$issues" ]; then
+            issues="$(gh issue list --state open --limit 100 --json number,body --jq '.[] | select((.body // "") | contains("'"$marker"'")) | .number' 2>/dev/null || true)"
+          fi
+          report_failed=0
+          if [ -n "$issues" ]; then
+            for issue_number in $issues; do
+              if ! gh issue comment "$issue_number" --body "Public source discovery failed again for ${GITHUB_REF_NAME}." >"$scratch/public-install-issue-comment.out" 2>"$scratch/public-install-issue-comment.err"; then
+                echo "::warning title=Issue comment failed::Could not comment on public source discovery issue ${issue_number}."
+                cat "$scratch/public-install-issue-comment.err" >> "$GITHUB_STEP_SUMMARY"
+                report_failed=1
+              fi
+            done
+          else
+            create_args=(--title "$title" --body "$body")
+            if [ "$label_ready" = "1" ]; then
+              create_args+=(--label "$label")
+            fi
+            if ! gh issue create "${create_args[@]}" >"$scratch/public-install-issue-create.out" 2>"$scratch/public-install-issue-create.err"; then
+              echo "::warning title=Issue creation failed::Could not create a public source discovery follow-up issue."
+              cat "$scratch/public-install-issue-create.err" >> "$GITHUB_STEP_SUMMARY"
+              report_failed=1
+            else
+              cat "$scratch/public-install-issue-create.out" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          if [ "$report_failed" = "1" ]; then
+            exit 1
+          fi
+          exit 1

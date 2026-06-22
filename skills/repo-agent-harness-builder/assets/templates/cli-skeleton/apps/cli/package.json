@@ -1,0 +1,11 @@
+{
+  "name": "@{{CLI_NAME}}/cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "{{CLI_NAME}}": "./bin/{{CLI_NAME}}.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

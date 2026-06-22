@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Agent Harness Builder"
+  short_description: "Build portable repo, project, and personal-folder harnesses"
+  default_prompt: "Use $repo-agent-harness-builder to design a reusable agent harness, protocol library, and CLI for this repo or folder."
