@@ -33,7 +33,7 @@ Every harness should usually have:
 Repositories and durable project folders should usually have:
 
 - CLI facade or deterministic helper commands
-- CLI help, context, checklist, protocols, doctor, preflight
+- CLI help, context, checklist, protocols, doctor, preflight, verify
 - precommit or local content checks
 - source-of-truth model
 - privileged document boundary
@@ -63,13 +63,16 @@ Scaffold as inactive when plausible:
 - automations and heartbeats
 - project tracker
 - CI, branch promotion, deploy readiness
+- QA/browser checks
 - design system
 - brand identity
 - evidence and provenance maps
 - hooks and intent authority
 - multi-agent workflow
 - data/database governance
-- MCP/connectors
+- repo-agent handoff operations
+- provider setup
+- MCP/connectors with repo-owned connector profiles
 - QA/release handoff
 
 ## Activation Rule

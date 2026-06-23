@@ -10,6 +10,7 @@ see braces, ask the agent to scaffold or adapt the command before running it.
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} protocols
 ./{{CLI_NAME}} preflight
+./{{CLI_NAME}} verify --dry-run
 node --test apps/cli/test/*.test.mjs
 ```
 

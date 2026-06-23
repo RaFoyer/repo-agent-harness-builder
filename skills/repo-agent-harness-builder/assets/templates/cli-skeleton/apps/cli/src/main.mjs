@@ -9,6 +9,8 @@ import { runPrecommit } from "./precommit/checklist.mjs";
 import { runSkills } from "./skills/sync.mjs";
 import { runSecrets } from "./secrets/index.mjs";
 import { runConnections } from "./connections/index.mjs";
+import { runQa } from "./qa/index.mjs";
+import { runVerify } from "./verify/index.mjs";
 
 export const defaultIO = {
   stdout: (line = "") => console.log(line),
@@ -36,8 +38,12 @@ export async function main(argv = [], io = defaultIO) {
       return listProtocols(rest, io);
     case "preflight":
       return runPreflight(rest, io);
+    case "verify":
+      return runVerify(rest, io);
     case "precommit":
       return runPrecommit(rest, io);
+    case "qa":
+      return runQa(rest, io);
     case "skills":
       return runSkills(rest, io);
     case "secrets":

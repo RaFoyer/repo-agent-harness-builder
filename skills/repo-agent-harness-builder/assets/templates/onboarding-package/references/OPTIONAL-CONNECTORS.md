@@ -28,6 +28,31 @@ Safe answer examples:
 Never ask the human to paste connector tokens, passwords, cookies, private keys,
 OAuth client secrets, or recovery codes into chat or repo files.
 
+## Repo-Owned Discovery First
+
+If the target repo already has a harness, inspect its local connector inventory
+before installing or requesting a generic plugin, marketplace connector, MCP
+server, or global client configuration:
+
+```bash
+./{{CLI_NAME}} connections plan
+./{{CLI_NAME}} connections status
+./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+```
+
+When a service-specific CLI namespace exists, inspect that namespace help before
+falling back to a generic connector:
+
+```bash
+./{{CLI_NAME}} <namespace> help
+```
+
+The repo-owned plan may safely show provider names, profile ids, server names,
+remote endpoints, scope names, expected account domains, storage classes, and
+verification commands. Use a generic connector only when the repo profile is
+missing, inaccessible, unsupported by the current client, or blocked by the
+linked work item. Record that reason in the task notes.
+
 ## Good Connector Uses
 
 - read a tracker issue and map it to local protocols

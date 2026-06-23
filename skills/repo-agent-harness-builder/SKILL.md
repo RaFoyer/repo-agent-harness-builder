@@ -43,7 +43,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 ## Bundled Assets
 
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, and protocol templates.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `skills`, `secrets`, `connections`, and `self` commands.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `qa`, `skills`, `secrets`, `connections`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap/repo-operator skill templates and agent-client install guidance.

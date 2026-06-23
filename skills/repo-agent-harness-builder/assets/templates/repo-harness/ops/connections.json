@@ -35,5 +35,37 @@
       "revocation": "Remove OAuth grant and Drive permissions for this account or group.",
       "notes": "Replace or remove this example before relying on it."
     }
+  ],
+  "connectorProfiles": [
+    {
+      "id": "example-google-workspace",
+      "provider": "google-workspace",
+      "status": "inactive",
+      "mode": "remote",
+      "description": "Example repo-owned connector profile. Replace with real project-safe metadata before activating.",
+      "serverNames": {
+        "workspace": "example-google-workspace",
+        "drive": "example-drive",
+        "mail": "example-mail"
+      },
+      "remoteConnectorUrls": {
+        "drive": "https://drivemcp.googleapis.com/mcp/v1"
+      },
+      "authStorageClass": "provider-secure-storage-or-external-secret-store",
+      "credentialRootRef": "env:HARNESS_CONNECTOR_HOME",
+      "expectedAccountDomain": "example.com",
+      "readOnlyScopes": ["drive.readonly"],
+      "approvalGatedWriteScopes": ["drive.file"],
+      "writeApproval": {
+        "required": true,
+        "policy": "Explicit human approval is required before write-capable connector scopes are enabled."
+      },
+      "verificationCommands": [
+        "./{{CLI_NAME}} connections plan",
+        "./{{CLI_NAME}} connections doctor --profile example-google-workspace --mode remote"
+      ],
+      "revocation": "Remove provider grant and delete external token storage for this profile.",
+      "genericFallbackRule": "Use generic connectors only when this repo-owned profile is missing, inaccessible, unsupported by the client, or explicitly blocked by a linked work item."
+    }
   ]
 }

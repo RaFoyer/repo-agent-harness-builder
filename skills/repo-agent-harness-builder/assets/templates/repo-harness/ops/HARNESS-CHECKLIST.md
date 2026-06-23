@@ -46,13 +46,16 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Automations/heartbeats | inactive | `ops/protocols/AUTOMATIONS.md`; activate with run log and cadence |
 | Project tracker | inactive | Add `PROJECT-TRACKING.md` and CLI wrapper when tracker is canonical |
 | CI/branch/deploy | inactive | Add CI and branch-promotion protocols when environments exist |
+| QA/browser | inactive | `ops/protocols/QA-BROWSER.md`, `./{{CLI_NAME}} qa status`; activate for browser/UI apps |
+| Repo-agent operations | inactive | Add repo-owned bootstrap/operator skills and skill drift checks for cross-machine handoff |
 | Design system | inactive | Add protocol/assets pointer when UI or product design is relevant |
 | Brand identity | inactive | Add protocol/assets pointer when external-facing work is relevant |
 | Evidence/provenance | inactive | Add evidence map when artifacts or audits matter |
 | Hooks/intent authority | inactive | Add hook protocol when lifecycle enforcement is needed |
 | Multi-agent workflow | inactive | Add fanout/review protocol when parallel agents are expected |
 | Data/database | inactive | Add schema/access protocol when SQLite/Postgres/app data is used |
-| MCP/connectors | inactive | Add connector boundary protocol when integrations are configured |
+| Provider setup | inactive | Add dry-run-first setup protocol when cloud, database, or SaaS providers are configured |
+| MCP/connectors | inactive | `./{{CLI_NAME}} connections plan`; inspect repo-owned connector profiles before generic install |
 | QA/release handoff | inactive | Add QA/release checklist when user-facing changes ship |
 
 ## Activation Requirements

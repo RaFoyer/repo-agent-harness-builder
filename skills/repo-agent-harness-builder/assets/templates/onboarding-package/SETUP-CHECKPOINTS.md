@@ -16,7 +16,7 @@ Use this checklist to avoid skipping hidden setup work.
 | Authority model | Repository-visible docs and role-restricted external docs separated |
 | Connections | Permanent external systems named with credential storage and revocation paths, if needed |
 | Scaffold | `AGENTS.md`, `AGENTS-TOC.md`, protocols, and CLI created or audited |
-| CLI | help, context, protocols or inventory, and preflight run |
+| CLI | help, context, protocols or inventory, preflight, and verify dry-run |
 | Tests | CLI tests run or test gap reported |
 | Handoff | Local harness docs become authority |
 | First action | One useful next action proposed |
