@@ -227,6 +227,48 @@ fixtureTest("connections status allows configured read-only scopes without write
   });
 });
 
+fixtureTest("connections status blocks connector write scopes in common scope fields", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connectorProfiles = [
+    {
+      id: "write-google-workspace",
+      provider: "google-workspace",
+      status: "configured",
+      authStorageClass: "provider-secure-storage",
+      scopes: ["https://www.googleapis.com/auth/drive"]
+    }
+  ];
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /write-capable connector scopes/i);
+  });
+});
+
+fixtureTest("connections status blocks unrecognized connector scope fields", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connectorProfiles = [
+    {
+      id: "unknown-scope-field",
+      provider: "google-workspace",
+      status: "configured",
+      authStorageClass: "provider-secure-storage",
+      grantScopes: ["drive.readonly"]
+    }
+  ];
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /unrecognized scope field grantScopes/i);
+  });
+});
+
 test("connections plan explains setup without secrets", async () => {
   const { io, out } = capture();
   const code = await main(["connections", "plan"], io);
@@ -253,6 +295,7 @@ test("verify dry-run lists delegated checks", async () => {
   assert.equal(code, 0, err.join("\n"));
   assert.match(out.join("\n"), /doctor/);
   assert.match(out.join("\n"), /preflight/);
+  assert.match(out.join("\n"), /qa no-masking/);
   assert.match(out.join("\n"), /precommit --all/);
 });
 
@@ -297,6 +340,41 @@ fixtureTest("qa no-masking blocks route fulfill in deterministic tests", async (
   assert.equal(code, 1);
   assert.match(err.join("\n"), /route\.fulfill/);
   assert.match(err.join("\n"), /tests\/e2e\/masked\.spec\.ts/);
+});
+
+fixtureTest("qa no-masking scans e2e source paths outside the default roots", async () => {
+  const packagePath = path.join(repoRoot, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+  packageJson.scripts = {
+    ...(packageJson.scripts || {}),
+    "test:e2e": "playwright test apps/web/e2e"
+  };
+  fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n", "utf-8");
+  const testFile = path.join(repoRoot, "apps", "web", "e2e", "masked.spec.ts");
+  fs.mkdirSync(path.dirname(testFile), { recursive: true });
+  fs.writeFileSync(testFile, "await page.route('/api/private', route => route.abort());\n", "utf-8");
+
+  const { io, err } = capture();
+  const code = await main(["qa", "no-masking"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /route\.abort/);
+  assert.match(err.join("\n"), /apps\/web\/e2e\/masked\.spec\.ts/);
+});
+
+fixtureTest("qa no-masking fails closed when browser tests are declared but no sources are scanned", async () => {
+  const packagePath = path.join(repoRoot, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+  packageJson.scripts = {
+    ...(packageJson.scripts || {}),
+    "test:e2e": "playwright test apps/web/e2e"
+  };
+  fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n", "utf-8");
+  fs.writeFileSync(path.join(repoRoot, "playwright.config.ts"), "export default { testDir: './apps/web/e2e' };\n", "utf-8");
+
+  const { io, err } = capture();
+  const code = await main(["qa", "no-masking"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /no browser test source files were inspected/i);
 });
 
 fixtureTest("connections doctor validates connector profile identity and path boundaries", async () => {

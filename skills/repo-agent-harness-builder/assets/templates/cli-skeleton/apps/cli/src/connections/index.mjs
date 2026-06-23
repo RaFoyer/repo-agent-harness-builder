@@ -45,6 +45,38 @@ function connectorProfiles(registry) {
   return Array.isArray(registry.connectorProfiles) ? registry.connectorProfiles : [];
 }
 
+const SCOPE_FIELDS = new Set(["readOnlyScopes", "approvalGatedWriteScopes", "writeScopes", "scopes", "oauthScopes", "requiredScopes", "scopeRefs"]);
+const WRITE_SCOPE_FIELDS = new Set(["approvalGatedWriteScopes", "writeScopes", "scopes", "oauthScopes", "requiredScopes", "scopeRefs"]);
+
+function scopeValues(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return [value];
+  return [];
+}
+
+function profileScopeValidation(profile, id) {
+  const blockers = [];
+  const writeScopes = [];
+
+  for (const [key, value] of Object.entries(profile)) {
+    if (!/scope/i.test(key)) continue;
+    if (!SCOPE_FIELDS.has(key)) {
+      blockers.push(`${id} has unrecognized scope field ${key}; use readOnlyScopes, approvalGatedWriteScopes, writeScopes, scopes, oauthScopes, requiredScopes, or scopeRefs`);
+      continue;
+    }
+
+    const values = scopeValues(value);
+    if (key === "readOnlyScopes") {
+      const unsafeReadOnly = values.filter(writeCapableScope);
+      for (const scope of unsafeReadOnly) blockers.push(`${id} readOnlyScopes contains write-capable scope ${scope}`);
+      continue;
+    }
+    if (WRITE_SCOPE_FIELDS.has(key)) writeScopes.push(...values.filter(writeCapableScope));
+  }
+
+  return { blockers, writeScopes };
+}
+
 function validateConnectorProfiles(registry) {
   const blockers = [];
   const warnings = [];
@@ -55,10 +87,9 @@ function validateConnectorProfiles(registry) {
     if (!profile.provider) blockers.push(`${id} missing provider`);
     if (!storageClass) blockers.push(`${id} missing authStorageClass`);
     if (profile.status === "not-configured" || profile.status === "inactive") warnings.push(`${id} connector profile is ${profile.status}`);
-    const writeScopes = [
-      ...(profile.writeScopes || []),
-      ...(profile.approvalGatedWriteScopes || [])
-    ].filter(writeCapableScope);
+    const profileScopes = profileScopeValidation(profile, id);
+    blockers.push(...profileScopes.blockers);
+    const writeScopes = profileScopes.writeScopes;
     if (writeScopes.length && !profile.writeApproval) {
       blockers.push(`${id} write-capable connector scopes require writeApproval metadata`);
     }

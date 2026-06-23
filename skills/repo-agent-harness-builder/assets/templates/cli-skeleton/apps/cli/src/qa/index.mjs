@@ -19,14 +19,20 @@ const QA_ARTIFACT_DIRS = [
   "testing/e2e/output/playwright"
 ];
 
-const SOURCE_DIRS = [
+const COMMON_SOURCE_DIRS = [
   "tests/e2e",
   "testing/e2e",
-  "e2e"
+  "e2e",
+  "playwright/tests",
+  "tests/playwright",
+  "cypress/e2e",
+  "cypress/integration"
 ];
 
+const DISCOVERY_ROOTS = ["apps", "packages", "src", "tests", "testing", "playwright", "cypress"];
 const SOURCE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".tsx", ".jsx"]);
 const EXCLUDED_PARTS = new Set([
+  ".git",
   "node_modules",
   "artifacts",
   "output",
@@ -71,6 +77,97 @@ function e2eScripts() {
   return Object.entries(scripts)
     .filter(([name, command]) => /e2e|playwright|browser|storybook|qa/i.test(`${name} ${command}`))
     .sort(([left], [right]) => left.localeCompare(right));
+}
+
+function addSourceRoot(roots, candidate) {
+  const cleaned = String(candidate || "")
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/[),;]+$/g, "");
+  if (!cleaned || cleaned.startsWith("-") || /^[A-Za-z]+:\/\//.test(cleaned)) return;
+
+  const wildcardIndex = cleaned.search(/[*[{]/);
+  const withoutGlob = wildcardIndex >= 0 ? cleaned.slice(0, wildcardIndex) : cleaned;
+  const normalized = withoutGlob.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!normalized || normalized === ".") return;
+
+  const fullPath = path.resolve(CONFIG.repoRoot, normalized);
+  if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+    roots.add(rel(path.dirname(fullPath)));
+    return;
+  }
+  roots.add(path.relative(CONFIG.repoRoot, fullPath).split(path.sep).join("/"));
+}
+
+function rootsFromPlaywrightConfigs() {
+  const roots = new Set();
+  for (const config of findPlaywrightConfigs()) {
+    const configPath = path.join(CONFIG.repoRoot, config);
+    const configDir = path.dirname(configPath);
+    let content = "";
+    try {
+      content = fs.readFileSync(configPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const testDirRe = /\btestDir\s*:\s*["'`]([^"'`]+)["'`]/g;
+    for (const match of content.matchAll(testDirRe)) {
+      roots.add(path.relative(CONFIG.repoRoot, path.resolve(configDir, match[1])).split(path.sep).join("/"));
+    }
+  }
+  return roots;
+}
+
+function rootsFromScripts() {
+  const roots = new Set();
+  for (const [, command] of e2eScripts()) {
+    for (const token of String(command).split(/\s+/)) {
+      if (!/(e2e|playwright|cypress|\.spec\.|\.test\.)/i.test(token)) continue;
+      addSourceRoot(roots, token);
+    }
+  }
+  return roots;
+}
+
+function discoverBrowserTestRoots() {
+  const roots = new Set();
+
+  function walk(dirPath, depth = 0) {
+    if (!fs.existsSync(dirPath) || shouldSkipDir(dirPath) || depth > 5) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    const relParts = rel(dirPath).split("/");
+    const base = relParts.at(-1);
+    if (
+      base === "e2e" ||
+      (relParts.includes("playwright") && base === "tests") ||
+      (relParts.includes("cypress") && ["e2e", "integration"].includes(base))
+    ) {
+      roots.add(rel(dirPath));
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) walk(path.join(dirPath, entry.name), depth + 1);
+    }
+  }
+
+  for (const root of DISCOVERY_ROOTS) walk(path.join(CONFIG.repoRoot, root));
+  return roots;
+}
+
+function sourceRoots() {
+  return [
+    ...new Set([
+      ...COMMON_SOURCE_DIRS,
+      ...rootsFromPlaywrightConfigs(),
+      ...rootsFromScripts(),
+      ...discoverBrowserTestRoots()
+    ])
+  ].filter(Boolean);
 }
 
 function help(io) {
@@ -143,8 +240,14 @@ function walkSourceFiles(dirPath, files = []) {
 
 function noMasking(io) {
   const files = [];
-  for (const sourceDir of SOURCE_DIRS) {
+  for (const sourceDir of sourceRoots()) {
     walkSourceFiles(path.join(CONFIG.repoRoot, sourceDir), files);
+  }
+
+  if (!files.length && (findPlaywrightConfigs().length || e2eScripts().length)) {
+    io.stderr("blocker: browser test commands or Playwright config were detected, but no browser test source files were inspected.");
+    io.stderr("Add a detectable source path, configure Playwright testDir, or document the mocked/advisory lane before relying on no-masking evidence.");
+    return 1;
   }
 
   const blockers = [];
@@ -159,6 +262,10 @@ function noMasking(io) {
   if (blockers.length) {
     io.stderr("Deterministic E2E lanes should not mask network behavior unless a repo protocol explicitly marks the test as mocked/advisory.");
     return 1;
+  }
+  if (!files.length) {
+    io.stdout("No browser test source paths detected.");
+    return 0;
   }
   io.stdout("No deterministic E2E masking patterns found in detected browser test source paths.");
   return 0;

@@ -14,6 +14,7 @@ const VERIFY_STEPS = [
   { name: "protocols", run: (io) => listProtocols([], io) },
   { name: "connections status", run: (io) => runConnections(["status"], io) },
   { name: "qa status", run: (io) => runQa(["status"], io) },
+  { name: "qa no-masking", run: (io) => runQa(["no-masking"], io) },
   { name: "precommit --all", run: (io) => runPrecommit(["--all"], io) }
 ];
 
