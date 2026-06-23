@@ -29,6 +29,28 @@ For every connection, collect:
 
 Store this in `ops/connections.json` or an equivalent registry. Do not store credential values.
 
+## Connector Discovery Pattern
+
+Before using a plugin search flow, connector marketplace, generic MCP installer,
+or global client configuration, inspect the repo-owned connector registry first:
+
+```bash
+./{{CLI_NAME}} connections plan
+./{{CLI_NAME}} connections status
+./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+```
+
+Connector profiles may record provider names, server names, remote endpoints,
+scope names, expected account domains, storage classes, and verification
+commands. They must not record tokens, OAuth client secrets, refresh tokens,
+cookies, service-account private keys, local auth blobs, or private document
+contents.
+
+Use a generic connector only when a repo-owned profile is missing, inaccessible,
+unsupported by the current client, or explicitly blocked by the linked work
+item. Record the reason so future agents can decide whether to add a repo-owned
+profile instead of repeating one-off installs.
+
 ## Google Workspace
 
 Use Drive/Shared Drive for role-scoped docs and Gmail for message context. Prefer read-only scopes first and use groups/folder permissions for durable role boundaries.

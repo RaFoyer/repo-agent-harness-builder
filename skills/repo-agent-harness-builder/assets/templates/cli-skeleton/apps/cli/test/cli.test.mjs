@@ -80,6 +80,8 @@ test("help lists core commands", () => {
   const help = renderHelp();
   assert.match(help, /preflight/);
   assert.match(help, /precommit/);
+  assert.match(help, /verify/);
+  assert.match(help, /qa status/);
   assert.match(help, /secrets/);
   assert.match(help, /connections/);
   assert.match(help, /checklist/);
@@ -231,14 +233,97 @@ test("connections plan explains setup without secrets", async () => {
   assert.equal(code, 0);
   assert.match(out.join("\\n"), /least-privilege/);
   assert.match(out.join("\\n"), /credentials outside the repository/);
+  assert.match(out.join("\\n"), /connector profile inventory/i);
+  assert.match(out.join("\\n"), /example-google-workspace/);
+  assert.match(out.join("\\n"), /drive: example-drive/);
+  assert.match(out.join("\\n"), /does not require live auth/i);
 });
 
 test("core command smoke paths run", async () => {
-  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["secrets", "help"], ["self", "check"]]) {
+  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
     const { io, err } = capture();
     const code = await main(argv, io);
     assert.equal(code, 0, `${argv.join(" ")} failed: ${err.join("\n")}`);
   }
+});
+
+test("verify dry-run lists delegated checks", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["verify", "--dry-run"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /doctor/);
+  assert.match(out.join("\n"), /preflight/);
+  assert.match(out.join("\n"), /precommit --all/);
+});
+
+fixtureTest("qa status detects Playwright and e2e scripts", async () => {
+  const packagePath = path.join(repoRoot, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+  packageJson.scripts = {
+    ...(packageJson.scripts || {}),
+    "test:e2e": "playwright test",
+    "test:e2e:live": "playwright test tests/e2e/live.spec.ts",
+    "test:e2e:mocked": "playwright test tests/e2e/mock.spec.ts"
+  };
+  fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n", "utf-8");
+  fs.writeFileSync(path.join(repoRoot, "playwright.config.ts"), "export default {};\n", "utf-8");
+
+  const { io, out, err } = capture();
+  const code = await main(["qa", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Playwright config: playwright\.config\.ts/);
+  assert.match(out.join("\n"), /test:e2e/);
+  assert.match(out.join("\n"), /test:e2e:mocked/);
+  assert.match(out.join("\n"), /test:e2e:live/);
+});
+
+fixtureTest("qa plan explains browser evidence and live lane gates", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["qa", "plan"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /deterministic E2E/i);
+  assert.match(out.join("\n"), /mocked/i);
+  assert.match(out.join("\n"), /storage state/i);
+  assert.match(out.join("\n"), /screenshots, videos, traces, HARs/i);
+});
+
+fixtureTest("qa no-masking blocks route fulfill in deterministic tests", async () => {
+  const testFile = path.join(repoRoot, "tests", "e2e", "masked.spec.ts");
+  fs.mkdirSync(path.dirname(testFile), { recursive: true });
+  fs.writeFileSync(testFile, "await page.route('/api/private', route => route.fulfill({ json: {} }));\n", "utf-8");
+
+  const { io, err } = capture();
+  const code = await main(["qa", "no-masking"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /route\.fulfill/);
+  assert.match(err.join("\n"), /tests\/e2e\/masked\.spec\.ts/);
+});
+
+fixtureTest("connections doctor validates connector profile identity and path boundaries", async () => {
+  const wrongDomain = capture();
+  const wrongDomainCode = await main(["connections", "doctor", "--profile", "example-google-workspace", "--account", "person@outside.test"], wrongDomain.io);
+  assert.equal(wrongDomainCode, 1);
+  assert.match(wrongDomain.err.join("\n"), /expected account domain/i);
+
+  const localInsideRepo = capture();
+  const localInsideRepoCode = await main([
+    "connections",
+    "doctor",
+    "--profile",
+    "example-google-workspace",
+    "--mode",
+    "local",
+    "--credential-root",
+    path.join(repoRoot, ".credentials")
+  ], localInsideRepo.io);
+  assert.equal(localInsideRepoCode, 1);
+  assert.match(localInsideRepo.err.join("\n"), /credential root/i);
+
+  const remote = capture();
+  const remoteCode = await main(["connections", "doctor", "--profile", "example-google-workspace", "--mode", "remote"], remote.io);
+  assert.equal(remoteCode, 0, remote.err.join("\n"));
+  assert.match(remote.out.join("\n"), /remote connector mode/i);
+  assert.match(remote.out.join("\n"), /local token files are not inspected/i);
 });
 
 test("checklist command explains inactive modules", async () => {

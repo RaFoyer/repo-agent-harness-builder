@@ -27,12 +27,15 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `protocols` | List protocol files and routing |
 | `doctor` | Check local prerequisites and access |
 | `preflight` | Run read-only session-start checks |
+| `verify` | Run the harness verification sequence or preview it with `--dry-run` |
 | `precommit` | Run local content-aware commit gates |
 | `precommit install-hook` | Install the harness-managed git pre-commit hook |
 | `precommit hook-status` | Report whether the managed hook is installed |
+| `qa` | Inspect browser/Playwright/UI QA readiness and artifacts without live credentials |
 | `skills` | Report or sync repo-owned skills when present |
 | `secrets` | Provide value-safe secret posture commands |
-| `connections` | Validate external-authority connection metadata and setup plans |
+| `connections` | Validate external-authority connection metadata, connector profiles, and setup plans |
+| `connections doctor` | Check a named connector profile without printing secret values |
 | `self` | Check or update the harness safely |
 
 ## Extension Rules
@@ -55,7 +58,10 @@ Run:
 ./{{CLI_NAME}} checklist
 ./{{CLI_NAME}} protocols
 ./{{CLI_NAME}} preflight
+./{{CLI_NAME}} verify --dry-run
+./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} connections status
+./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} precommit hook-status
 node --test apps/cli/test/*.test.mjs

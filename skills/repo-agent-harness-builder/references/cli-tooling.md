@@ -15,10 +15,12 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `doctor` | yes | Check local prerequisites, auth, and repo access |
 | `preflight` | yes | Read-only fresh-session checks |
 | `precommit` | yes | Content-aware local commit gate |
+| `verify` | recommended | Run the local harness verification sequence through existing safe checks |
 | `skills` | recommended | Sync repo-owned skills to local skill dirs |
 | `self` | recommended | Check/update repo harness safely |
 | `secrets` | optional | Value-safe secret inventory and command wrapper |
 | `connections` | recommended | Validate permanent external-authority connection metadata |
+| `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `pm` | optional | Tracker lifecycle wrapper |
 | `workspace` | optional | External workspace/MCP governance |
@@ -46,6 +48,8 @@ apps/cli/src/precommit/checklist.mjs
 apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
+apps/cli/src/qa/index.mjs
+apps/cli/src/verify/index.mjs
 apps/cli/test/cli.test.mjs
 ```
 
@@ -126,7 +130,9 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} protocols
 ./{{CLI_NAME}} doctor
 ./{{CLI_NAME}} preflight
+./{{CLI_NAME}} verify --dry-run
 ./{{CLI_NAME}} precommit --all
+./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} secrets help
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} self check

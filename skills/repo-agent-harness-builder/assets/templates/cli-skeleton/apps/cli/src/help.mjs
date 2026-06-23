@@ -13,14 +13,21 @@ Core commands:
   protocols            List agent protocol files
   doctor               Check local prerequisites
   preflight            Run read-only fresh-session checks
+  verify [--dry-run]   Run the harness verification sequence
   precommit [--all]    Run local content and documentation gates
   precommit install-hook
                        Install the harness-managed git pre-commit hook
   precommit hook-status
                        Report whether the harness-managed hook is installed
+  qa status            Show browser/UI QA readiness without running tests
+  qa plan              Print QA lane and evidence guidance
+  qa artifacts         List common browser QA artifact locations
+  qa no-masking        Detect deterministic E2E route mocking/bypass patterns
   skills status        Report repo-owned skill status
   secrets help         Show value-safe secret handling commands
   connections status   Validate external-authority connection metadata
+  connections plan     Show repo-owned connector profile inventory
+  connections doctor   Check a connector profile without printing secrets
   self check           Check whether the harness can update safely
 
 Safety posture:

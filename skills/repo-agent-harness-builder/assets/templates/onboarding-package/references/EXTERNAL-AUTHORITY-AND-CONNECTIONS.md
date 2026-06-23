@@ -62,6 +62,23 @@ Store connection metadata, not secrets:
 
 Never store token values, passwords, cookies, private keys, or OAuth client secrets in the repository.
 
+## Connector Discovery
+
+When a target repo already has a harness, inspect the repo-owned connector
+inventory before using plugin search, connector marketplaces, generic MCP setup,
+or global client configuration:
+
+```bash
+./{{CLI_NAME}} connections plan
+./{{CLI_NAME}} connections status
+./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+```
+
+Use a generic connector only when the repo-owned profile is missing,
+inaccessible, unsupported by the current client, or blocked by the linked work
+item. Record the reason so the next agent can decide whether to add a durable
+profile instead.
+
 ## Google Workspace Pattern
 
 Use Drive or Shared Drive for role-scoped documents and Gmail for message context. Prefer groups and folder permissions over public links. Start read-only, then add write/send permissions only for a named workflow.

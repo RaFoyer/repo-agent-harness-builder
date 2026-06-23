@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
+import { readOption } from "../util/args.mjs";
 import { findSecretIndicators } from "../util/secrets.mjs";
 
 const SAFE_CREDENTIAL_REF_RE = /^(env:[A-Z][A-Z0-9_]*|keychain:[A-Za-z0-9._/@:-]+|vault:[A-Za-z0-9._/@:-]+|op:\/\/[A-Za-z0-9._/@:-]+|secret-manager:[A-Za-z0-9._/@:-]+|gcp-sm:[A-Za-z0-9._/@:-]+|aws-secretsmanager:[A-Za-z0-9._/@:-]+)$/;
@@ -20,11 +21,52 @@ function loadRegistry() {
   }
 }
 
+function repoRelativeOrHomePath(value) {
+  const text = String(value || "");
+  if (!text) return text;
+  if (text.startsWith(process.env.HOME || "\0")) return text.replace(process.env.HOME, "~");
+  return text;
+}
+
+function pathInsideRepo(candidatePath) {
+  const resolved = path.resolve(candidatePath);
+  const repoRoot = path.resolve(CONFIG.repoRoot);
+  return resolved === repoRoot || resolved.startsWith(`${repoRoot}${path.sep}`);
+}
+
 function writeCapableScope(scope) {
   const value = String(scope || "");
   const lower = value.toLowerCase();
   if (WRITE_SCOPE_RE.test(value)) return true;
   return !READ_ONLY_SCOPE_RE.test(lower);
+}
+
+function connectorProfiles(registry) {
+  return Array.isArray(registry.connectorProfiles) ? registry.connectorProfiles : [];
+}
+
+function validateConnectorProfiles(registry) {
+  const blockers = [];
+  const warnings = [];
+  for (const profile of connectorProfiles(registry)) {
+    const id = profile.id || "(unknown)";
+    const storageClass = profile.authStorageClass || profile.credentialStorage;
+    if (!profile.id) blockers.push("connector profile missing id");
+    if (!profile.provider) blockers.push(`${id} missing provider`);
+    if (!storageClass) blockers.push(`${id} missing authStorageClass`);
+    if (profile.status === "not-configured" || profile.status === "inactive") warnings.push(`${id} connector profile is ${profile.status}`);
+    const writeScopes = [
+      ...(profile.writeScopes || []),
+      ...(profile.approvalGatedWriteScopes || [])
+    ].filter(writeCapableScope);
+    if (writeScopes.length && !profile.writeApproval) {
+      blockers.push(`${id} write-capable connector scopes require writeApproval metadata`);
+    }
+    for (const finding of findSecretIndicators(JSON.stringify(profile), { source: id })) {
+      blockers.push(`${finding}. Store credential values outside connector profile metadata.`);
+    }
+  }
+  return { blockers, warnings };
 }
 
 function validateRegistry(registry) {
@@ -65,6 +107,9 @@ function validateRegistry(registry) {
       blockers.push(`${finding}. Store credential values outside ops/connections.json and keep only value-safe refs.`);
     }
   }
+  const profileValidation = validateConnectorProfiles(registry);
+  blockers.push(...profileValidation.blockers);
+  warnings.push(...profileValidation.warnings);
   return { blockers, warnings };
 }
 
@@ -74,7 +119,8 @@ function help(io) {
   io.stdout("  connections help      Show this help");
   io.stdout("  connections status    Validate ops/connections.json");
   io.stdout("  connections list      List registered external authorities");
-  io.stdout("  connections plan      Print setup checklist for a permanent connection");
+  io.stdout("  connections plan      Print setup checklist and connector profile inventory");
+  io.stdout("  connections doctor    Check a connector profile without printing secrets");
 }
 
 function status(io) {
@@ -113,6 +159,102 @@ function plan(io) {
   io.stdout("5. Run ./{{CLI_NAME}} connections status.");
   io.stdout("6. Add repo-safe pointers instead of copying privileged content.");
   io.stdout("7. Document revoke, rotation, and owner contact.");
+  io.stdout("");
+  io.stdout("Connector profile inventory (does not require live auth):");
+  const loaded = loadRegistry();
+  if (!loaded.ok) {
+    io.stdout(`- unavailable: ${loaded.error}`);
+    return 0;
+  }
+  const profiles = connectorProfiles(loaded.registry);
+  if (!profiles.length) {
+    io.stdout("- no connector profiles registered");
+    return 0;
+  }
+  for (const profile of profiles) {
+    io.stdout(`- ${profile.id} (${profile.provider}; ${profile.status || "unknown"})`);
+    const servers = profile.serverNames || {};
+    for (const [service, name] of Object.entries(servers)) io.stdout(`  server ${service}: ${name}`);
+    const endpoints = profile.remoteConnectorUrls || profile.remoteMcpUrls || {};
+    for (const [service, endpoint] of Object.entries(endpoints)) io.stdout(`  endpoint ${service}: ${endpoint}`);
+    if (profile.expectedAccountDomain) io.stdout(`  expected account domain: ${profile.expectedAccountDomain}`);
+    const storageClass = profile.authStorageClass || profile.credentialStorage;
+    if (storageClass) io.stdout(`  credential storage: ${storageClass}`);
+  }
+  return 0;
+}
+
+function findProfile(registry, id) {
+  return connectorProfiles(registry).find((profile) => profile.id === id);
+}
+
+function checkDomain(profile, account, blockers, warnings) {
+  if (!profile.expectedAccountDomain) return;
+  if (!account) {
+    warnings.push(`${profile.id} expected account domain is ${profile.expectedAccountDomain}; no live account was supplied.`);
+    return;
+  }
+  if (!String(account).toLowerCase().endsWith(`@${String(profile.expectedAccountDomain).toLowerCase()}`)) {
+    blockers.push(`${profile.id} expected account domain ${profile.expectedAccountDomain}; got ${account}`);
+  }
+}
+
+function checkLocalPaths(profile, argv, blockers, warnings) {
+  const authRootPath = readOption(argv, "--credential-root", profile.credentialRootRef || profile.credentialRoot || "");
+  if (!authRootPath) {
+    warnings.push(`${profile.id} has no credential root metadata; verify storage outside the repository before local auth.`);
+    return;
+  }
+  if (/^(env:|keychain:|vault:|op:\/\/|secret-manager:|gcp-sm:|aws-secretsmanager:)/.test(authRootPath)) {
+    warnings.push(`${profile.id} credential root is a reference (${authRootPath}); resolve it outside the repository before local auth.`);
+    return;
+  }
+  if (pathInsideRepo(authRootPath)) {
+    blockers.push(`${profile.id} credential root must be outside the repository: ${repoRelativeOrHomePath(authRootPath)}`);
+  } else {
+    warnings.push(`${profile.id} credential root is outside repo or not present locally: ${repoRelativeOrHomePath(authRootPath)}`);
+  }
+}
+
+function doctor(argv, io) {
+  const loaded = loadRegistry();
+  if (!loaded.ok) {
+    io.stderr(`blocker: ${loaded.error}`);
+    return 1;
+  }
+  const profileId = readOption(argv, "--profile");
+  if (!profileId) {
+    io.stderr("blocker: pass --profile <id>");
+    return 1;
+  }
+  const profile = findProfile(loaded.registry, profileId);
+  if (!profile) {
+    io.stderr(`blocker: unknown connector profile ${profileId}`);
+    return 1;
+  }
+
+  const mode = readOption(argv, "--mode", profile.mode || profile.connectorMode || "remote");
+  const account = readOption(argv, "--account", readOption(argv, "--email", ""));
+  const blockers = [];
+  const warnings = [];
+  checkDomain(profile, account, blockers, warnings);
+
+  io.stdout(`Connector profile doctor: ${profile.id}`);
+  io.stdout(`provider: ${profile.provider}`);
+  io.stdout(`mode: ${mode}`);
+
+  if (mode === "remote") {
+    io.stdout("remote connector mode: local token files are not inspected; verify token persistence through the client auth/status surface after restart.");
+  } else if (mode === "local") {
+    checkLocalPaths(profile, argv, blockers, warnings);
+  } else {
+    blockers.push(`${profile.id} unknown connector mode: ${mode}`);
+  }
+
+  for (const warning of warnings) io.stdout(`warning: ${warning}`);
+  for (const blocker of blockers) io.stderr(`blocker: ${blocker}`);
+  if (blockers.length) return 1;
+  io.stdout("Connector profile doctor completed with value-safe checks only.");
   return 0;
 }
 
@@ -125,6 +267,7 @@ export async function runConnections(argv, io) {
   if (subcommand === "status") return status(io);
   if (subcommand === "list") return list(io);
   if (subcommand === "plan") return plan(io);
+  if (subcommand === "doctor") return doctor(argv.slice(1), io);
   io.stderr(`Unknown connections command: ${subcommand}`);
   return 2;
 }

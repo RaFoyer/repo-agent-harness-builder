@@ -78,7 +78,10 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Hooks/intent authority | hook protocol, allowed hook list, failure behavior | agent lifecycle enforcement is useful |
 | Multi-agent workflows | task fanout protocol, review handoff rules | parallel work or specialist agents are expected |
 | Data/database | schema pointer, access protocol, migration rules | structured data or SQLite/Postgres is used |
-| MCP/connectors | external connector protocol, identity checks | tool integrations are available |
+| QA/browser | browser QA protocol, `qa` CLI, artifact/no-masking checks | browser, Playwright, Storybook, or UI evidence matters |
+| Repo-agent operations | bootstrap/operator skills, skill drift checks, handoff archive | cross-machine or cross-agent handoff matters |
+| Provider setup | provider setup protocol and dry-run setup checks | cloud, database, SaaS, or model providers are configured |
+| MCP/connectors | external connector protocol, connector profiles, identity checks | tool integrations are available |
 | QA/release handoff | QA protocol, release notes, acceptance checklist | user-facing changes ship regularly |
 
 ## Not-Applicable Rule
