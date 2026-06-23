@@ -50,7 +50,10 @@ const MASKING_PATTERNS = [
   { label: "route.fulfill", pattern: /\broute\.fulfill\s*\(/ },
   { label: "route.abort", pattern: /\broute\.abort\s*\(/ },
   { label: "routeFromHAR", pattern: /\brouteFromHAR\s*\(/ },
-  { label: "HAR replay", pattern: /\bhar\s*replay|\bfromHAR\b/i }
+  { label: "HAR replay", pattern: /\bhar\s*replay|\bfromHAR\b/i },
+  { label: "cy.intercept", pattern: /\bcy\.intercept\s*\(/ },
+  { label: "MSW handler", pattern: /\bsetupServer\s*\(|\b(?:http|rest)\.(?:get|post|put|patch|delete|all|options|head)\s*\(/ },
+  { label: "fetch mock", pattern: /\bfetchMock\b|\bmockFetch\b|\bjest\.spyOn\s*\([^)]*fetch/ }
 ];
 
 function rel(filePath) {
@@ -75,7 +78,7 @@ function findPlaywrightConfigs() {
 function e2eScripts() {
   const scripts = readPackageScripts();
   return Object.entries(scripts)
-    .filter(([name, command]) => /e2e|playwright|browser|storybook|qa/i.test(`${name} ${command}`))
+    .filter(([name, command]) => /e2e|playwright|cypress|storybook/i.test(`${name} ${command}`))
     .sort(([left], [right]) => left.localeCompare(right));
 }
 

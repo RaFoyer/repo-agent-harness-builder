@@ -51,7 +51,14 @@ const WRITE_SCOPE_FIELDS = new Set(["approvalGatedWriteScopes", "writeScopes", "
 function scopeValues(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === "string") return [value];
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap(scopeValues);
+  }
   return [];
+}
+
+function writeApprovalRequired(profile) {
+  return profile.writeApproval && typeof profile.writeApproval === "object" && profile.writeApproval.required === true;
 }
 
 function profileScopeValidation(profile, id) {
@@ -90,8 +97,8 @@ function validateConnectorProfiles(registry) {
     const profileScopes = profileScopeValidation(profile, id);
     blockers.push(...profileScopes.blockers);
     const writeScopes = profileScopes.writeScopes;
-    if (writeScopes.length && !profile.writeApproval) {
-      blockers.push(`${id} write-capable connector scopes require writeApproval metadata`);
+    if (writeScopes.length && !writeApprovalRequired(profile)) {
+      blockers.push(`${id} write-capable connector scopes require writeApproval.required=true metadata`);
     }
     for (const finding of findSecretIndicators(JSON.stringify(profile), { source: id })) {
       blockers.push(`${finding}. Store credential values outside connector profile metadata.`);
