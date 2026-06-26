@@ -28,6 +28,10 @@ Core commands:
   connections status   Validate external-authority connection metadata
   connections plan     Show repo-owned connector profile inventory
   connections doctor   Check a connector profile without printing secrets
+  goals status         List implementation goal-chain goals
+  goals verify <id>    Check closeout evidence for one goal
+  goals start-prompt <id>
+                       Print a bounded prompt for a goal thread
   self check           Check whether the harness can update safely
 
 Safety posture:

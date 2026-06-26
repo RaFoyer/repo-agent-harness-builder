@@ -30,3 +30,13 @@ command:
 
 Do not mark loop tooling active in the harness checklist until those commands
 exist and have tests.
+
+For ticket-backed implementation chains, keep `goals` commands read-only unless
+the repository adds stronger tested authority. Minimum useful commands are
+`goals status`, `goals verify <goal-id>`, and `goals start-prompt <goal-id>`.
+`goals verify` should reject placeholders, negated verification text, negated PR
+evidence, and merge or squash integration commits that either do not match the
+recorded PR number or are not reachable from the current local integration
+branch or its local remote-tracking ref. Accept successor references as
+`Goal N: Title` or issue links; accept the exact `Next goal: none` marker only
+as an explicit final-goal marker.

@@ -70,6 +70,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Secrets handling | `SECRETS.md`, `secrets` CLI, redaction tests | credentials or secret-backed systems exist |
 | External authority | `EXTERNAL-SYSTEMS.md`, `PRIVILEGED-DOCUMENTS.md`, `ops/connections.json` | Drive/email/SharePoint/database context matters |
 | Automations/heartbeats | `AUTOMATIONS.md`, run log, scheduler notes | recurring checks or reminders are useful |
+| Goal-chain workflow | `GOAL-CHAIN.md`, `goals` CLI, goal-chain templates | sequential tracker-backed implementation needs merge and handoff evidence |
 | Project tracker | tracker protocol and CLI wrapper | GitHub Issues, Linear, Jira, or similar is canonical |
 | CI/branch/deploy | CI protocol, branch promotion rules, deploy readiness | repo has tests, releases, environments, or deployments |
 | Design system | design-system protocol, tokens/assets pointer, brand governance | product/brand/interface work may happen |

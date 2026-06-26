@@ -23,6 +23,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Handling tracker work | `ops/protocols/PROJECT-TRACKING.md` if present |
 | Handling secrets or credentials | `ops/protocols/SECRETS.md` if present |
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |
+| Planning ticket-backed goal chains | `ops/protocols/GOAL-CHAIN.md`, then `./{{CLI_NAME}} goals status` |
 | Changing CI, deploy, or branches | `ops/protocols/CICD.md` or `ops/protocols/BRANCH-PROMOTION.md` if present |
 | Using, discovering, or installing external connectors | `ops/protocols/EXTERNAL-SYSTEMS.md`, then `./{{CLI_NAME}} connections plan` |
 

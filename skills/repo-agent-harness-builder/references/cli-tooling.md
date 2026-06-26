@@ -22,6 +22,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `connections` | recommended | Validate permanent external-authority connection metadata |
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
+| `goals` | recommended | Inspect ticket-backed goal chains, closeout evidence, and goal-thread prompts |
 | `pm` | optional | Tracker lifecycle wrapper |
 | `workspace` | optional | External workspace/MCP governance |
 | `review-gate` | optional | High-risk PR or protected-branch guard |
@@ -48,6 +49,7 @@ apps/cli/src/precommit/checklist.mjs
 apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
+apps/cli/src/goals/index.mjs
 apps/cli/src/qa/index.mjs
 apps/cli/src/verify/index.mjs
 apps/cli/test/cli.test.mjs
@@ -90,6 +92,29 @@ Only add `loops` when the automations/loops module is active. Minimum behavior:
 
 Loop commands must be covered by tests before the checklist can mark the module
 `active`.
+
+## Goal Chain Command Contract
+
+Scaffold `goals` as a read-only helper when the harness includes
+`GOAL-CHAIN.md`, even while the goal-chain workflow itself remains inactive.
+Minimum behavior:
+
+- `goals status`: show configured goals from the goal-chain document, or report
+  that no goal chain is configured without failing baseline verification.
+- `goals verify <goal-id>`: block missing merged PR, merge/squash integration
+  commit, verification result, or next-goal evidence; reject placeholders,
+  negated verification, negated PR evidence, and integration commits that either
+  do not match the recorded PR number or are not reachable from the current
+  local integration branch or its local remote-tracking ref. Accept successor
+  references as `Goal N: Title` or issue links; accept the exact
+  `Next goal: none` marker only as an explicit final-goal marker.
+- `goals start-prompt <goal-id>`: print a bounded goal-thread prompt using the
+  repo path, default branch, issue reference, objective, and verification
+  expectations.
+
+Goal commands must not merge PRs, update trackers, create new threads, or run
+write-capable work. Treat them as read-only inspection and prompt-generation
+helpers unless a repo-specific protocol adds stronger tested behavior.
 
 ## Preflight Contract
 
@@ -135,6 +160,7 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} secrets help
 ./{{CLI_NAME}} connections status
+./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} self check
 ```
 

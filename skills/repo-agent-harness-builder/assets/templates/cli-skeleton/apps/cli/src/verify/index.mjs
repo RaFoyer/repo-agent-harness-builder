@@ -2,6 +2,7 @@ import { runChecklist } from "../commands/checklist.mjs";
 import { runDoctor } from "../commands/doctor.mjs";
 import { listProtocols } from "../commands/protocols.mjs";
 import { runConnections } from "../connections/index.mjs";
+import { runGoals } from "../goals/index.mjs";
 import { runPrecommit } from "../precommit/checklist.mjs";
 import { runPreflight } from "../preflight/session.mjs";
 import { runQa } from "../qa/index.mjs";
@@ -13,6 +14,7 @@ const VERIFY_STEPS = [
   { name: "checklist", run: (io) => runChecklist([], io) },
   { name: "protocols", run: (io) => listProtocols([], io) },
   { name: "connections status", run: (io) => runConnections(["status"], io) },
+  { name: "goals status", run: (io) => runGoals(["status"], io) },
   { name: "qa status", run: (io) => runQa(["status"], io) },
   { name: "qa no-masking", run: (io) => runQa(["no-masking"], io) },
   { name: "precommit --all", run: (io) => runPrecommit(["--all"], io) }

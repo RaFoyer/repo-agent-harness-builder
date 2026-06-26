@@ -61,6 +61,7 @@ Scaffold as inactive when plausible:
 - secrets handling
 - Drive/email/SharePoint/document/database connections
 - automations and heartbeats
+- goal-chain workflows
 - project tracker
 - CI, branch promotion, deploy readiness
 - QA/browser checks

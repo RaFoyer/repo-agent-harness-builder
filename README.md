@@ -12,7 +12,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - `AGENTS.md` and a table of contents for progressive disclosure
 - lifecycle and maintenance docs for protocols
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
-  `verify`, `checklist`, `qa`, `secrets`, and connection checks
+  `verify`, `checklist`, `qa`, `secrets`, connection checks, and goal-chain
+  inspection
 - setup checklists with `active`, `inactive`, and `not-applicable` states
 - value-safe secrets, external-authority, and connector boundaries
 - optional loops, automations, heartbeats, and review workflows
@@ -142,8 +143,9 @@ The skill can help with:
 - personal file-steward harnesses for folders such as Downloads and Documents
 - portable onboarding packages
 - CLI skeletons with preflight, precommit, verify, doctor, checklist, browser
-  QA, secrets, and connection commands
-- loops and recurring work definitions with bounded verification and stop rules
+  QA, secrets, connection commands, and goal-chain helpers
+- loops, goal chains, and recurring work definitions with bounded verification
+  and stop rules
 
 ## Build The Portable Package
 
