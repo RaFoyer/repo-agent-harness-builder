@@ -23,6 +23,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
+| `design` | optional | Report design-system governance status and, when activated, inspect safe design-system source pointers |
 | `pm` | optional | Tracker lifecycle wrapper |
 | `workspace` | optional | External workspace/MCP governance |
 | `review-gate` | optional | High-risk PR or protected-branch guard |
@@ -136,6 +137,19 @@ explicit passing result such as `passed`, `verified`, `succeeded`, or
 separate them with a blank line. Non-bulleted runner or result lines inside
 `Verification:` are still evaluated for failure tokens; note-style labels such
 as `Notes:` end the verification block.
+
+## Design Command Contract
+
+Scaffold `design` as a read-only helper when the harness includes
+`DESIGN-SYSTEM.md`, even while the design-system governance module remains
+inactive. Minimum inactive behavior:
+
+- `design status`: report module state, protocol path, checklist path, source
+  discovery, and activation requirements.
+- The command must be read-only, require no credentials, and exit 0 while
+  inactive.
+- Do not add validation, generation, CI gates, external-system inspection, or
+  product-code scanning until the module is active and covered by tests.
 
 ## Preflight Contract
 

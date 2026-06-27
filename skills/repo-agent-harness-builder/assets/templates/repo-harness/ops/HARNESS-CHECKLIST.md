@@ -49,7 +49,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | CI/branch/deploy | inactive | Add CI and branch-promotion protocols when environments exist |
 | QA/browser | inactive | `ops/protocols/QA-BROWSER.md`, `./{{CLI_NAME}} qa status`; activate for browser/UI apps |
 | Repo-agent operations | inactive | Add repo-owned bootstrap/operator skills and skill drift checks for cross-machine handoff |
-| Design system | inactive | Add protocol/assets pointer when UI or product design is relevant |
+| Design system | inactive | `ops/protocols/DESIGN-SYSTEM.md`, `./{{CLI_NAME}} design status`; activate when UI, UX, component, token, brand, adaptive UI, or generated UI work needs governance |
 | Brand identity | inactive | Add protocol/assets pointer when external-facing work is relevant |
 | Evidence/provenance | inactive | Add evidence map when artifacts or audits matter |
 | Hooks/intent authority | inactive | Add hook protocol when lifecycle enforcement is needed |

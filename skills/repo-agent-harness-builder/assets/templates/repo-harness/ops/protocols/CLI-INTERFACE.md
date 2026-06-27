@@ -37,6 +37,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections` | Validate external-authority connection metadata, connector profiles, and setup plans |
 | `connections doctor` | Check a named connector profile without printing secret values |
 | `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
+| `design` | Report design-system governance status and activation route |
 | `self` | Check or update the harness safely |
 
 ## Extension Rules
@@ -64,6 +65,7 @@ Run:
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} goals status
+./{{CLI_NAME}} design status
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} precommit hook-status
 node --test apps/cli/test/*.test.mjs

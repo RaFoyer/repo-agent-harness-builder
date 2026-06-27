@@ -54,6 +54,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Adding or changing docs | `DOCUMENT-LIFECYCLE.md`, `DOCUMENT-QUALITY.md` |
 | Running repo commands | `CLI-INTERFACE.md` |
 | Preparing a commit | `PRE-COMMIT.md` |
+| Changing UI, UX, design systems, components, tokens, brand surfaces, adaptive UI, or generated UI | `DESIGN-SYSTEM.md` if present |
 | Working with tickets | `PROJECT-TRACKING.md` |
 | Handling credentials | `SECRETS.md` |
 | Touching CI or deploy | `CICD.md`, `BRANCH-PROMOTION.md` |

@@ -203,7 +203,125 @@ test("help lists core commands", () => {
   assert.match(help, /secrets/);
   assert.match(help, /connections/);
   assert.match(help, /goals status/);
+  assert.match(help, /design status/);
   assert.match(help, /checklist/);
+});
+
+test("design status reports inactive module without design-system source", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /design system: inactive/);
+  assert.match(text, /ops\/protocols\/DESIGN-SYSTEM\.md/);
+  assert.match(text, /source: no known source pointers found/);
+  assert.match(text, /activation:/);
+});
+
+fixtureTest("design status reports present manifest as unverified while inactive", async () => {
+  fs.mkdirSync(path.join(repoRoot, "design-system"), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, "design-system", "manifest.json"), JSON.stringify({ name: "demo" }), "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /design system: inactive/);
+  assert.match(text, /source: design-system\/manifest\.json \(present, unverified\)/);
+  assert.doesNotMatch(text, /source-discovered/);
+});
+
+fixtureTest("design status follows protocol status and known source pointers", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  const protocol = fs.readFileSync(protocolPath, "utf-8").replace(/^status:\s*inactive/m, "status: active");
+  fs.writeFileSync(protocolPath, protocol, "utf-8");
+  fs.mkdirSync(path.join(repoRoot, "design-system"), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, "design-system", "tokens.json"), JSON.stringify({ color: {} }), "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /design system: declared active \(unverified\)/);
+  assert.match(text, /source: design-system\/tokens\.json \(present, unverified\)/);
+});
+
+fixtureTest("design status accepts quoted front matter status", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  const protocol = fs.readFileSync(protocolPath, "utf-8").replace(/^status:\s*inactive/m, 'status: "active"');
+  fs.writeFileSync(protocolPath, protocol, "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /design system: declared active \(unverified\)/);
+});
+
+fixtureTest("design status treats mixed-case active status as unverified", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  const protocol = fs.readFileSync(protocolPath, "utf-8").replace(/^status:\s*inactive/m, "status: Active");
+  fs.writeFileSync(protocolPath, protocol, "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /design system: declared active \(unverified\)/);
+});
+
+fixtureTest("design status ignores status lines outside protocol front matter", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  fs.appendFileSync(protocolPath, "\n```yaml\nstatus: active\n```\n", "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /design system: inactive/);
+});
+
+fixtureTest("design status reads inactive CRLF protocol front matter", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  const protocol = fs.readFileSync(protocolPath, "utf-8").replace(/\n/g, "\r\n");
+  fs.writeFileSync(protocolPath, protocol, "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /design system: inactive/);
+});
+
+fixtureTest("design status reads active CRLF protocol front matter", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  const protocol = fs
+    .readFileSync(protocolPath, "utf-8")
+    .replace(/^status:\s*inactive/m, "status: active")
+    .replace(/\n/g, "\r\n");
+  fs.writeFileSync(protocolPath, protocol, "utf-8");
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /design system: declared active \(unverified\)/);
+});
+
+fixtureTest("design status degrades to unknown when protocol path is unreadable", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "DESIGN-SYSTEM.md");
+  fs.rmSync(protocolPath, { force: true });
+  fs.mkdirSync(protocolPath);
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /design system: unknown/);
+});
+
+test("design help resolves CLI name without template placeholders", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["design", "help"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.ok(text.includes(`./${CONFIG.cliName} design <command>`));
+  assert.doesNotMatch(text, /\{\{CLI_NAME\}\}/);
+});
+
+test("unknown design subcommands fail with help pointer", async () => {
+  const { io, err } = capture();
+  const code = await main(["design", "validate"], io);
+  assert.equal(code, 2);
+  const text = err.join("\n");
+  assert.ok(text.includes(`./${CONFIG.cliName} design status`));
+  assert.doesNotMatch(text, /\{\{CLI_NAME\}\}/);
 });
 
 test("unknown commands fail with help pointer", async () => {
