@@ -1,6 +1,6 @@
 ---
 name: repo-agent-harness-builder
-description: Use when creating, auditing, extending, packaging, or explaining a repository or personal-folder agent harness with AGENTS.md, protocol documentation, deterministic CLI commands, onboarding packages, safe file stewardship, automations, heartbeats, preflight/precommit checks, skills, or portable agent handoff archives.
+description: Use when creating, auditing, extending, packaging, or explaining a repository or personal-folder agent harness with AGENTS.md, protocol documentation, deterministic CLI commands, onboarding packages, safe file stewardship, goal chains, automations, heartbeats, preflight/precommit checks, skills, or portable agent handoff archives.
 ---
 
 # Repo Agent Harness Builder
@@ -38,6 +38,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - External authority, permanent Drive/email/document/database connections, and role-based permission boundaries: read `references/external-authority-and-connections.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
+- Ticket-backed implementation goal chains with merge, verification, and handoff evidence: read `references/goal-chain-loop.md`.
 - Hooks, intent authority, generated artifacts, and evidence/provenance maps: read `references/advanced-patterns.md`.
 
 ## Bundled Assets
@@ -46,6 +47,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `qa`, `skills`, `secrets`, `connections`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
+- `assets/templates/goal-chain/`: implementation goal-chain, goal-start prompt, and handoff templates.
 - `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap/repo-operator skill templates and agent-client install guidance.
 
 Use placeholders consistently:

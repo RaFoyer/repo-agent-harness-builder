@@ -101,6 +101,11 @@ user-supplied cap nor a deterministic no-progress/stagnation stop. `run
 --dry-run` should print the command or prompt, scope, allowed actions, and
 artifacts without executing write-capable work.
 
+For ticket-backed implementation sequences, prefer the `GOAL-CHAIN.md`
+protocol and `./{{CLI_NAME}} goals ...` commands. Goal chains are not generic
+schedules: each step must start from the current integration branch, land a PR,
+record verification, and queue the next goal from merged state.
+
 ## Run Log Pattern
 
 Each run should record:

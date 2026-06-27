@@ -8,7 +8,11 @@ export const CONFIG = {
   repoSlug: {{REPO_SLUG_JSON}},
   cliName: "{{CLI_NAME}}",
   defaultBranch: {{DEFAULT_BRANCH_JSON}},
+  integrationBranch: {{DEFAULT_BRANCH_JSON}},
+  integrationRemote: "origin",
   trackerName: {{TRACKER_NAME_JSON}},
+  trackerIssuePattern: "",
+  requiredGoalCloseoutFields: ["Issues?", "Residual risks"],
   repoRoot: path.resolve(cliDir, "../../.."),
   protocolDir: "ops/protocols",
   requiredProtocols: [

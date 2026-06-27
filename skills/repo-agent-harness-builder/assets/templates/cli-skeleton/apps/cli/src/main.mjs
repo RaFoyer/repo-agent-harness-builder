@@ -11,6 +11,7 @@ import { runSecrets } from "./secrets/index.mjs";
 import { runConnections } from "./connections/index.mjs";
 import { runQa } from "./qa/index.mjs";
 import { runVerify } from "./verify/index.mjs";
+import { runGoals } from "./goals/index.mjs";
 
 export const defaultIO = {
   stdout: (line = "") => console.log(line),
@@ -50,6 +51,8 @@ export async function main(argv = [], io = defaultIO) {
       return runSecrets(rest, io);
     case "connections":
       return runConnections(rest, io);
+    case "goals":
+      return runGoals(rest, io);
     case "self":
       return runSelf(rest, io);
     default:

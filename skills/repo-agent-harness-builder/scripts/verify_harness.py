@@ -109,6 +109,7 @@ def main() -> int:
         "apps/cli/src/config.mjs",
         "apps/cli/src/commands/checklist.mjs",
         "apps/cli/src/connections/index.mjs",
+        "apps/cli/src/goals/index.mjs",
         "apps/cli/src/qa/index.mjs",
         "apps/cli/src/verify/index.mjs",
         "apps/cli/src/preflight/session.mjs",
