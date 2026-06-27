@@ -203,7 +203,26 @@ test("help lists core commands", () => {
   assert.match(help, /secrets/);
   assert.match(help, /connections/);
   assert.match(help, /goals status/);
+  assert.match(help, /design status/);
   assert.match(help, /checklist/);
+});
+
+test("design status reports inactive module without design-system source", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["design", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /design system: inactive/);
+  assert.match(text, /ops\/protocols\/DESIGN-SYSTEM\.md/);
+  assert.match(text, /source: not configured/);
+  assert.match(text, /activation:/);
+});
+
+test("unknown design subcommands fail with help pointer", async () => {
+  const { io, err } = capture();
+  const code = await main(["design", "validate"], io);
+  assert.equal(code, 2);
+  assert.match(err.join("\n"), /design status/);
 });
 
 test("unknown commands fail with help pointer", async () => {

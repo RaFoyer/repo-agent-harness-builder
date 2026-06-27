@@ -20,6 +20,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Running repo commands | `ops/protocols/CLI-INTERFACE.md` |
 | Preparing a commit | `ops/protocols/PRE-COMMIT.md` |
 | Running browser, Playwright, Storybook, or UI QA | `ops/protocols/QA-BROWSER.md` if present |
+| Changing UI, UX, product interface, design-system source, components, tokens, brand surfaces, adaptive UI, generated UI, or agent-composed interface behavior | `ops/protocols/DESIGN-SYSTEM.md` if present |
 | Handling tracker work | `ops/protocols/PROJECT-TRACKING.md` if present |
 | Handling secrets or credentials | `ops/protocols/SECRETS.md` if present |
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |

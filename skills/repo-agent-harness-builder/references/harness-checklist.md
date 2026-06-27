@@ -73,7 +73,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Goal-chain workflow | `GOAL-CHAIN.md`, `goals` CLI, goal-chain templates | sequential tracker-backed implementation needs merge and handoff evidence |
 | Project tracker | tracker protocol and CLI wrapper | GitHub Issues, Linear, Jira, or similar is canonical |
 | CI/branch/deploy | CI protocol, branch promotion rules, deploy readiness | repo has tests, releases, environments, or deployments |
-| Design system | design-system protocol, tokens/assets pointer, brand governance | product/brand/interface work may happen |
+| Design system governance | design-system protocol, design status command, source pointers, optional tokens/components, optional review/proof governance | UI, UX, component, token, brand, adaptive UI, or generated UI work may happen |
 | Brand identity | brand protocol, approved assets pointer, usage rules | external-facing comms or visual identity matters |
 | Evidence/provenance | evidence map, artifact pointers, provenance rules | audits, reports, or generated artifacts matter |
 | Hooks/intent authority | hook protocol, allowed hook list, failure behavior | agent lifecycle enforcement is useful |
