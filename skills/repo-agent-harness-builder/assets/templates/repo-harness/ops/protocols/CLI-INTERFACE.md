@@ -37,7 +37,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections` | Validate external-authority connection metadata, connector profiles, and setup plans |
 | `connections doctor` | Check a named connector profile without printing secret values |
 | `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
-| `design` | Report inactive design-system governance status and activation route |
+| `design` | Report design-system governance status and activation route |
 | `self` | Check or update the harness safely |
 
 ## Extension Rules

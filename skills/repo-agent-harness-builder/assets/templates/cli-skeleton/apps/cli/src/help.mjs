@@ -32,7 +32,7 @@ Core commands:
   goals verify <id>    Check closeout evidence for one goal
   goals start-prompt <id>
                        Print a bounded prompt for a goal thread
-  design status        Show inactive design-system governance status
+  design status        Show design-system governance status
   self check           Check whether the harness can update safely
 
 Safety posture:

@@ -4,7 +4,7 @@
 
 **Goal:** Add an inactive, read-only design-system governance runway to generated repo harnesses without scaffolding a full design-system source tree by default.
 
-**Architecture:** The generated harness gains an inactive `DESIGN-SYSTEM` protocol, TOC/checklist routing, and one CLI family with `design status`. The command reports inactive or pointer-discovered state without validating design assets, credentials, or external authorities. Richer CounselCue-style governance remains documented as an activation path, not default scaffold.
+**Architecture:** The generated harness gains an inactive `DESIGN-SYSTEM` protocol, TOC/checklist routing, and one CLI family with `design status`. The command reports the local protocol state, marking active declarations as unverified, and reports unverified source-pointer presence without validating design assets, credentials, or external authorities. Richer CounselCue-style governance remains documented as an activation path, not default scaffold.
 
 **Tech Stack:** Markdown harness templates, Node.js ESM CLI skeleton, Node test runner, existing Python scaffold/verify scripts, existing `npm run check` verification.
 
@@ -55,7 +55,7 @@ test("design status reports inactive module without design-system source", async
   const text = out.join("\n");
   assert.match(text, /design system: inactive/);
   assert.match(text, /ops\/protocols\/DESIGN-SYSTEM\.md/);
-  assert.match(text, /source: not configured/);
+  assert.match(text, /source: no known source pointers found/);
   assert.match(text, /activation:/);
 });
 
@@ -104,14 +104,56 @@ import { CONFIG } from "../config.mjs";
 
 const DESIGN_PROTOCOL = "ops/protocols/DESIGN-SYSTEM.md";
 const HARNESS_CHECKLIST = "ops/HARNESS-CHECKLIST.md";
-const DESIGN_MANIFEST = "design-system/manifest.json";
+const SOURCE_CANDIDATES = [
+  "design-system/manifest.json",
+  "design-system/tokens.json",
+  "design-system/theme.json",
+  "design-system/components.json",
+  "design-system/components.md",
+  "design-system/design-philosophy.md",
+  "design-system/ux-principles.md",
+  "design-system/reviews.jsonl",
+  "design-system/proofs.jsonl",
+  "design-system/exceptions.jsonl",
+  "design-system/external-authorities.json"
+];
 
 function repoPath(relPath) {
   return path.join(CONFIG.repoRoot, relPath);
 }
 
 function hasFile(relPath) {
-  return fs.existsSync(repoPath(relPath));
+  try {
+    return fs.statSync(repoPath(relPath)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function leadingFrontMatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  return match ? match[1] : "";
+}
+
+function protocolStatus() {
+  const protocolPath = repoPath(DESIGN_PROTOCOL);
+  let content;
+  try {
+    content = fs.readFileSync(protocolPath, "utf-8");
+  } catch {
+    return "unknown";
+  }
+  const frontMatter = leadingFrontMatter(content);
+  const match = frontMatter.match(/^status:\s*["']?([A-Za-z-]+)["']?\s*$/m);
+  const status = (match ? match[1] : "unknown").toLowerCase();
+  if (status === "inactive" || status === "not-applicable" || status === "unknown") return status;
+  return `declared ${status} (unverified)`;
+}
+
+function sourceSummary() {
+  const sources = SOURCE_CANDIDATES.filter((candidate) => hasFile(candidate));
+  if (sources.length === 0) return "no known source pointers found";
+  return sources.map((source) => `${source} (present, unverified)`).join(", ");
 }
 
 function renderDesignHelp() {
@@ -121,16 +163,15 @@ Usage:
   ./${CONFIG.cliName} design <command>
 
 Commands:
-  status   Show inactive design-system governance status and activation route
+  status   Show design-system governance status and activation route
 `;
 }
 
 function runStatus(_argv, io) {
-  const hasManifest = hasFile(DESIGN_MANIFEST);
-  io.stdout(`design system: ${hasManifest ? "source-discovered" : "inactive"}`);
+  io.stdout(`design system: ${protocolStatus()}`);
   io.stdout(`protocol: ${DESIGN_PROTOCOL}`);
   io.stdout(`checklist: ${HARNESS_CHECKLIST}`);
-  io.stdout(`source: ${hasManifest ? DESIGN_MANIFEST : "not configured"}`);
+  io.stdout(`source: ${sourceSummary()}`);
   io.stdout("activation: name owner, scope, canonical design authority, verification, and rollback before marking active");
   return 0;
 }
@@ -173,7 +214,7 @@ Add this switch case before `self`:
 Add this help row near other optional module commands:
 
 ```text
-  design status        Show inactive design-system governance status
+  design status        Show design-system governance status
 ```
 
 - [ ] **Step 4: Run generated CLI tests**
@@ -346,7 +387,7 @@ In `harness-checklist.md`, update the `Design system` row to:
 In `cli-tooling.md`, add this command row:
 
 ```markdown
-| `design` | optional | Report inactive design-system governance status and, when activated, inspect safe design-system source pointers |
+| `design` | optional | Report design-system governance status and, when activated, inspect safe design-system source pointers |
 ```
 
 Add this short contract section near other optional command contracts:
@@ -356,7 +397,7 @@ Add this short contract section near other optional command contracts:
 
 Only add `design` when the design-system governance module is scaffolded. Minimum inactive behavior:
 
-- `design status`: report module state, protocol path, checklist path, source discovery, and activation requirements.
+- `design status`: report module state, protocol path, checklist path, unverified source-pointer presence, and activation requirements.
 - The command must be read-only, require no credentials, and exit 0 while inactive.
 - Do not add validation, generation, CI gates, external-system inspection, or product-code scanning until the module is active and covered by tests.
 ```
@@ -415,7 +456,7 @@ Expected output includes:
 ```text
 design system: inactive
 protocol: ops/protocols/DESIGN-SYSTEM.md
-source: not configured
+source: no known source pointers found
 activation:
 ```
 

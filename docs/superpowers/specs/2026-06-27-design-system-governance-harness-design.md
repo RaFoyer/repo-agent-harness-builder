@@ -117,11 +117,11 @@ Expected inactive output:
 design system: inactive
 protocol: ops/protocols/DESIGN-SYSTEM.md
 checklist: ops/HARNESS-CHECKLIST.md
-source: not configured
+source: no known source pointers found
 activation: name owner, scope, canonical design authority, verification, and rollback before marking active
 ```
 
-If a target repo later adds `design-system/manifest.json`, `design status` may report it as discovered, but Stage 1 does not validate it deeply.
+If a target repo later changes `DESIGN-SYSTEM.md` to any `active` casing, `design status` may report `declared active (unverified)` from the leading front matter. If it finds known local design-system source-pointer files, it may report them as present but unverified. The source-pointer list is non-exhaustive; no match is not proof that no external or project-specific design authority exists. Stage 1 does not treat a status word or source file as canonical authority by itself.
 
 The command must:
 
@@ -166,6 +166,10 @@ Focused tests should cover:
 - `help` lists `design status`.
 - Unknown design subcommands fail with a help pointer.
 - `design status` reports inactive state when no `design-system/` source exists.
+- `design status` keeps the module inactive and labels any manifest file as unverified until activation.
+- `design status` can follow quoted or unquoted `DESIGN-SYSTEM.md` leading front matter and ignores body `status:` examples.
+- `design status` handles LF and CRLF protocol files.
+- `design status` exits 0 and reports `unknown` instead of throwing if the protocol path cannot be read.
 - `design status` remains read-only and does not require git, credentials, or external systems.
 - Generated harness CLI tests pass.
 - Scaffold verification passes.

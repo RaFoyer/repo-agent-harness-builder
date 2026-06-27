@@ -23,7 +23,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
-| `design` | optional | Report inactive design-system governance status and, when activated, inspect safe design-system source pointers |
+| `design` | optional | Report design-system governance status and, when activated, inspect safe design-system source pointers |
 | `pm` | optional | Tracker lifecycle wrapper |
 | `workspace` | optional | External workspace/MCP governance |
 | `review-gate` | optional | High-risk PR or protected-branch guard |

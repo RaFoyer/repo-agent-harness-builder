@@ -41,7 +41,7 @@ The CLI is read-only while this module is inactive:
 ./{{CLI_NAME}} design status
 ```
 
-The command may report protocol paths, checklist state, and whether a canonical source file is present. It must not scan product code, call external systems, generate UI, enforce CI gates, or mutate files.
+The command may report protocol paths, checklist state, the local `DESIGN-SYSTEM.md` leading front-matter status, and whether known local source-pointer files are present. Active status declarations and source pointers are reported as unverified until activation names the canonical authority. The source-pointer list is non-exhaustive; no local match is not proof that no external or project-specific design authority exists. The command must not scan product code, call external systems, generate UI, enforce CI gates, or mutate files.
 
 ## Activation Requirements
 
