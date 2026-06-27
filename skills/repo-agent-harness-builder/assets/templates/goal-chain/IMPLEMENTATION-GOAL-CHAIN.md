@@ -12,6 +12,7 @@ Each goal finishes only after:
 - merge or squash integration commit is recorded in `Merge commit`, reachable from <integration branch>, and matches the recorded PR number
 - linked issue/PR evidence exists
 - local verification evidence is recorded
+- residual risks are named or explicitly absent
 - next goal is queued from current <integration branch>, or the final goal says `Next goal: none`
 
 ## Goal 1: <Title>
@@ -20,7 +21,7 @@ Objective:
 <one sentence>
 
 Issues:
-- #<issue>: <title>
+- <issue-id or URL>: <title>
 
 Scope:
 - <in scope>
@@ -32,7 +33,10 @@ Exit criteria:
 - <observable result>
 
 Verification:
-- <command or manual QA path>
+- <command or manual QA path>: <passed, verified, succeeded, or completed>
+
+Residual risks:
+- <risk, none, or not applicable after closeout>
 
 Sequencing:
 - <dependency, parallel allowance, or none>
@@ -43,7 +47,7 @@ Objective:
 <one sentence>
 
 Issues:
-- #<issue>: <title>
+- <issue-id or URL>: <title>
 
 Scope:
 - <in scope>
@@ -55,7 +59,10 @@ Exit criteria:
 - <observable result>
 
 Verification:
-- <command or manual QA path>
+- <command or manual QA path>: <passed, verified, succeeded, or completed>
+
+Residual risks:
+- <risk, none, or not applicable after closeout>
 
 Sequencing:
 - Starts after Goal 1 merge or squash integration commit is visible from <integration branch> and matches the recorded PR.

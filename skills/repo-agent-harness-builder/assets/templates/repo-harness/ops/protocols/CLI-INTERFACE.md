@@ -36,7 +36,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `secrets` | Provide value-safe secret posture commands |
 | `connections` | Validate external-authority connection metadata, connector profiles, and setup plans |
 | `connections doctor` | Check a named connector profile without printing secret values |
-| `goals` | Inspect ticket-backed goal chains, closeout evidence, and goal-thread prompts |
+| `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `self` | Check or update the harness safely |
 
 ## Extension Rules

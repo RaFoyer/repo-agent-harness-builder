@@ -30,6 +30,12 @@ lacks a tracker, integration branch, or verification gate.
    `./{{CLI_NAME}} goals start-prompt <goal-id>` to create a thread prompt.
 7. Fetch or pull the integration branch if the PR was just merged remotely,
    then use `./{{CLI_NAME}} goals verify <goal-id>` before closing a goal.
+   The generated verifier inspects local git evidence and recorded text; it does
+   not verify live PR state. Fresh generated CLIs require `Issues:` and
+   `Residual risks:` by default through `requiredGoalCloseoutFields`; older
+   configs that omit that key enforce declared closeout fields only, and
+   migrated chains can set the key to `[]` when they intentionally opt out of
+   default closeout fields.
 
 ## Required Goal Fields
 

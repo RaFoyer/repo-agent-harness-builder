@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { setRepoRootForTests } from "../src/config.mjs";
+import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
 import { runCommand } from "../src/util/exec.mjs";
@@ -148,6 +148,37 @@ function createFixtureSquashCommit(pr = 45, message = "fixture squash") {
 function checkoutDefaultBranch() {
   const checkout = runCommand("git", ["checkout", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot });
   assert.equal(checkout.ok, true, checkout.stderr);
+}
+
+async function withTrackerIssuePattern(pattern, fn) {
+  const previous = CONFIG.trackerIssuePattern;
+  CONFIG.trackerIssuePattern = pattern;
+  try {
+    return await fn();
+  } finally {
+    CONFIG.trackerIssuePattern = previous;
+  }
+}
+
+async function withRequiredGoalCloseoutFields(fields, fn) {
+  const previous = CONFIG.requiredGoalCloseoutFields;
+  CONFIG.requiredGoalCloseoutFields = fields;
+  try {
+    return await fn();
+  } finally {
+    CONFIG.requiredGoalCloseoutFields = previous;
+  }
+}
+
+async function withoutRequiredGoalCloseoutFields(fn) {
+  const hadField = Object.prototype.hasOwnProperty.call(CONFIG, "requiredGoalCloseoutFields");
+  const previous = CONFIG.requiredGoalCloseoutFields;
+  delete CONFIG.requiredGoalCloseoutFields;
+  try {
+    return await fn();
+  } finally {
+    if (hadField) CONFIG.requiredGoalCloseoutFields = previous;
+  }
 }
 
 function capture() {
@@ -492,6 +523,8 @@ Verification:
 Merged PR: #45
 Merge commit: ${mergeCommit}
 
+Residual risks: none
+
 Next goal:
 - Goal 2: Validate Generated CLI
 `);
@@ -499,7 +532,7 @@ Next goal:
   const { io, out, err } = capture();
   const code = await main(["goals", "verify", "1"], io);
   assert.equal(code, 0, err.join("\n"));
-  assert.match(out.join("\n"), /Goal 1 has closeout evidence/i);
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
 });
 
 fixtureTest("goals verify rejects unresolved closeout placeholders", async () => {
@@ -586,6 +619,279 @@ Next goal:
   assert.match(err.join("\n"), /e2e suite failed/i);
 });
 
+fixtureTest("goals verify rejects mixed pass and fail counts on one verification line", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with mixed verification count");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Mixed Count Verification
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: 3 passed, 2 failed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Verification result/i);
+  assert.match(err.join("\n"), /2 failed/i);
+});
+
+fixtureTest("goals verify rejects mid-line failure counts without command keywords", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with midline failure count");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Midline Failure Count
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- unit: passed
+- soak reported 3 errors before rerun
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /3 errors/i);
+});
+
+fixtureTest("goals verify rejects non-bulleted field-like failed verification lines", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with field-like failed verification");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Field Like Failure
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+Integration: failed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Verification result/i);
+  assert.match(err.join("\n"), /Integration: failed/i);
+});
+
+fixtureTest("goals verify rejects non-whitelisted status labels inside verification", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with pytest failed verification");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Non JS Verification
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+Pytest: failed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Pytest: failed/i);
+});
+
+fixtureTest("goals verify rejects unbulleted failures from non-whitelisted runners", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with playwright failed verification");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Playwright Failure
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+Playwright: 4 failed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Playwright: 4 failed/i);
+});
+
+fixtureTest("goals verify rejects nested verification failure labels", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with nested verification failure");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Nested Verification Failure
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+Verification: failed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Verification: failed/i);
+});
+
+fixtureTest("goals verify rejects summary and details lines with failure counts", async () => {
+  for (const line of ["Summary: 3 failed, 100 passed", "Details: 2 failures"]) {
+    const mergeCommit = createFixtureMergeCommit(45, `goal with ${line.split(":")[0].toLowerCase()} failure`);
+    writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Result Bearing Note Label
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+${line}
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+    const { io, err } = capture();
+    const code = await main(["goals", "verify", "1"], io);
+    assert.equal(code, 1, `${line} should be evaluated as verification evidence`);
+    assert.match(err.join("\n"), /failed|failures/i);
+  }
+});
+
+fixtureTest("goals verify treats non-status field-like lines after verification as a boundary", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with trailing notes");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Verification Notes
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+Notes: skipped the slow external integration suite in local verification
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, out, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify rejects bare positive verification tokens", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with bare ok verification");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Bare Positive Verification
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- manual QA
+- ok
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Verification result/i);
+});
+
 fixtureTest("goals verify accepts positive evidence that mentions negated failures", async () => {
   const mergeCommit = createFixtureMergeCommit(45, "goal with explicit clean results");
   writeGoalChain(`# Implementation Goal Chain
@@ -600,6 +906,8 @@ Issues:
 Verification:
 - npm test: passed, no failures
 - npm run lint: 0 errors, all pass
+- added tests for error handling: passed
+- failure-mode regression: passed
 - e2e: passed, no tests skipped
 - manual QA: passed, nothing blocked
 - typecheck: passed, build no longer blocked
@@ -608,6 +916,8 @@ Verification:
 Merged PR: #45 add error handling
 Merge commit: ${mergeCommit}
 
+Residual risks: none
+
 Next goal:
 - Goal 2: Handle error states
 `);
@@ -615,7 +925,7 @@ Next goal:
   const { io, out, err } = capture();
   const code = await main(["goals", "verify", "1"], io);
   assert.equal(code, 0, err.join("\n"));
-  assert.match(out.join("\n"), /Goal 1 has closeout evidence/i);
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
 });
 
 fixtureTest("goals verify accepts a squash integration commit that matches the PR", async () => {
@@ -635,6 +945,8 @@ Verification:
 Merged PR: #45
 Merge commit: ${squashCommit}
 
+Residual risks: none
+
 Next goal:
 - Goal 2: Follow-up
 `);
@@ -642,7 +954,415 @@ Next goal:
   const { io, out, err } = capture();
   const code = await main(["goals", "verify", "1"], io);
   assert.equal(code, 0, err.join("\n"));
-  assert.match(out.join("\n"), /Goal 1 has closeout evidence/i);
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify accepts non-GitHub tracker issue keys", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with jira issue");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: External Tracker Evidence
+
+Objective: land a coherent unit of work.
+
+Issues:
+- ENG-123 External tracker issue
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, out, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify accepts inline tracker keys and Azure-style refs", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with azure issue");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Azure Tracker Evidence
+
+Objective: land a coherent unit of work.
+
+Issues:
+- Fixes ENG-123 and AB#456
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, out, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify accepts standards-like tracker project keys except obvious standards tokens", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with sql tracker issue");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: SQL Tracker Evidence
+
+Objective: land a coherent unit of work.
+
+Issues:
+- SQL-17: External tracker issue
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, out, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify accepts explicit residual-risk absence as not applicable", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with n/a residual risks");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Not Applicable Residual Risks
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: N/A
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, out, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify rejects missing residual risk evidence", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal without residual risks");
+  writeGoalChain(`# Implementation Goal Chain
+
+Each goal must record residual risks.
+
+## Goal 1: Missing Residual Risks
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks:
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Residual risks/i);
+});
+
+fixtureTest("goals verify rejects missing linked issue evidence", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal without linked issue");
+  writeGoalChain(`# Implementation Goal Chain
+
+Each goal must include linked issue evidence.
+
+## Goal 1: Missing Linked Issue
+
+Objective: land a coherent unit of work.
+
+Issues:
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Linked issue/i);
+});
+
+fixtureTest("goals verify rejects absent required linked issue and residual-risk fields", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal without required closeout fields");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Missing Required Closeout Fields
+
+Objective: land a coherent unit of work.
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Linked issue/i);
+  assert.match(err.join("\n"), /Residual risks/i);
+});
+
+fixtureTest("goals verify can enforce only declared closeout fields for migrated chains", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "migrated goal without optional fields");
+  await withRequiredGoalCloseoutFields([], async () => {
+    writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Migrated Goal
+
+Objective: land a coherent unit of work.
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+    const { io, out, err } = capture();
+    const code = await main(["goals", "verify", "1"], io);
+    assert.equal(code, 0, err.join("\n"));
+    assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+  });
+});
+
+fixtureTest("goals verify treats missing required-field config as declared-only for migrated chains", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with missing closeout config");
+  await withoutRequiredGoalCloseoutFields(async () => {
+    writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Missing Config Migration
+
+Objective: land a coherent unit of work.
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+    const { io, out, err } = capture();
+    const code = await main(["goals", "verify", "1"], io);
+    assert.equal(code, 0, err.join("\n"));
+    assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+  });
+});
+
+fixtureTest("goals verify reads linked issue aliases as issue evidence", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with linked issue alias");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Linked Issue Alias
+
+Objective: land a coherent unit of work.
+
+Linked issues:
+- #123
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, out, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+});
+
+fixtureTest("goals verify enforces custom required closeout fields", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with custom closeout field");
+  await withRequiredGoalCloseoutFields(["Issues?", "Residual risks", "Rollback plan"], async () => {
+    writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Custom Closeout Field
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+    const { io, err } = capture();
+    const code = await main(["goals", "verify", "1"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /Rollback plan/i);
+  });
+});
+
+fixtureTest("goals verify accepts custom required closeout fields with evidence", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with custom closeout evidence");
+  await withRequiredGoalCloseoutFields(["Issues?", "Residual risks", "Rollback plan"], async () => {
+    writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Custom Closeout Evidence
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Rollback plan:
+- revert PR #45
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+    const { io, out, err } = capture();
+    const code = await main(["goals", "verify", "1"], io);
+    assert.equal(code, 0, err.join("\n"));
+    assert.match(out.join("\n"), /Goal 1 has matching local closeout evidence/i);
+  });
+});
+
+fixtureTest("goals verify rejects invalid tracker issue pattern config", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with invalid tracker pattern");
+  await withTrackerIssuePattern("[", async () => {
+    writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Invalid Tracker Pattern
+
+Objective: land a coherent unit of work.
+
+Issues:
+- #123
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+    const { io, err } = capture();
+    const code = await main(["goals", "verify", "1"], io);
+    assert.equal(code, 1);
+    assert.match(err.join("\n"), /trackerIssuePattern/i);
+  });
+});
+
+fixtureTest("goals verify rejects standards-looking prose as linked issue evidence", async () => {
+  const mergeCommit = createFixtureMergeCommit(45, "goal with standards prose");
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 1: Standards Prose
+
+Objective: land a coherent unit of work.
+
+Issues:
+- UTF-8: encoding support
+
+Verification:
+- npm test: passed
+
+Merged PR: #45
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+
+Next goal:
+- Goal 2: Follow-up
+`);
+
+  const { io, err } = capture();
+  const code = await main(["goals", "verify", "1"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Linked issue/i);
 });
 
 fixtureTest("goals verify rejects merged PR prose that says the PR is still open", async () => {
@@ -854,13 +1574,15 @@ Verification:
 Merged PR: #90
 Merge commit: ${mergeCommit}
 
+Residual risks: none
+
 Next goal: none
 `);
 
   const { io, out, err } = capture();
   const code = await main(["goals", "verify", "9"], io);
   assert.equal(code, 0, err.join("\n"));
-  assert.match(out.join("\n"), /Goal 9 has closeout evidence/i);
+  assert.match(out.join("\n"), /Goal 9 has matching local closeout evidence/i);
 });
 
 fixtureTest("goals start-prompt renders a bounded prompt from the goal chain", async () => {

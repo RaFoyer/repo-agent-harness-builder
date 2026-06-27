@@ -22,7 +22,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `connections` | recommended | Validate permanent external-authority connection metadata |
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
-| `goals` | recommended | Inspect ticket-backed goal chains, closeout evidence, and goal-thread prompts |
+| `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `pm` | optional | Tracker lifecycle wrapper |
 | `workspace` | optional | External workspace/MCP governance |
 | `review-gate` | optional | High-risk PR or protected-branch guard |
@@ -101,20 +101,41 @@ Minimum behavior:
 
 - `goals status`: show configured goals from the goal-chain document, or report
   that no goal chain is configured without failing baseline verification.
-- `goals verify <goal-id>`: block missing merged PR, merge/squash integration
-  commit, verification result, or next-goal evidence; reject placeholders,
-  negated verification, negated PR evidence, and integration commits that either
-  do not match the recorded PR number or are not reachable from the current
-  local integration branch or its local remote-tracking ref. Accept successor
-  references as `Goal N: Title` or issue links; accept the exact
-  `Next goal: none` marker only as an explicit final-goal marker.
+- `goals verify <goal-id>`: block missing linked issue evidence, merged PR,
+  merge/squash integration commit, verification result, residual-risk evidence,
+  or next-goal evidence; reject placeholders, negated verification, negated PR
+  evidence, and integration commits that either do not match the recorded PR
+  number or are not reachable from the configured local integration branch or
+  configured local remote-tracking ref. Accept successor references as
+  `Goal N: Title` or issue links; accept the exact `Next goal: none` marker only
+  as an explicit final-goal marker. The default generated config uses the
+  default branch and `origin`, requires `Issues:` and `Residual risks:` through
+  `requiredGoalCloseoutFields`, and accepts common GitHub/Jira/Linear/Azure-style
+  issue references with or without a trailing colon. Repos with a different
+  integration branch, remote, tracker shape, or migrated goal-chain schema
+  should update `integrationBranch`, `integrationRemote`, `trackerIssuePattern`,
+  or `requiredGoalCloseoutFields`. Invalid tracker patterns should be reported
+  as configuration blockers, not silently ignored.
 - `goals start-prompt <goal-id>`: print a bounded goal-thread prompt using the
-  repo path, default branch, issue reference, objective, and verification
+  repo path, integration branch, issue reference, objective, and verification
   expectations.
 
 Goal commands must not merge PRs, update trackers, create new threads, or run
 write-capable work. Treat them as read-only inspection and prompt-generation
-helpers unless a repo-specific protocol adds stronger tested behavior.
+helpers unless a repo-specific protocol adds stronger tested behavior. They
+inspect local git evidence and recorded text; they do not verify live PR state.
+Fresh generated harnesses fail closed on `Issues:` and `Residual risks:` through
+`requiredGoalCloseoutFields`. Older configs that omit that key enforce only
+closeout fields declared in each goal; add the key to opt into the fresh strict
+default, or set it to `[]` as an explicit migration opt-out. Additional entries
+in `requiredGoalCloseoutFields` are enforced as required closeout fields with
+non-placeholder evidence. The CLI also accepts `Linked issues:` and
+`Closed issues:` as issue-evidence aliases. Verification lines must include an
+explicit passing result such as `passed`, `verified`, `succeeded`, or
+`completed`. Keep custom note fields outside the `Verification:` block, or
+separate them with a blank line. Non-bulleted runner or result lines inside
+`Verification:` are still evaluated for failure tokens; note-style labels such
+as `Notes:` end the verification block.
 
 ## Preflight Contract
 

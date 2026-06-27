@@ -20,7 +20,7 @@ Run product and engineering work through ticket-backed goals that each start fro
 
 ## When To Use
 
-Use a goal chain when work depends on prior decisions or merged code, multiple tickets are safer as a sequence, and done means merged PR plus recorded evidence. Do not use this protocol for one-off changes, exploratory work without durable tracker state, or projects without an integration branch and verification gates.
+Use a goal chain when work depends on prior decisions or merged code, multiple tickets are safer as a sequence, and done means merged PR plus recorded local evidence. Do not use this protocol for one-off changes, exploratory work without durable tracker state, or projects without an integration branch and verification gates.
 
 ## Source Of Truth
 
@@ -62,7 +62,9 @@ Use the repo CLI when the goal-chain module is active:
 ./{{CLI_NAME}} goals start-prompt <goal-id>
 ```
 
-`goals status` is read-only and may run before activation. `goals verify` rejects unresolved placeholders, negated verification text, negated PR evidence, and merge or squash integration commits that either do not match the recorded PR number or are not reachable from the current local integration branch or its local remote-tracking ref; fetch or pull the integration branch first if the PR was just merged remotely. The command does not merge, update trackers, or create the next thread. `goals start-prompt` prints a bounded prompt for a goal thread.
+`goals status` is read-only and may run before activation. `goals verify` rejects missing linked issue evidence, unresolved placeholders, negated verification text, negated PR evidence, missing residual-risk evidence, and merge or squash integration commits that either do not match the recorded PR number or are not reachable from the configured local integration branch or its configured local remote-tracking ref. Generated CLI config defaults `integrationBranch` to the default branch, `integrationRemote` to `origin`, `requiredGoalCloseoutFields` to `Issues:` and `Residual risks:`, and `trackerIssuePattern` to an empty value with common GitHub/Jira/Linear/Azure-style issue references accepted by default, with or without a trailing colon; update those values when the repository uses a different integration branch, remote, tracker reference shape, or migrated goal-chain schema. Fetch or pull the integration branch first if the PR was just merged remotely. The command does not verify live PR state, merge, update trackers, or create the next thread. `goals start-prompt` prints a bounded prompt for a goal thread.
+
+Fresh generated harnesses fail closed on `Issues:` and `Residual risks:` through `requiredGoalCloseoutFields`. Older configs that omit that key enforce only closeout fields declared in each goal; add the key to opt into the fresh strict default, or set it to `[]` as an explicit migration opt-out. Additional entries in `requiredGoalCloseoutFields` are enforced as required closeout fields with non-placeholder evidence. The CLI also accepts `Linked issues:` and `Closed issues:` as issue-evidence aliases. Verification lines must include an explicit passing result such as `passed`, `verified`, `succeeded`, or `completed`. Keep custom note fields outside the `Verification:` block, or separate them with a blank line. Non-bulleted runner or result lines inside `Verification:` are still evaluated for failure tokens; note-style labels such as `Notes:` end the verification block.
 
 ## Verification
 
