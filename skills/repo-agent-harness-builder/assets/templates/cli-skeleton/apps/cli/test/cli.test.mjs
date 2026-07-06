@@ -1008,6 +1008,32 @@ fixtureTest("no-mistakes setup can pin a user-local agent when requested", async
   assert.doesNotMatch(text, localPathPattern());
 });
 
+fixtureTest("no-mistakes setup fails when an explicit agent pin cannot be written", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const env = { HOME: path.join(repoRoot, "home") };
+  fs.mkdirSync(env.HOME, { recursive: true });
+  fs.writeFileSync(path.join(env.HOME, ".no-mistakes"), "not a directory\n", "utf-8");
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup", "--agent", "codex"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 1, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /status: agent-config-failed/);
+  assert.match(text, /initialized: true/);
+  assert.match(text, /agent_config: unavailable/);
+  assert.match(text, /agent: "unchanged"/);
+  assert.match(text, /post_check: pass/);
+  assert.doesNotMatch(text, /ENOTDIR|not a directory/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
 fixtureTest("no-mistakes setup can pin a safe ACP target when requested", async () => {
   const { runImpl } = fakeCommandRunner([
     { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },

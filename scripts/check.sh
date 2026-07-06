@@ -429,6 +429,26 @@ if ! grep -q "^agent: codex$" "$TMP/no-mistakes-home/config.yaml"; then
   echo "setup-no-mistakes should write requested user-local no-mistakes agent" >&2
   exit 1
 fi
+printf 'not a directory\n' > "$TMP/no-mistakes-agent-blocked-home"
+if (
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-agent-blocked-user-home" NM_HOME="$TMP/no-mistakes-agent-blocked-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-agent-blocked.out" 2>"$TMP/no-mistakes-script-agent-blocked.err"
+); then
+  cat "$TMP/no-mistakes-script-agent-blocked.out"
+  echo "setup-no-mistakes should fail when explicit agent pinning cannot be written" >&2
+  exit 1
+fi
+if ! grep -q "status: agent-config-failed" "$TMP/no-mistakes-script-agent-blocked.out" || ! grep -q "agent_config: unavailable" "$TMP/no-mistakes-script-agent-blocked.out"; then
+  cat "$TMP/no-mistakes-script-agent-blocked.out"
+  echo "setup-no-mistakes should report explicit agent pin write failure" >&2
+  exit 1
+fi
+if [ -s "$TMP/no-mistakes-script-agent-blocked.err" ]; then
+  cat "$TMP/no-mistakes-script-agent-blocked.err"
+  echo "setup-no-mistakes should suppress raw agent config file errors" >&2
+  exit 1
+fi
 if (
   cd "$TMP/generated-repo"
   HOME="$TMP/no-mistakes-invalid-home/user-home" NM_HOME="$TMP/no-mistakes-invalid-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \

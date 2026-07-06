@@ -443,13 +443,16 @@ async function runSetup(
   const initResult = runImpl("no-mistakes", initArgs, { cwd: repoRoot });
   const localExclude = ensureLocalNoMistakesExclude(repoRoot);
   const after = collectNoMistakesStatus({ repoRoot, runImpl, env, fsImpl });
-  const ok = initResult.ok && after.initialized;
-  const agentConfig = ok && options.agent
+  const initOk = initResult.ok && after.initialized;
+  const agentConfig = initOk && options.agent
     ? writeGlobalNoMistakesAgent(options.agent, { env, fsImpl })
     : { status: "unchanged", agent: null, previous_agent: null };
+  const agentConfigOk = !options.agent || ["present", "updated"].includes(agentConfig.status);
+  const ok = initOk && agentConfigOk;
+  const setupStatus = ok ? "ok" : initOk ? "agent-config-failed" : "failed";
   const payload = {
     no_mistakes_setup: {
-      status: ok ? "ok" : "failed",
+      status: setupStatus,
       available: true,
       initialized: after.initialized,
       fork_url: options.forkUrl ? "provided" : "omitted",
@@ -464,7 +467,12 @@ async function runSetup(
           "Commit a feature branch, then run git push no-mistakes <branch-name>",
           options.agent ? describeAgent(options.agent) : "Pass --agent codex, --agent claude, or --agent auto only when you want to pin local no-mistakes behavior"
         ]
-      : ["Run no-mistakes status locally for detailed diagnostics before retrying"]
+      : initOk && options.agent
+        ? [
+            "Check user-local no-mistakes config permissions, then rerun setup with --agent",
+            "Rerun setup without --agent only if you want to keep the existing or default agent"
+          ]
+        : ["Run no-mistakes status locally for detailed diagnostics before retrying"]
   };
 
   if (options.json) {

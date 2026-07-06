@@ -326,18 +326,30 @@ fi
 if [ "$init_status" -eq 0 ] && is_initialized; then
   local_exclude="$(ensure_local_exclude)"
   agent_config="$(write_agent_config)"
+  setup_status="ok"
+  exit_status=0
+  if [ -n "$agent" ] && [ "$agent_config" != "updated" ]; then
+    setup_status="agent-config-failed"
+    exit_status=1
+  fi
   echo "no_mistakes_setup:"
-  echo "  status: ok"
+  echo "  status: $setup_status"
   echo "  available: true"
   echo "  initialized: true"
   echo "  fork_url: $(if [ -n "$fork_url" ]; then echo provided; else echo omitted; fi)"
   echo "  agent_config: $agent_config"
   echo "  agent: $(agent_label "$agent")"
   echo "  local_exclude: $local_exclude"
-  echo "help[2]:"
-  echo "  \"Commit a feature branch, then run git push no-mistakes <branch-name>\""
-  echo "  \"Pass --agent codex, --agent claude, or --agent auto only when you want to pin local no-mistakes behavior\""
-  exit 0
+  if [ "$exit_status" -eq 0 ]; then
+    echo "help[2]:"
+    echo "  \"Commit a feature branch, then run git push no-mistakes <branch-name>\""
+    echo "  \"Pass --agent codex, --agent claude, or --agent auto only when you want to pin local no-mistakes behavior\""
+  else
+    echo "help[2]:"
+    echo "  \"Check user-local no-mistakes config permissions, then rerun setup with --agent\""
+    echo "  \"Rerun setup without --agent only if you want to keep the existing or default agent\""
+  fi
+  exit "$exit_status"
 fi
 
 echo "no_mistakes_setup:"
