@@ -52,6 +52,9 @@ the repo protocol says so. The setup wrapper may expose `--agent` as an
 explicit user-local pin; omitting it must leave an existing global no-mistakes
 agent preference unchanged.
 
+For direct script use, `scripts/setup-no-mistakes.sh --check-only` should report
+initialized status without changing no-mistakes or git state.
+
 The setup flow must fail closed: `no-mistakes init` is not enough unless a
 follow-up status check confirms initialization. CLI and script output should
 summarize availability, initialization, config presence, setup-script presence,

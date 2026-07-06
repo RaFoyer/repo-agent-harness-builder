@@ -112,6 +112,9 @@ repository harnesses. Minimum behavior:
   `no-mistakes init`, then fail closed unless a follow-up status check confirms
   initialization. `--agent` is an optional user-local pin; omit it to leave the
   collaborator's existing global no-mistakes agent config unchanged.
+- `scripts/setup-no-mistakes.sh [--fork-url <url>] [--agent <agent>] [--check-only]`:
+  provide the same setup path for direct shell use; `--check-only` verifies
+  initialized status without changing no-mistakes or git state.
 - `no-mistakes help`: show concise usage.
 
 The wrapper must not echo raw `no-mistakes status`, local paths, fork URLs,

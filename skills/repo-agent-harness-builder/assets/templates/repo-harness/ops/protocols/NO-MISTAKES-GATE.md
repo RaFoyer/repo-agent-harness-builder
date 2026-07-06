@@ -27,8 +27,8 @@ unless the maintainer explicitly chooses a different PR validation system.
 ## Source Of Truth
 
 - Repo policy: `.no-mistakes.yaml`
-- Local setup script: `scripts/setup-no-mistakes.sh`
-- CLI wrappers: `./{{CLI_NAME}} no-mistakes status` and `./{{CLI_NAME}} no-mistakes setup [--agent <agent>]`
+- Local setup script: `scripts/setup-no-mistakes.sh [--fork-url <url>] [--agent <agent>] [--check-only]`
+- CLI wrappers: `./{{CLI_NAME}} no-mistakes status` and `./{{CLI_NAME}} no-mistakes setup [--fork-url <url>] [--agent <agent>]`
 - Local no-mistakes state: managed by the no-mistakes tool, including repo-local `.no-mistakes/` state when present
 
 ## Standard Flow
@@ -36,6 +36,7 @@ unless the maintainer explicitly chooses a different PR validation system.
 1. Run `./{{CLI_NAME}} preflight`.
 2. Run `./{{CLI_NAME}} no-mistakes status`.
 3. If setup is not initialized, ask for approval, then run `./{{CLI_NAME}} no-mistakes setup`.
+   Pass `--fork-url` only when the maintainer has approved the fork URL.
    Use `--agent codex`, `--agent claude`, or another supported value only when
    the maintainer wants to pin local no-mistakes behavior for this machine.
 4. Create or continue work on a feature branch.

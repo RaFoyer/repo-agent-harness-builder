@@ -183,6 +183,10 @@ The check script validates:
 - generated no-mistakes setup/status contracts and harness verifier coverage
 - protected personal-folder scope behavior
 
+For feature PRs, prefer the no-mistakes gate after local checks when the
+no-mistakes remote is initialized. This meta repository pins that gate to Codex;
+generated harnesses remain agent-agnostic with `agent: auto`.
+
 After the GitHub repo is public, verify public install discovery with:
 
 ```bash

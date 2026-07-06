@@ -70,6 +70,10 @@ npm run check:ci
 npm run check
 ```
 
+For feature PRs, prefer the no-mistakes gate after local checks when the
+no-mistakes remote is initialized. Use branch/worktree-aware status before
+starting validation and leave active validations in other branches alone.
+
 After the repository is public, the release workflow verifies published release
 assets, then runs mutable source discovery as a post-publish diagnostic.
 Maintainers can run the same diagnostic manually. Confirmed source-discovery

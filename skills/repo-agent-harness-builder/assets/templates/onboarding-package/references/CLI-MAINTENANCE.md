@@ -25,10 +25,11 @@ When changing commands:
 For no-mistakes tooling, keep `./{{CLI_NAME}} no-mistakes status`,
 `./{{CLI_NAME}} no-mistakes setup`, `.no-mistakes.yaml`, and
 `scripts/setup-no-mistakes.sh` in sync. Setup must run `no-mistakes init` and
-then confirm initialized status before reporting success. Do not echo raw status
-output, fork URLs, local paths, account identifiers, or secret-like values.
-Setup is mutating and should keep `.no-mistakes/` out of commits through local
-git exclude when a checkout exists.
+then confirm initialized status before reporting success. The direct script's
+`--check-only` mode should report initialized status without mutation. Do not
+echo raw status output, fork URLs, local paths, account identifiers, or
+secret-like values. Setup is mutating and should keep `.no-mistakes/` out of
+commits through local git exclude when a checkout exists.
 
 Keep comments near decision points:
 
