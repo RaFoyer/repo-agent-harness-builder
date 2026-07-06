@@ -814,6 +814,28 @@ fixtureTest("no-mistakes status is value-safe when the tool is unavailable", asy
   assert.doesNotMatch(text, /fork\.git/);
 });
 
+fixtureTest("no-mistakes status degrades when user-local agent config is unavailable", async () => {
+  const env = { HOME: path.join(repoRoot, "home") };
+  fs.mkdirSync(env.HOME, { recursive: true });
+  fs.writeFileSync(path.join(env.HOME, ".no-mistakes"), "not a directory\n", "utf-8");
+  const { runImpl } = fakeCommandRunner({
+    "no-mistakes --version": { ok: false, status: 1 }
+  });
+
+  const status = collectNoMistakesStatus({ repoRoot, runImpl, env });
+  assert.equal(status.agent_config, "unavailable");
+  assert.equal(status.agent, null);
+
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["status"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /agent_config: unavailable/);
+  assert.doesNotMatch(text, /ENOTDIR|not a directory/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
 fixtureTest("no-mistakes status summarizes initialized setup without raw status output", async () => {
   const forkUrl = "https://github.com/example/private-fork.git";
   const { runImpl } = fakeCommandRunner({

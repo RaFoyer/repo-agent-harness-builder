@@ -366,6 +366,54 @@ case "$1" in
 esac
 SH
 chmod +x "$TMP/fake-no-mistakes-ok-bin/no-mistakes"
+mkdir -p "$TMP/fake-no-mistakes-cwd-bin" "$TMP/no-mistakes-cwd-home"
+cat > "$TMP/fake-no-mistakes-cwd-bin/no-mistakes" <<'SH'
+#!/usr/bin/env sh
+printf '%s %s\n' "$1" "$(pwd)" >> "$NO_MISTAKES_CWD_LOG"
+case "$1" in
+  --version)
+    echo "no-mistakes version v9.9.9"
+    ;;
+  status)
+    echo "gate: configured"
+    echo "daemon running"
+    ;;
+  init)
+    echo "initialized"
+    ;;
+  axi)
+    echo "current_branch: RA/generated-check"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$TMP/fake-no-mistakes-cwd-bin/no-mistakes"
+mkdir -p "$TMP/caller-repo"
+git -C "$TMP/caller-repo" init -q
+: > "$TMP/no-mistakes-cwd.log"
+(
+  cd "$TMP/caller-repo"
+  HOME="$TMP/no-mistakes-cwd-home/user-home" NM_HOME="$TMP/no-mistakes-cwd-home" \
+    NO_MISTAKES_CWD_LOG="$TMP/no-mistakes-cwd.log" PATH="$TMP/fake-no-mistakes-cwd-bin:$PATH" \
+    "$TMP/generated-repo/scripts/setup-no-mistakes.sh" >"$TMP/no-mistakes-script-cwd.out"
+)
+if grep -Fq "$TMP/caller-repo" "$TMP/no-mistakes-cwd.log"; then
+  cat "$TMP/no-mistakes-cwd.log"
+  echo "setup-no-mistakes should run no-mistakes from the generated repo root" >&2
+  exit 1
+fi
+if ! grep -Fq "$TMP/generated-repo" "$TMP/no-mistakes-cwd.log"; then
+  cat "$TMP/no-mistakes-cwd.log"
+  echo "setup-no-mistakes did not run no-mistakes from the generated repo root" >&2
+  exit 1
+fi
+if [ -f "$TMP/caller-repo/.git/info/exclude" ] && grep -q "^.no-mistakes/$" "$TMP/caller-repo/.git/info/exclude"; then
+  cat "$TMP/caller-repo/.git/info/exclude"
+  echo "setup-no-mistakes should not edit the caller repo local exclude" >&2
+  exit 1
+fi
 (
   cd "$TMP/generated-repo"
   HOME="$TMP/no-mistakes-home/user-home" NM_HOME="$TMP/no-mistakes-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \

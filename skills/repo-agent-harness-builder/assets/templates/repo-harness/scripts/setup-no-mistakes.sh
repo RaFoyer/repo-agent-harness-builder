@@ -114,6 +114,42 @@ if [ -n "$agent" ]; then
   fi
 fi
 
+print_repo_unavailable() {
+  echo "no_mistakes_setup:"
+  echo "  status: unavailable"
+  echo "  available: false"
+  echo "  initialized: false"
+  echo "help[1]:"
+  echo "  \"Run scripts/setup-no-mistakes.sh from the generated repository checkout\""
+}
+
+script_path="$0"
+case "$script_path" in
+  */*) ;;
+  *)
+    resolved_script_path="$(command -v "$script_path" 2>/dev/null || true)"
+    case "$resolved_script_path" in
+      */*) script_path="$resolved_script_path" ;;
+    esac
+    ;;
+esac
+case "$script_path" in
+  */*) ;;
+  *)
+    print_repo_unavailable
+    exit 1
+    ;;
+esac
+script_dir="$(dirname "$script_path")"
+if ! repo_root="$(CDPATH= cd "$script_dir/.." 2>/dev/null && pwd -P)"; then
+  print_repo_unavailable
+  exit 1
+fi
+if ! cd "$repo_root" 2>/dev/null; then
+  print_repo_unavailable
+  exit 1
+fi
+
 print_unavailable() {
   echo "no_mistakes_setup:"
   echo "  status: unavailable"

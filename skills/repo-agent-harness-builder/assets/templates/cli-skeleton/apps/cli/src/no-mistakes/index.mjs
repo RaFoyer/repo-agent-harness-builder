@@ -55,10 +55,10 @@ function readGlobalNoMistakesConfig({ env = process.env, fsImpl = fs } = {}) {
     const contents = fsImpl.readFileSync(configPath, "utf-8");
     const agentMatch = contents.match(/^\s*agent\s*:\s*([^#\n\r]+)/m);
     const agent = agentMatch ? agentMatch[1].trim().replace(/^["']|["']$/g, "") : null;
-    return { path: configPath, exists: true, agent };
+    return { path: configPath, status: "present", exists: true, agent };
   } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    return { path: configPath, exists: false, agent: null };
+    if (error.code === "ENOENT") return { path: configPath, status: "missing", exists: false, agent: null };
+    return { path: configPath, status: "unavailable", exists: false, agent: null };
   }
 }
 
@@ -66,19 +66,24 @@ function writeGlobalNoMistakesAgent(agent, { env = process.env, fsImpl = fs } = 
   const normalized = normalizeAgent(agent);
   if (!normalized) return { status: "invalid", agent: null };
 
-  const config = readGlobalNoMistakesConfig({ env, fsImpl });
-  fsImpl.mkdirSync(path.dirname(config.path), { recursive: true, mode: 0o700 });
-  let contents = "";
-  if (config.exists) contents = fsImpl.readFileSync(config.path, "utf-8");
-  const nextContents = /^\s*agent\s*:/m.test(contents)
-    ? contents.replace(/^(\s*agent\s*:\s*)[^\n\r]*/m, `$1${normalized}`)
-    : `${contents.trimEnd() ? `${contents.trimEnd()}\n\n` : ""}agent: ${normalized}\n`;
-  fsImpl.writeFileSync(config.path, nextContents, { mode: 0o600 });
-  return {
-    status: config.agent === normalized ? "present" : "updated",
-    agent: safeAgentLabel(normalized),
-    previous_agent: safeAgentLabel(config.agent)
-  };
+  try {
+    const config = readGlobalNoMistakesConfig({ env, fsImpl });
+    if (config.status === "unavailable") return { status: "unavailable", agent: null, previous_agent: null };
+    fsImpl.mkdirSync(path.dirname(config.path), { recursive: true, mode: 0o700 });
+    let contents = "";
+    if (config.exists) contents = fsImpl.readFileSync(config.path, "utf-8");
+    const nextContents = /^\s*agent\s*:/m.test(contents)
+      ? contents.replace(/^(\s*agent\s*:\s*)[^\n\r]*/m, `$1${normalized}`)
+      : `${contents.trimEnd() ? `${contents.trimEnd()}\n\n` : ""}agent: ${normalized}\n`;
+    fsImpl.writeFileSync(config.path, nextContents, { mode: 0o600 });
+    return {
+      status: config.agent === normalized ? "present" : "updated",
+      agent: safeAgentLabel(normalized),
+      previous_agent: safeAgentLabel(config.agent)
+    };
+  } catch {
+    return { status: "unavailable", agent: null, previous_agent: null };
+  }
 }
 
 function fileState(repoRoot, relPath) {
@@ -291,7 +296,7 @@ export function collectNoMistakesStatus({
     version: versionResult.ok ? normalizedVersion(versionResult.stdout || versionResult.stderr) : null,
     config: fileState(repoRoot, ".no-mistakes.yaml"),
     setup_script: setupScriptState(repoRoot),
-    agent_config: globalConfig.exists ? "present" : "missing",
+    agent_config: globalConfig.status,
     agent: safeAgentLabel(globalConfig.agent),
     recommended_agent: DEFAULT_SETUP_AGENT,
     axi: state === "initialized" ? collectAxiStatus({ repoRoot, runImpl }) : null,
