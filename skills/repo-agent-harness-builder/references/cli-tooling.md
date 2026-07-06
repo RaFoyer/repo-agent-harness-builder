@@ -39,8 +39,10 @@ apps/cli/bin/{{CLI_NAME}}.mjs
 apps/cli/src/config.mjs
 apps/cli/src/main.mjs
 apps/cli/src/help.mjs
+apps/cli/src/util/agent-output.mjs
 apps/cli/src/util/args.mjs
 apps/cli/src/util/exec.mjs
+apps/cli/src/util/secrets.mjs
 apps/cli/src/commands/context.mjs
 apps/cli/src/commands/checklist.mjs
 apps/cli/src/commands/doctor.mjs
@@ -53,6 +55,7 @@ apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
 apps/cli/src/goals/index.mjs
+apps/cli/src/design/index.mjs
 apps/cli/src/qa/index.mjs
 apps/cli/src/verify/index.mjs
 apps/cli/test/cli.test.mjs
@@ -91,7 +94,7 @@ When adding a command:
 3. Add help text in `help.mjs`.
 4. Add or update the relevant protocol.
 5. Add tests in `apps/cli/test/`.
-6. Run `./{{CLI_NAME}} help` and the command's safe/default mode.
+6. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics audit --strict`, and the command's safe/default mode.
 
 If any step is missing, the CLI and docs are out of sync.
 
@@ -146,7 +149,8 @@ Minimum behavior:
   as configuration blockers, not silently ignored.
 - `goals start-prompt <goal-id>`: print a bounded goal-thread prompt using the
   repo path, integration branch, issue reference, objective, and verification
-  expectations.
+  expectations. Long objectives should be truncated with an `objective_preview`
+  size hint and a `--full` escape hatch for the complete objective.
 
 Goal commands must not merge PRs, update trackers, create new threads, or run
 write-capable work. Treat them as read-only inspection and prompt-generation
@@ -211,6 +215,7 @@ Minimum:
 
 ```bash
 node --test apps/cli/test/*.test.mjs
+./{{CLI_NAME}}
 ./{{CLI_NAME}} help
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} checklist

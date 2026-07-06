@@ -35,7 +35,7 @@ Repositories and durable project folders should usually have:
 - CLI facade or deterministic helper commands
 - content-first no-args CLI home view and structured usage errors
 - CLI ergonomics audit command for checking agent-facing output quality
-- CLI help, context, checklist, protocols, doctor, preflight, verify
+- CLI no-args home, help, ergonomics status, context, checklist, protocols, doctor, preflight, verify
 - precommit or local content checks
 - source-of-truth model
 - privileged document boundary

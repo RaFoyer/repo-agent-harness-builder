@@ -74,6 +74,11 @@ or global client configuration:
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
 ```
 
+Use `connections doctor --account <email>` or `--email <email>` only when
+checking an expected account-domain boundary. Use `--credential-root <path>` only
+for local connector mode; the command should report path safety without printing
+the path.
+
 Use a generic connector only when the repo-owned profile is missing,
 inaccessible, unsupported by the current client, or blocked by the linked work
 item. Record the reason so the next agent can decide whether to add a durable

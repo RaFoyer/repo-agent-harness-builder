@@ -25,6 +25,7 @@ Before using plugin search, connector marketplace flows, generic MCP setup, or g
 ```bash
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections status
+./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
 ```
 
 If a service-specific namespace exists, inspect that help before installing a generic connector:
@@ -36,6 +37,11 @@ If a service-specific namespace exists, inspect that help before installing a ge
 The repo-owned inventory defines approved profile ids, server names, scope bundles, credential storage classes, and verification commands. Request or install a generic external-service connector only when the repo-owned profile is missing, inaccessible, unsupported by the current client, or explicitly blocked by the linked work item. Record that reason before installation.
 
 Connector profile plans must be value-safe. They may show provider names, server names, scope names, credential storage classes, verification commands, and whether endpoint or account-domain boundaries are configured. They must not show tenant-specific endpoint hosts, account domains, local credential paths, tokens, OAuth client secrets, refresh tokens, cookies, service-account private keys, local auth blobs, or private document contents unless a repo protocol explicitly marks that metadata shareable.
+
+Use `connections doctor --account <email>` or `--email <email>` only to validate
+an expected account-domain boundary. Use `--credential-root <path>` only for
+local connector mode; doctor output should report path safety without printing
+the local path.
 
 ## Connection Classes
 

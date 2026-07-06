@@ -47,6 +47,11 @@ domains, local credential paths, tokens, OAuth client secrets, refresh tokens,
 cookies, service-account private keys, local auth blobs, or private document
 contents unless a repo protocol explicitly marks that metadata shareable.
 
+Use `connections doctor --account <email>` or `--email <email>` only when
+checking an expected account-domain boundary. Use `--credential-root <path>` only
+for local connector mode; the command should report whether storage is outside
+the repository without printing the path.
+
 Use a generic connector only when a repo-owned profile is missing, inaccessible,
 unsupported by the current client, or explicitly blocked by the linked work
 item. Record the reason so future agents can decide whether to add a repo-owned

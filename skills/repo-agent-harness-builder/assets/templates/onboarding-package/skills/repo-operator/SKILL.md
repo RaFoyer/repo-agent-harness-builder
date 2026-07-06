@@ -14,6 +14,6 @@ description: Use when operating inside a repository that has AGENTS.md, AGENTS-T
 5. Use `AGENTS-TOC.md` to select task-specific protocols.
 6. Before installing or requesting generic connectors, run the discovered CLI's `connections plan` command when that command exists.
 7. Prefer the repo-local CLI for repeatable checks and repo operations.
-8. Keep docs, CLI help, and tests in sync.
+8. Keep docs, CLI help, and tests in sync; run the CLI ergonomics audit when command output changes.
 
 If the repo has no native harness yet, use `repo-agent-harness-builder` to scaffold one.

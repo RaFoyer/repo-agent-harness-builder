@@ -47,6 +47,7 @@ The repo CLI can inspect the common surface:
 
 ```bash
 ./{{CLI_NAME}} qa status
+./{{CLI_NAME}} qa axi
 ./{{CLI_NAME}} qa plan
 ./{{CLI_NAME}} qa artifacts
 ./{{CLI_NAME}} qa no-masking

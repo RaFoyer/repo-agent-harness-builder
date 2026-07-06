@@ -45,6 +45,9 @@ exist and have tests.
 For ticket-backed implementation chains, keep `goals` commands read-only unless
 the repository adds stronger tested authority. Minimum useful commands are
 `goals status`, `goals verify <goal-id>`, and `goals start-prompt <goal-id>`.
+`goals start-prompt` should keep the default prompt bounded, report
+`objective_preview` when truncating long objectives, and support `--full` for
+the complete objective.
 `goals verify` should reject missing linked issue evidence, placeholders,
 negated verification text, negated PR evidence, missing residual-risk evidence,
 and merge or squash integration commits that either do not match the recorded PR

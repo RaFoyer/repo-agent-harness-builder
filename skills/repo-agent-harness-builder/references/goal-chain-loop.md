@@ -27,7 +27,9 @@ lacks a tracker, integration branch, or verification gate.
 5. Route `AGENTS-TOC.md` to the protocol and mark the checklist row active only
    after tracker, integration branch, and verification gates exist.
 6. Use `./{{CLI_NAME}} goals status` to inspect the chain and
-   `./{{CLI_NAME}} goals start-prompt <goal-id>` to create a thread prompt.
+   `./{{CLI_NAME}} goals start-prompt <goal-id>` to create a bounded thread
+   prompt. If the objective is truncated, rerun with `--full` only when the
+   complete objective is needed.
 7. Fetch or pull the integration branch if the PR was just merged remotely,
    then use `./{{CLI_NAME}} goals verify <goal-id>` before closing a goal.
    The generated verifier inspects local git evidence and recorded text; it does

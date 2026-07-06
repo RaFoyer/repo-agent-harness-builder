@@ -146,8 +146,9 @@ The skill can help with:
 - non-GitHub project-folder harnesses
 - personal file-steward harnesses for folders such as Downloads and Documents
 - portable onboarding packages
-- CLI skeletons with preflight, precommit, verify, doctor, checklist, browser
-  QA, secrets, connection commands, and goal-chain helpers
+- CLI skeletons with no-args home views, ergonomics audits, preflight,
+  precommit, verify, doctor, checklist, browser QA, secrets, connection
+  commands, design status, skill/self checks, and goal-chain helpers
 - loops, goal chains, and recurring work definitions with bounded verification
   and stop rules
 

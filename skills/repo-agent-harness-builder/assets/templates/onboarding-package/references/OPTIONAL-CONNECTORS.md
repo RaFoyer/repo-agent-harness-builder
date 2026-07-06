@@ -40,6 +40,11 @@ server, or global client configuration:
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
 ```
 
+Use `connections doctor --account <email>` or `--email <email>` only when
+checking an expected account-domain boundary. Use `--credential-root <path>` only
+for local connector mode; the command should report path safety without printing
+the path.
+
 When a service-specific CLI namespace exists, inspect that namespace help before
 falling back to a generic connector:
 

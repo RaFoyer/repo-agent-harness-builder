@@ -45,7 +45,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 ## Bundled Assets
 
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, and protocol templates.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, and `self` commands.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `goals`, `design`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/goal-chain/`: implementation goal-chain, goal-start prompt, and handoff templates.
@@ -66,7 +66,7 @@ Use placeholders consistently:
 - `scripts/scaffold_harness.py`: copy templates into a target repo and replace placeholders.
 - `scripts/scaffold_personal_harness.py`: create a safe personal-folder harness in a project folder, not directly in `Documents`, `Downloads`, `Desktop`, or home.
 - `scripts/build_reference_package.py`: assemble the shareable zip from a clean staging directory, inject the skill, generate a manifest, and write a checksum.
-- `scripts/verify_harness.py`: check that a generated harness has the expected docs, CLI files, executable facade, and optional tests.
+- `scripts/verify_harness.py`: check that a generated harness has the expected docs, protocol front matter, CLI files, executable facade, smoke commands, replaced placeholders, and optional tests.
 
 Prefer the scripts for repeatable scaffold/package work. If editing templates manually, keep command help, protocol docs, tests, and root routing in sync in the same change.
 

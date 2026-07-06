@@ -31,20 +31,25 @@ Prefer TOON-shaped output for lists and structured detail views. Keep internal l
 Home view pattern:
 
 ```text
-bin: ./{{CLI_NAME}}
-description: Operate the repository harness for {{PROJECT_NAME}}
+bin: "./{{CLI_NAME}}"
+description: "Operate the {{PROJECT_NAME}} repository harness"
 repo:
   name: "{{PROJECT_NAME}}"
   slug: "{{REPO_SLUG}}"
-commands[4]{command,purpose}:
+  default_branch: "{{DEFAULT_BRANCH}}"
+  tracker: "{{TRACKER_NAME}}"
+commands[7]{command,purpose}:
   "preflight","Run read-only session-start checks"
   "protocols","List routed protocol files"
   "checklist","Show harness module states"
-  "help","Show concise command reference"
+  "doctor","Check local prerequisites"
+  "ergonomics status","Audit agent-facing CLI ergonomics"
+  "verify --dry-run","Preview the verification sequence"
+  "help","Show the concise command reference"
 help[3]:
-  "Run `./{{CLI_NAME}} preflight` before broad edits"
-  "Run `./{{CLI_NAME}} protocols` to choose a task protocol"
-  "Run `./{{CLI_NAME}} help` for all commands"
+  "Run ./{{CLI_NAME}} preflight before broad edits"
+  "Run ./{{CLI_NAME}} protocols to choose a task protocol"
+  "Run ./{{CLI_NAME}} help for all commands"
 ```
 
 List view pattern:
