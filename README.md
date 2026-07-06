@@ -50,6 +50,8 @@ metadata-only inventory report and a written plan before any file changes.
 - Python 3 for scaffold and packaging scripts.
 - `git` for repository mode.
 - `gh` only if you want the agent to create or publish GitHub repositories.
+- `no-mistakes` only if you want the branch-to-PR validation gate; generated
+  `no-mistakes status` reports when it is unavailable.
 
 Native Windows without WSL/Git Bash is a direct-read/reference path until a
 Windows adapter is added. Give the package to the agent and ask it to read

@@ -29,7 +29,7 @@ unless the maintainer explicitly chooses a different PR validation system.
 - Repo policy: `.no-mistakes.yaml`
 - Local setup script: `scripts/setup-no-mistakes.sh`
 - CLI wrappers: `./{{CLI_NAME}} no-mistakes status` and `./{{CLI_NAME}} no-mistakes setup`
-- Local no-mistakes state: outside the repository, managed by the no-mistakes tool
+- Local no-mistakes state: managed by the no-mistakes tool, including repo-local `.no-mistakes/` state when present
 
 ## Standard Flow
 

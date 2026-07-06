@@ -39,7 +39,7 @@ skills/repo-operator/SKILL.md
 
 - `START-HERE.md`: human-facing, short, says to give the archive to an agent and choose a mode.
 - `AGENT-HANDOFF.md`: agent-facing, canonical workflow for inspecting the archive, checking tools, choosing mode, and transferring authority to local harness docs.
-- `SETUP-CHECKPOINTS.md`: checklist that prevents skipping account, tooling, auth, clone, repo handoff, optional MCP, and first useful action.
+- `SETUP-CHECKPOINTS.md`: checklist that prevents skipping account, tooling, auth, clone, repo handoff, optional PR validation, optional MCP, and first useful action.
 - `SOURCES.md`: ledger of source materials and template lineage.
 
 ## Safety Rules

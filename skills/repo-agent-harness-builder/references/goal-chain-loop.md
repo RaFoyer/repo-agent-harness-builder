@@ -18,8 +18,8 @@ lacks a tracker, integration branch, or verification gate.
 
 ## Design Steps
 
-1. Confirm tracker, integration branch, first verification commands, and whether
-   parallel work is allowed.
+1. Confirm tracker, integration branch, first verification commands, PR gate
+   expectations, and whether parallel work is allowed.
 2. Cluster tickets by shared system boundary or acceptance evidence.
 3. Create or update a goal-chain document from
    `assets/templates/goal-chain/IMPLEMENTATION-GOAL-CHAIN.md`.
@@ -67,6 +67,8 @@ Completed goals should additionally include:
   commit reachable from the integration branch and matching the recorded PR,
   positive verification result, and next-goal evidence or explicit final-goal
   marker.
+- When the repository has initialized no-mistakes, run that PR gate before
+  treating the PR as merge-ready.
 - Do not copy scratch context into the next thread. Put durable decisions in
   tracker comments or repository docs.
 - Do not let the CLI merge, update trackers, or create threads unless the target
