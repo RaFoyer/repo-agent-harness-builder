@@ -314,6 +314,8 @@ def main() -> int:
         transaction.chmod_executable(facade)
         bin_entrypoint = target / "apps" / "cli" / "bin" / f"{args.cli_name}.mjs"
         transaction.chmod_executable(bin_entrypoint)
+        setup_no_mistakes = target / "scripts" / "setup-no-mistakes.sh"
+        transaction.chmod_executable(setup_no_mistakes)
         transaction.commit()
     except BaseException:
         transaction.rollback()

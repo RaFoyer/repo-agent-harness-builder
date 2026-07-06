@@ -288,6 +288,61 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --target "$TMP/generated-repo" \
   --cli-name harness \
   --run-tests
+mkdir -p "$TMP/fake-no-mistakes-bin"
+cat > "$TMP/fake-no-mistakes-bin/no-mistakes" <<'SH'
+#!/usr/bin/env sh
+case "$1" in
+  --version)
+    echo "no-mistakes version v9.9.9"
+    ;;
+  status)
+    echo "not in a git repository"
+    ;;
+  init)
+    echo "not in a git repository" >&2
+    exit 1
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$TMP/fake-no-mistakes-bin/no-mistakes"
+(
+  cd "$TMP/generated-repo"
+  PATH="$TMP/fake-no-mistakes-bin:$PATH" ./harness no-mistakes status >"$TMP/no-mistakes-status-non-git.out"
+)
+if ! grep -q "initialized: false" "$TMP/no-mistakes-status-non-git.out" || ! grep -q "repo_state: not-ready" "$TMP/no-mistakes-status-non-git.out"; then
+  cat "$TMP/no-mistakes-status-non-git.out"
+  echo "no-mistakes status should fail closed for non-git success output" >&2
+  exit 1
+fi
+if (
+  cd "$TMP/generated-repo"
+  PATH="$TMP/fake-no-mistakes-bin:$PATH" ./harness no-mistakes setup >"$TMP/no-mistakes-setup-non-git.out"
+); then
+  cat "$TMP/no-mistakes-setup-non-git.out"
+  echo "no-mistakes setup should fail for non-git output" >&2
+  exit 1
+fi
+if ! grep -q "initialized: false" "$TMP/no-mistakes-setup-non-git.out" || ! grep -q "post_check: fail" "$TMP/no-mistakes-setup-non-git.out"; then
+  cat "$TMP/no-mistakes-setup-non-git.out"
+  echo "no-mistakes setup should report failed post-check for non-git output" >&2
+  exit 1
+fi
+if (
+  cd "$TMP/generated-repo"
+  PATH="$TMP/fake-no-mistakes-bin:$PATH" scripts/setup-no-mistakes.sh --check-only >"$TMP/no-mistakes-script-check-non-git.out"
+); then
+  cat "$TMP/no-mistakes-script-check-non-git.out"
+  echo "setup-no-mistakes --check-only should fail for non-git output" >&2
+  exit 1
+fi
+if ! grep -q "initialized: false" "$TMP/no-mistakes-script-check-non-git.out"; then
+  cat "$TMP/no-mistakes-script-check-non-git.out"
+  echo "setup-no-mistakes --check-only should report initialized false" >&2
+  exit 1
+fi
 python3 "$SKILL/scripts/scaffold_harness.py" \
   --target "$TMP/generated-weird" \
   --project-name 'Generated "Repo" `quote` ${notEval}' \

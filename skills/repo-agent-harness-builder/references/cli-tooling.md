@@ -17,6 +17,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `precommit` | yes | Content-aware local commit gate |
 | `verify` | recommended | Run the local harness verification sequence through existing safe checks |
 | `ergonomics` | recommended | Audit agent-facing CLI output against AXI-shaped heuristics |
+| `no-mistakes` | recommended | Check and initialize the branch-to-PR validation gate without raw tool output |
 | `skills` | recommended | Sync repo-owned skills to local skill dirs |
 | `self` | recommended | Check/update repo harness safely |
 | `secrets` | optional | Value-safe secret inventory and command wrapper |
@@ -51,6 +52,7 @@ apps/cli/src/commands/self.mjs
 apps/cli/src/preflight/session.mjs
 apps/cli/src/precommit/checklist.mjs
 apps/cli/src/ergonomics/index.mjs
+apps/cli/src/no-mistakes/index.mjs
 apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
@@ -97,6 +99,25 @@ When adding a command:
 6. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics audit --strict`, and the command's safe/default mode.
 
 If any step is missing, the CLI and docs are out of sync.
+
+## No-Mistakes Command Contract
+
+Scaffold `no-mistakes` as a strongly recommended branch-to-PR quality gate for
+repository harnesses. Minimum behavior:
+
+- `no-mistakes status`: report whether no-mistakes is available, initialized,
+  and backed by `.no-mistakes.yaml` plus `scripts/setup-no-mistakes.sh`.
+- `no-mistakes setup [--fork-url <url>]`: after approval, run
+  `no-mistakes init`, then fail closed unless a follow-up status check confirms
+  initialization.
+- `no-mistakes help`: show concise usage.
+
+The wrapper must not echo raw `no-mistakes status`, local paths, fork URLs,
+account identifiers, or secrets. Print booleans, states, exit codes, and next
+steps. Keep generated `.no-mistakes.yaml` agent-agnostic with `agent: auto`
+unless the repo protocol adopts a concrete agent. Treat setup as mutating local
+no-mistakes/git state, and keep `.no-mistakes/` out of commits through local git
+exclude when a checkout exists.
 
 ## Ergonomics Command Contract
 
@@ -225,6 +246,7 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} verify --dry-run
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} ergonomics audit --strict
+./{{CLI_NAME}} no-mistakes status
 ./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} secrets help
 ./{{CLI_NAME}} connections status

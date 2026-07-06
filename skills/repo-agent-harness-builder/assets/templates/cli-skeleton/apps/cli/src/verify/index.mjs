@@ -5,6 +5,7 @@ import { CONFIG } from "../config.mjs";
 import { runConnections } from "../connections/index.mjs";
 import { runGoals } from "../goals/index.mjs";
 import { runErgonomics } from "../ergonomics/index.mjs";
+import { runNoMistakes } from "../no-mistakes/index.mjs";
 import { runPrecommit } from "../precommit/checklist.mjs";
 import { runPreflight } from "../preflight/session.mjs";
 import { runQa } from "../qa/index.mjs";
@@ -19,6 +20,7 @@ const VERIFY_STEPS = [
   { name: "connections status", run: (io) => runConnections(["status"], io) },
   { name: "goals status", run: (io) => runGoals(["status"], io) },
   { name: "ergonomics status", run: (io) => runErgonomics(["status"], io) },
+  { name: "no-mistakes status", run: (io) => runNoMistakes(["status"], io) },
   { name: "qa status", run: (io) => runQa(["status"], io) },
   { name: "qa no-masking", run: (io) => runQa(["no-masking"], io) },
   { name: "precommit --all", run: (io) => runPrecommit(["--all"], io) }

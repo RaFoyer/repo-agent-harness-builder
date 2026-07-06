@@ -7,6 +7,7 @@ const HOME_COMMANDS = [
   ["checklist", "Show harness module states"],
   ["doctor", "Check local prerequisites"],
   ["ergonomics status", "Audit agent-facing CLI ergonomics"],
+  ["no-mistakes status", "Check branch-to-PR validation gate setup"],
   ["verify --dry-run", "Preview the verification sequence"],
   ["help", "Show the concise command reference"]
 ];
@@ -66,11 +67,14 @@ Core commands:
                        Print a bounded prompt for a goal thread
   design status        Show design-system governance status
   ergonomics status    Audit agent-facing CLI ergonomics
+  no-mistakes status   Check no-mistakes validation gate setup
+  no-mistakes setup    Initialize no-mistakes and verify post-setup status
   self check           Check whether the harness can update safely
 
 Safety posture:
   - preflight is read-only
   - secrets output is value-safe
+  - no-mistakes wrappers summarize setup status without printing raw local paths
   - write-capable operations should support dry-run first
   - command help, protocol docs, and tests must stay in sync
 `;

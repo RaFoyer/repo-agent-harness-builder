@@ -14,6 +14,7 @@ import { runVerify } from "./verify/index.mjs";
 import { runGoals } from "./goals/index.mjs";
 import { runDesign } from "./design/index.mjs";
 import { runErgonomics } from "./ergonomics/index.mjs";
+import { runNoMistakes } from "./no-mistakes/index.mjs";
 import { renderHelpBlock, toonString } from "./util/agent-output.mjs";
 
 export const defaultIO = {
@@ -65,6 +66,8 @@ export async function main(argv = [], io = defaultIO) {
       return runDesign(rest, io);
     case "ergonomics":
       return runErgonomics(rest, io);
+    case "no-mistakes":
+      return runNoMistakes(rest, io);
     case "self":
       return runSelf(rest, io);
     default:

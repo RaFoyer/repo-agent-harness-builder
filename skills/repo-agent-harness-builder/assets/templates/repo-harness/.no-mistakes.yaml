@@ -1,0 +1,25 @@
+# Strongly recommended branch-to-PR validation gate for this harness.
+# Keep generated harnesses agent-agnostic; choose a concrete agent only when the
+# repo protocol has adopted one.
+agent: auto
+
+commands:
+  test: "./{{CLI_NAME}} verify"
+  lint: "./{{CLI_NAME}} ergonomics audit --strict && git diff --check origin/{{DEFAULT_BRANCH}}...HEAD"
+
+auto_fix:
+  rebase: 3
+  review: 0
+  test: 3
+  document: 3
+  lint: 3
+  ci: 3
+
+intent:
+  enabled: true
+  threshold: 0.2
+  slack_days: 3
+
+test:
+  evidence:
+    store_in_repo: false

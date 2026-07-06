@@ -1,0 +1,24 @@
+# This meta repository intentionally exercises no-mistakes with Codex.
+# Generated harness templates remain agent-agnostic with agent: auto.
+agent: codex
+
+commands:
+  test: "npm run check"
+  lint: "git diff --check origin/main...HEAD && python3 scripts/scan-public-tree.py"
+
+auto_fix:
+  rebase: 3
+  review: 0
+  test: 3
+  document: 3
+  lint: 3
+  ci: 3
+
+intent:
+  enabled: true
+  threshold: 0.2
+  slack_days: 3
+
+test:
+  evidence:
+    store_in_repo: false

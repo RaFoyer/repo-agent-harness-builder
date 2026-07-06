@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 .env
 .env.*
+.no-mistakes/
 .netrc
 _netrc
 .npmrc

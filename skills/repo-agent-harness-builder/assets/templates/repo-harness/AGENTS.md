@@ -17,6 +17,7 @@ This repository uses an agent harness. Keep this root file short and treat it as
 2. Read `AGENTS-TOC.md`.
 3. Load only the protocol files relevant to the task.
 4. Prefer the repo CLI for checks, tracker operations, secrets posture, and skill sync.
+5. Before opening or merging feature PRs, prefer the no-mistakes gate when it is initialized for this repo.
 
 ## Safety Defaults
 

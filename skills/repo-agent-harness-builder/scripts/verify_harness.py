@@ -23,6 +23,7 @@ REQUIRED_PROTOCOLS = [
     "QA-BROWSER.md",
     "PRIVILEGED-DOCUMENTS.md",
     "EXTERNAL-SYSTEMS.md",
+    "NO-MISTAKES-GATE.md",
     "SESSION-PREFLIGHT.md",
     "PRE-COMMIT.md",
 ]
@@ -42,6 +43,7 @@ COMMAND_SMOKE_TESTS = [
     ["connections", "status"],
     ["goals", "status"],
     ["design", "status"],
+    ["no-mistakes", "status"],
     ["self", "check"],
 ]
 HARNESS_PLACEHOLDER_RE = re.compile(
@@ -91,6 +93,8 @@ def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/precommit-allow.txt",
+        ".no-mistakes.yaml",
+        "scripts/setup-no-mistakes.sh",
         cli_name,
     }
     return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/"))
@@ -201,7 +205,16 @@ def main() -> int:
     target = Path(args.target).expanduser().resolve()
     errors: list[str] = []
 
-    for rel in ["AGENTS.md", "AGENTS-TOC.md", "ops/HARNESS-CHECKLIST.md", "ops/connections.json", args.cli_name, "apps/cli/package.json"]:
+    for rel in [
+        "AGENTS.md",
+        "AGENTS-TOC.md",
+        ".no-mistakes.yaml",
+        "ops/HARNESS-CHECKLIST.md",
+        "ops/connections.json",
+        "scripts/setup-no-mistakes.sh",
+        args.cli_name,
+        "apps/cli/package.json",
+    ]:
         check_file(target / rel, errors, target)
 
     for protocol in REQUIRED_PROTOCOLS:
@@ -218,6 +231,7 @@ def main() -> int:
         "apps/cli/src/connections/index.mjs",
         "apps/cli/src/ergonomics/index.mjs",
         "apps/cli/src/goals/index.mjs",
+        "apps/cli/src/no-mistakes/index.mjs",
         "apps/cli/src/qa/index.mjs",
         "apps/cli/src/verify/index.mjs",
         "apps/cli/src/preflight/session.mjs",
@@ -236,6 +250,9 @@ def main() -> int:
     bin_entrypoint = target / "apps" / "cli" / "bin" / f"{args.cli_name}.mjs"
     if bin_entrypoint.exists() and not os.access(bin_entrypoint, os.X_OK):
         errors.append(f"CLI bin entrypoint is not executable: {display_path(bin_entrypoint, target)}")
+    setup_no_mistakes = target / "scripts" / "setup-no-mistakes.sh"
+    if setup_no_mistakes.exists() and not os.access(setup_no_mistakes, os.X_OK):
+        errors.append(f"no-mistakes setup script is not executable: {display_path(setup_no_mistakes, target)}")
 
     if not errors:
         run_command_smoke(target, args.cli_name, errors)

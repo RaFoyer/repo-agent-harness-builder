@@ -18,6 +18,10 @@ project-folder, and personal-folder harnesses.
 - Do not put secrets, tokens, OAuth client secrets, private keys, local machine
   paths, or private account details in this repo.
 - Run `npm run check` before publishing changes.
+- For feature PRs, prefer the no-mistakes gate after local checks pass when the
+  no-mistakes remote is initialized.
+- This meta repository's `.no-mistakes.yaml` intentionally uses Codex for its
+  own PR gate; generated harness templates must remain agent-agnostic.
 - If generated artifacts drift, update the source templates or scripts first,
   then regenerate.
 - Keep client-specific adapter files small. They may contain display names,
