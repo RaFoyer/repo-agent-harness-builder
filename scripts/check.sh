@@ -343,6 +343,44 @@ if ! grep -q "initialized: false" "$TMP/no-mistakes-script-check-non-git.out"; t
   echo "setup-no-mistakes --check-only should report initialized false" >&2
   exit 1
 fi
+mkdir -p "$TMP/fake-no-mistakes-ok-bin" "$TMP/no-mistakes-home"
+cat > "$TMP/fake-no-mistakes-ok-bin/no-mistakes" <<'SH'
+#!/usr/bin/env sh
+case "$1" in
+  --version)
+    echo "no-mistakes version v9.9.9"
+    ;;
+  status)
+    echo "gate: configured"
+    echo "daemon running"
+    ;;
+  init)
+    echo "initialized"
+    ;;
+  axi)
+    echo "current_branch: RA/generated-check"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$TMP/fake-no-mistakes-ok-bin/no-mistakes"
+(
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-agent.out"
+)
+if ! grep -q "agent_config: updated" "$TMP/no-mistakes-script-agent.out" || ! grep -q "agent: codex" "$TMP/no-mistakes-script-agent.out"; then
+  cat "$TMP/no-mistakes-script-agent.out"
+  echo "setup-no-mistakes should report explicit agent pinning" >&2
+  exit 1
+fi
+if ! grep -q "^agent: codex$" "$TMP/no-mistakes-home/.no-mistakes/config.yaml"; then
+  cat "$TMP/no-mistakes-home/.no-mistakes/config.yaml"
+  echo "setup-no-mistakes should write requested user-local no-mistakes agent" >&2
+  exit 1
+fi
 python3 "$SKILL/scripts/scaffold_harness.py" \
   --target "$TMP/generated-weird" \
   --project-name 'Generated "Repo" `quote` ${notEval}' \

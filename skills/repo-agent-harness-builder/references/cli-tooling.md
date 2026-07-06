@@ -106,18 +106,21 @@ Scaffold `no-mistakes` as a strongly recommended branch-to-PR quality gate for
 repository harnesses. Minimum behavior:
 
 - `no-mistakes status`: report whether no-mistakes is available, initialized,
-  and backed by `.no-mistakes.yaml` plus `scripts/setup-no-mistakes.sh`.
-- `no-mistakes setup [--fork-url <url>]`: after approval, run
+  backed by `.no-mistakes.yaml` plus `scripts/setup-no-mistakes.sh`, and whether
+  another branch/worktree already has an active no-mistakes run.
+- `no-mistakes setup [--fork-url <url>] [--agent <agent>]`: after approval, run
   `no-mistakes init`, then fail closed unless a follow-up status check confirms
-  initialization.
+  initialization. `--agent` is an optional user-local pin; omit it to leave the
+  collaborator's existing global no-mistakes agent config unchanged.
 - `no-mistakes help`: show concise usage.
 
 The wrapper must not echo raw `no-mistakes status`, local paths, fork URLs,
-account identifiers, or secrets. Print booleans, states, exit codes, and next
-steps. Keep generated `.no-mistakes.yaml` agent-agnostic with `agent: auto`
-unless the repo protocol adopts a concrete agent. Treat setup as mutating local
-no-mistakes/git state, and keep `.no-mistakes/` out of commits through local git
-exclude when a checkout exists.
+raw run tables, account identifiers, or secrets. Print booleans, states, exit
+codes, sanitized branch/run summaries, and next steps. Keep generated
+`.no-mistakes.yaml` agent-agnostic with `agent: auto` unless the repo protocol
+adopts a concrete agent. Treat setup as mutating local no-mistakes/git state,
+and keep `.no-mistakes/` out of commits through local git exclude when a
+checkout exists.
 
 ## Ergonomics Command Contract
 

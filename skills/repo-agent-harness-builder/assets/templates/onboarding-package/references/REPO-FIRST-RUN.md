@@ -29,5 +29,9 @@ Then read:
 
 If preflight reports blockers, ask before mutating files, branches, credentials, or external systems.
 If no-mistakes is available but not initialized, ask before running
-`./{{CLI_NAME}} no-mistakes setup`; after local checks pass and a feature branch
-is committed, prefer the no-mistakes gate before opening or merging a PR.
+`./{{CLI_NAME}} no-mistakes setup`. Use `--agent` only when the maintainer wants
+to pin the user-local no-mistakes agent; otherwise leave existing local agent
+config unchanged. If status reports an active no-mistakes run on another
+branch/worktree, leave that run alone unless the current task is to manage it.
+After local checks pass and a feature branch is committed, prefer the
+no-mistakes gate before opening or merging a PR.

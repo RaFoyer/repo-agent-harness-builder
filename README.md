@@ -14,8 +14,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
   `verify`, `checklist`, `qa`, `secrets`, connection checks, and goal-chain
   inspection
-- strongly recommended no-mistakes setup and status commands for branch-to-PR
-  validation
+- strongly recommended no-mistakes setup and branch-aware status commands for
+  branch-to-PR validation, with optional user-local agent pinning
 - AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
   contextual next steps, and fail-loud usage errors
 - setup checklists with `active`, `inactive`, and `not-applicable` states
@@ -153,8 +153,8 @@ The skill can help with:
 - portable onboarding packages
 - CLI skeletons with no-args home views, ergonomics audits, preflight,
   precommit, verify, doctor, checklist, browser QA, secrets, connection
-  commands, design status, no-mistakes status/setup, skill/self checks, and
-  goal-chain helpers
+  commands, design status, branch-aware no-mistakes status/setup with optional
+  local agent pinning, skill/self checks, and goal-chain helpers
 - loops, goal chains, and recurring work definitions with bounded verification
   and stop rules
 

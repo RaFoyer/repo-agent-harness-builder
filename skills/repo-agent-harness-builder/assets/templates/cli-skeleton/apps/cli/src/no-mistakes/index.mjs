@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
 import { runCommand } from "../util/exec.mjs";
@@ -9,6 +10,75 @@ const NOT_READY_RE = /\bnot initialized\b|no-mistakes init|run .*init|\bnot in a
 const READY_RE = /^[ \t]*gate:[ \t]*\S+/m;
 const DAEMON_READY_RE = /\bdaemon\b.*\b(running|ready|connected|healthy)\b/i;
 const DAEMON_UNAVAILABLE_RE = /\bdaemon\b.*\b(not running|stopped|unavailable|missing|failed)\b/i;
+const DEFAULT_SETUP_AGENT = "auto";
+const AGENT_CHOICES = new Set(["auto", "claude", "codex", "rovodev", "opencode", "pi", "copilot"]);
+const ACTIVE_RUN_STATUSES = new Set(["pending", "running"]);
+
+function isSupportedAgent(agent) {
+  return AGENT_CHOICES.has(agent) || agent.startsWith("acp:");
+}
+
+function normalizeAgent(agent) {
+  const normalized = String(agent || DEFAULT_SETUP_AGENT).trim().toLowerCase();
+  if (normalized === "claude-code") return "claude";
+  if (normalized === "openai" || normalized === "gpt") return "codex";
+  if (!isSupportedAgent(normalized)) return null;
+  return normalized;
+}
+
+function safeAgentLabel(agent) {
+  if (!agent) return null;
+  const normalized = normalizeAgent(agent);
+  if (!normalized) return "custom";
+  if (normalized.startsWith("acp:")) return "acp:configured";
+  return normalized;
+}
+
+function describeAgent(agent) {
+  const label = safeAgentLabel(agent);
+  if (label === "auto") return "auto lets no-mistakes choose a supported local agent";
+  if (label === "codex") return "codex pins no-mistakes fixes to Codex";
+  if (label === "claude") return "claude pins no-mistakes fixes to Claude Code";
+  if (label === "acp:configured") return "acp:configured pins no-mistakes through a configured ACP target";
+  if (!label) return "unset; generated harnesses default repo policy to auto";
+  return `${label} is an explicit no-mistakes agent choice`;
+}
+
+function resolveNoMistakesHome(env = process.env) {
+  return env.NM_HOME || path.join(env.HOME || os.homedir(), ".no-mistakes");
+}
+
+function readGlobalNoMistakesConfig({ env = process.env, fsImpl = fs } = {}) {
+  const configPath = path.join(resolveNoMistakesHome(env), "config.yaml");
+  try {
+    const contents = fsImpl.readFileSync(configPath, "utf-8");
+    const agentMatch = contents.match(/^\s*agent\s*:\s*([^#\n\r]+)/m);
+    const agent = agentMatch ? agentMatch[1].trim().replace(/^["']|["']$/g, "") : null;
+    return { path: configPath, exists: true, agent };
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    return { path: configPath, exists: false, agent: null };
+  }
+}
+
+function writeGlobalNoMistakesAgent(agent, { env = process.env, fsImpl = fs } = {}) {
+  const normalized = normalizeAgent(agent);
+  if (!normalized) return { status: "invalid", agent: null };
+
+  const config = readGlobalNoMistakesConfig({ env, fsImpl });
+  fsImpl.mkdirSync(path.dirname(config.path), { recursive: true, mode: 0o700 });
+  let contents = "";
+  if (config.exists) contents = fsImpl.readFileSync(config.path, "utf-8");
+  const nextContents = /^\s*agent\s*:/m.test(contents)
+    ? contents.replace(/^(\s*agent\s*:\s*)[^\n\r]*/m, `$1${normalized}`)
+    : `${contents.trimEnd() ? `${contents.trimEnd()}\n\n` : ""}agent: ${normalized}\n`;
+  fsImpl.writeFileSync(config.path, nextContents, { mode: 0o600 });
+  return {
+    status: config.agent === normalized ? "present" : "updated",
+    agent: safeAgentLabel(normalized),
+    previous_agent: safeAgentLabel(config.agent)
+  };
+}
 
 function fileState(repoRoot, relPath) {
   const fullPath = path.join(repoRoot, relPath);
@@ -94,11 +164,123 @@ function daemonState(statusResult) {
   return "unknown";
 }
 
-export function collectNoMistakesStatus({ repoRoot = CONFIG.repoRoot, runImpl = runCommand } = {}) {
+function parseCsvFields(lineText) {
+  const fields = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < lineText.length; index += 1) {
+    const char = lineText[index];
+    if (char === "\"") {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      fields.push(field);
+      field = "";
+      continue;
+    }
+    field += char;
+  }
+  fields.push(field);
+  return fields.map((value) => value.trim());
+}
+
+function safeRun(run) {
+  if (!run?.branch) return null;
+  return {
+    id: safeLine(run.id || ""),
+    branch: safeLine(run.branch || ""),
+    status: safeLine(run.status || "")
+  };
+}
+
+function parseAxiOutput(output) {
+  const summary = {
+    current_branch: null,
+    current_run: null,
+    other_branch_run: null,
+    other_running_runs: []
+  };
+  let section = null;
+  const allRunningRuns = [];
+
+  for (const lineText of String(output || "").split(/\r?\n/)) {
+    const branchMatch = lineText.match(/^current_branch:\s*(.+)$/);
+    if (branchMatch) {
+      summary.current_branch = safeLine(branchMatch[1].trim().replace(/^"|"$/g, ""));
+      section = null;
+      continue;
+    }
+
+    const sectionMatch = lineText.match(/^(active_run|other_branch_active_run):\s*$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      if (section === "active_run") summary.current_run = {};
+      if (section === "other_branch_active_run") summary.other_branch_run = {};
+      continue;
+    }
+
+    if (/^runs\[\d+\]\{id,branch,status,head,pr\}:/.test(lineText)) {
+      section = "runs";
+      continue;
+    }
+
+    if (section === "runs") {
+      const rowMatch = lineText.match(/^\s{2}(.+)$/);
+      if (!rowMatch) {
+        if (/^\S/.test(lineText)) section = null;
+        continue;
+      }
+      const [id, branch, status] = parseCsvFields(rowMatch[1]);
+      if (ACTIVE_RUN_STATUSES.has(status)) {
+        const run = safeRun({ id, branch, status });
+        if (run) allRunningRuns.push(run);
+      }
+      continue;
+    }
+
+    if (!section) continue;
+    const fieldMatch = lineText.match(/^\s{2}([a-z_]+):\s*(.+)$/);
+    if (!fieldMatch) {
+      if (/^\S/.test(lineText)) section = null;
+      continue;
+    }
+    const [, key, rawValue] = fieldMatch;
+    const target = section === "active_run" ? summary.current_run : summary.other_branch_run;
+    target[key] = rawValue.trim().replace(/^"|"$/g, "");
+  }
+
+  summary.current_run = safeRun(summary.current_run);
+  summary.other_branch_run = safeRun(summary.other_branch_run);
+  summary.other_running_runs = allRunningRuns.filter(
+    (run) => run.branch && run.branch !== summary.current_branch,
+  );
+  if (summary.other_running_runs.length === 0 && summary.other_branch_run) {
+    summary.other_running_runs = [summary.other_branch_run];
+  }
+  return summary;
+}
+
+function collectAxiStatus({ repoRoot, runImpl }) {
+  const result = runImpl("no-mistakes", ["axi"], { cwd: repoRoot });
+  if (!result.ok) return { available: false };
+  return {
+    available: true,
+    ...parseAxiOutput(statusText(result))
+  };
+}
+
+export function collectNoMistakesStatus({
+  repoRoot = CONFIG.repoRoot,
+  runImpl = runCommand,
+  env = process.env,
+  fsImpl = fs
+} = {}) {
   const versionResult = runImpl("no-mistakes", ["--version"], { cwd: repoRoot });
   const commandResponded = versionResult.ok || Boolean(versionResult.stdout || versionResult.stderr);
   const statusResult = commandResponded ? runImpl("no-mistakes", ["status"], { cwd: repoRoot }) : null;
   const state = repoState(statusResult);
+  const globalConfig = readGlobalNoMistakesConfig({ env, fsImpl });
 
   return {
     available: commandResponded,
@@ -108,6 +290,10 @@ export function collectNoMistakesStatus({ repoRoot = CONFIG.repoRoot, runImpl = 
     version: versionResult.ok ? normalizedVersion(versionResult.stdout || versionResult.stderr) : null,
     config: fileState(repoRoot, ".no-mistakes.yaml"),
     setup_script: setupScriptState(repoRoot),
+    agent_config: globalConfig.exists ? "present" : "missing",
+    agent: safeAgentLabel(globalConfig.agent),
+    recommended_agent: DEFAULT_SETUP_AGENT,
+    axi: state === "initialized" ? collectAxiStatus({ repoRoot, runImpl }) : null,
     status_exit_code: statusResult ? statusResult.status : null
   };
 }
@@ -139,7 +325,20 @@ function renderStatus(status, io, { json = false } = {}) {
   io.stdout(`  daemon: ${status.daemon}`);
   io.stdout(`  config: ${status.config}`);
   io.stdout(`  setup_script: ${status.setup_script}`);
+  io.stdout(`  agent_config: ${status.agent_config}`);
+  io.stdout(`  agent: ${toonString(status.agent || "(unset)")}`);
+  io.stdout(`  recommended_agent: ${toonString(status.recommended_agent)}`);
   if (status.version) io.stdout(`  version: ${toonString(status.version)}`);
+  if (status.axi?.available && status.axi.current_branch) {
+    io.stdout(`  current_branch: ${toonString(status.axi.current_branch)}`);
+  }
+  if (status.axi?.current_run?.branch) {
+    io.stdout(`  current_run: ${toonString(`${status.axi.current_run.branch} ${status.axi.current_run.status} ${status.axi.current_run.id}`.trim())}`);
+  }
+  if (status.axi?.other_running_runs?.length) {
+    const runs = status.axi.other_running_runs.map((run) => `${run.branch} ${run.status} ${run.id}`.trim()).join("; ");
+    io.stdout(`  other_runs: ${toonString(`${runs} - leave active validations in other branches/worktrees alone`)}`);
+  }
   io.stdout(renderHelpBlock(payload.help));
 }
 
@@ -148,11 +347,15 @@ function help(io) {
   io.stdout("Available commands:");
   io.stdout("  no-mistakes help                         Show this help");
   io.stdout("  no-mistakes status [--json]              Check local setup without printing raw status output");
-  io.stdout("  no-mistakes setup [--fork-url <url>]     Run no-mistakes init and verify post-setup status");
+  io.stdout("  no-mistakes setup [--fork-url <url>] [--agent <agent>]");
+  io.stdout("                                           Run no-mistakes init, optionally pinning the user-local agent");
+  io.stdout("");
+  io.stdout("Agent choices: auto, codex, claude, rovodev, opencode, pi, copilot, or acp:<target>.");
+  io.stdout("Generated harnesses keep repo policy at auto; pass --agent only when the maintainer wants a local pin.");
 }
 
 function parseSetupArgs(argv) {
-  const options = { json: false, forkUrl: null, help: false, errors: [] };
+  const options = { json: false, forkUrl: null, agent: null, help: false, errors: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") {
@@ -171,6 +374,20 @@ function parseSetupArgs(argv) {
       const value = arg.slice("--fork-url=".length);
       if (!value) options.errors.push("--fork-url");
       else options.forkUrl = value;
+    } else if (arg === "--agent") {
+      const value = argv[index + 1];
+      const normalized = normalizeAgent(value);
+      if (!value || value.startsWith("-") || !normalized) {
+        options.errors.push("--agent");
+      } else {
+        options.agent = normalized;
+        index += 1;
+      }
+    } else if (arg.startsWith("--agent=")) {
+      const value = arg.slice("--agent=".length);
+      const normalized = normalizeAgent(value);
+      if (!value || !normalized) options.errors.push("--agent");
+      else options.agent = normalized;
     } else {
       options.errors.push(arg);
     }
@@ -178,7 +395,11 @@ function parseSetupArgs(argv) {
   return options;
 }
 
-async function runSetup(argv, io, { repoRoot = CONFIG.repoRoot, runImpl = runCommand } = {}) {
+async function runSetup(
+  argv,
+  io,
+  { repoRoot = CONFIG.repoRoot, runImpl = runCommand, env = process.env, fsImpl = fs } = {},
+) {
   const options = parseSetupArgs(argv);
   if (options.help) {
     if (options.errors.length) {
@@ -205,7 +426,7 @@ async function runSetup(argv, io, { repoRoot = CONFIG.repoRoot, runImpl = runCom
     return 2;
   }
 
-  const before = collectNoMistakesStatus({ repoRoot, runImpl });
+  const before = collectNoMistakesStatus({ repoRoot, runImpl, env, fsImpl });
   if (!before.available) {
     renderStatus(before, io, { json: options.json });
     return 1;
@@ -215,20 +436,28 @@ async function runSetup(argv, io, { repoRoot = CONFIG.repoRoot, runImpl = runCom
   if (options.forkUrl) initArgs.push("--fork-url", options.forkUrl);
   const initResult = runImpl("no-mistakes", initArgs, { cwd: repoRoot });
   const localExclude = ensureLocalNoMistakesExclude(repoRoot);
-  const after = collectNoMistakesStatus({ repoRoot, runImpl });
+  const after = collectNoMistakesStatus({ repoRoot, runImpl, env, fsImpl });
   const ok = initResult.ok && after.initialized;
+  const agentConfig = ok && options.agent
+    ? writeGlobalNoMistakesAgent(options.agent, { env, fsImpl })
+    : { status: "unchanged", agent: null, previous_agent: null };
   const payload = {
     no_mistakes_setup: {
       status: ok ? "ok" : "failed",
       available: true,
       initialized: after.initialized,
       fork_url: options.forkUrl ? "provided" : "omitted",
+      agent_config: agentConfig.status,
+      agent: agentConfig.agent || "unchanged",
       local_exclude: localExclude,
       init_exit_code: initResult.status,
       post_check: after.initialized ? "pass" : "fail"
     },
     help: ok
-      ? ["Commit a feature branch, then run git push no-mistakes <branch-name>"]
+      ? [
+          "Commit a feature branch, then run git push no-mistakes <branch-name>",
+          options.agent ? describeAgent(options.agent) : "Pass --agent codex, --agent claude, or --agent auto only when you want to pin local no-mistakes behavior"
+        ]
       : ["Run no-mistakes status locally for detailed diagnostics before retrying"]
   };
 
@@ -240,6 +469,8 @@ async function runSetup(argv, io, { repoRoot = CONFIG.repoRoot, runImpl = runCom
     io.stdout("  available: true");
     io.stdout(`  initialized: ${payload.no_mistakes_setup.initialized}`);
     io.stdout(`  fork_url: ${payload.no_mistakes_setup.fork_url}`);
+    io.stdout(`  agent_config: ${payload.no_mistakes_setup.agent_config}`);
+    io.stdout(`  agent: ${toonString(payload.no_mistakes_setup.agent)}`);
     io.stdout(`  local_exclude: ${payload.no_mistakes_setup.local_exclude}`);
     io.stdout(`  init_exit_code: ${payload.no_mistakes_setup.init_exit_code}`);
     io.stdout(`  post_check: ${payload.no_mistakes_setup.post_check}`);

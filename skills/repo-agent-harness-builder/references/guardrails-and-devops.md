@@ -44,16 +44,19 @@ Scaffold:
 - `ops/protocols/NO-MISTAKES-GATE.md`
 - `scripts/setup-no-mistakes.sh`
 - `./{{CLI_NAME}} no-mistakes status`
-- `./{{CLI_NAME}} no-mistakes setup [--fork-url <url>]`
+- `./{{CLI_NAME}} no-mistakes setup [--fork-url <url>] [--agent <agent>]`
 
 Keep generated configs agent-agnostic with `agent: auto`. A concrete repo can
-change that to `codex`, `claude`, or another supported agent only after the
-repo protocol says so.
+change repo policy to `codex`, `claude`, or another supported agent only after
+the repo protocol says so. The setup wrapper may expose `--agent` as an
+explicit user-local pin; omitting it must leave an existing global no-mistakes
+agent preference unchanged.
 
 The setup flow must fail closed: `no-mistakes init` is not enough unless a
 follow-up status check confirms initialization. CLI and script output should
 summarize availability, initialization, config presence, setup-script presence,
-and next steps without printing raw status output, fork URLs, local paths, or
+active runs on other branches/worktrees, and next steps without printing raw
+status output, fork URLs, local paths, raw run tables, or
 credential-like values.
 
 Setup is mutating and approval-gated. It may change local no-mistakes state, git

@@ -28,7 +28,7 @@ unless the maintainer explicitly chooses a different PR validation system.
 
 - Repo policy: `.no-mistakes.yaml`
 - Local setup script: `scripts/setup-no-mistakes.sh`
-- CLI wrappers: `./{{CLI_NAME}} no-mistakes status` and `./{{CLI_NAME}} no-mistakes setup`
+- CLI wrappers: `./{{CLI_NAME}} no-mistakes status` and `./{{CLI_NAME}} no-mistakes setup [--agent <agent>]`
 - Local no-mistakes state: managed by the no-mistakes tool, including repo-local `.no-mistakes/` state when present
 
 ## Standard Flow
@@ -36,6 +36,8 @@ unless the maintainer explicitly chooses a different PR validation system.
 1. Run `./{{CLI_NAME}} preflight`.
 2. Run `./{{CLI_NAME}} no-mistakes status`.
 3. If setup is not initialized, ask for approval, then run `./{{CLI_NAME}} no-mistakes setup`.
+   Use `--agent codex`, `--agent claude`, or another supported value only when
+   the maintainer wants to pin local no-mistakes behavior for this machine.
 4. Create or continue work on a feature branch.
 5. Run `./{{CLI_NAME}} verify` and any task-specific checks.
 6. Commit the branch.
@@ -47,14 +49,19 @@ unless the maintainer explicitly chooses a different PR validation system.
 - Do not print raw no-mistakes status output into chat, tickets, logs, or docs
   until it has been reviewed for local paths, account details, and secrets.
 - Use `./{{CLI_NAME}} no-mistakes status` for value-safe summaries.
+- Treat active no-mistakes runs on other branches/worktrees as owned by that
+  branch. Do not cancel, replace, or take over those runs unless the user says
+  that is the current task.
 - Do not pass unattended approval flags to no-mistakes unless the user has
   explicitly approved unattended operation for that run.
 - Treat `./{{CLI_NAME}} no-mistakes setup` as a mutating operation because it
-  can change local no-mistakes and git remote state.
+  can change local no-mistakes, git remote state, and, when `--agent` is used,
+  the user-local no-mistakes agent preference.
 - Keep repo-local `.no-mistakes/` state out of commits. The generated setup
   flow adds `.no-mistakes/` to `.git/info/exclude` when a git checkout exists.
 - Keep generated harnesses agent-agnostic. Use `agent: auto` unless the repo has
-  chosen a concrete agent in protocol.
+  chosen a concrete agent in protocol. The generated setup wrapper leaves any
+  existing global agent preference unchanged unless `--agent` is supplied.
 - Remember that no-mistakes reads trusted command and agent configuration from
   the default branch unless the repository intentionally opts into trusting
   branch-local commands.
