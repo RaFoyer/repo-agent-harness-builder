@@ -79,7 +79,19 @@ normalize_agent() {
   case "$1" in
     claude-code) echo "claude" ;;
     openai|gpt) echo "codex" ;;
-    auto|claude|codex|rovodev|opencode|pi|copilot|acp:*) echo "$1" ;;
+    auto|claude|codex|rovodev|opencode|pi|copilot) echo "$1" ;;
+    acp:*)
+      acp_target="${1#acp:}"
+      case "$acp_target" in
+        [abcdefghijklmnopqrstuvwxyz0123456789]*)
+          case "$acp_target" in
+            *[!abcdefghijklmnopqrstuvwxyz0123456789._-]*) return 1 ;;
+            *) echo "$1" ;;
+          esac
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
 }
@@ -128,7 +140,7 @@ ensure_local_exclude() {
   if [ -d ".git" ]; then
     info_dir=".git/info"
   elif [ -f ".git" ]; then
-    gitdir_line="$(sed -n 's/^gitdir:[[:space:]]*//p' .git | sed -n '1p')"
+    gitdir_line="$(sed -n 's/^gitdir:[[:space:]]*//p' .git 2>/dev/null | sed -n '1p')"
     if [ -z "$gitdir_line" ]; then
       echo "unavailable"
       return
@@ -142,18 +154,29 @@ ensure_local_exclude() {
     return
   fi
   exclude_file="$info_dir/exclude"
-  mkdir -p "$info_dir"
-  if [ -f "$exclude_file" ] && grep -Fxq ".no-mistakes/" "$exclude_file"; then
-    echo "present"
+  if ! mkdir -p "$info_dir" 2>/dev/null; then
+    echo "unavailable"
     return
+  fi
+  if [ -f "$exclude_file" ]; then
+    if grep -Fxq ".no-mistakes/" "$exclude_file" 2>/dev/null; then
+      echo "present"
+      return
+    fi
   fi
   if [ -s "$exclude_file" ]; then
     last_char="$(tail -c 1 "$exclude_file" 2>/dev/null || true)"
     if [ "$last_char" != "" ]; then
-      printf '\n' >>"$exclude_file"
+      if ! printf '\n' >>"$exclude_file" 2>/dev/null; then
+        echo "unavailable"
+        return
+      fi
     fi
   fi
-  printf '.no-mistakes/\n' >>"$exclude_file"
+  if ! printf '.no-mistakes/\n' >>"$exclude_file" 2>/dev/null; then
+    echo "unavailable"
+    return
+  fi
   echo "added"
 }
 
@@ -172,14 +195,17 @@ write_agent_config() {
   fi
   config_file="$nm_home/config.yaml"
   config_dir="$(dirname "$config_file")"
-  mkdir -p "$config_dir"
+  if ! mkdir -p "$config_dir" 2>/dev/null; then
+    echo "unavailable"
+    return
+  fi
   chmod 700 "$config_dir" 2>/dev/null || true
   if ! tmp_config="$(mktemp 2>/dev/null)"; then
     echo "unavailable"
     return
   fi
   if [ -f "$config_file" ]; then
-    awk -v agent="$agent" '
+    if ! awk -v agent="$agent" '
       BEGIN { wrote = 0 }
       /^[[:space:]]*agent[[:space:]]*:/ && wrote == 0 {
         print "agent: " agent
@@ -190,11 +216,26 @@ write_agent_config() {
       END {
         if (wrote == 0) print "agent: " agent
       }
-    ' "$config_file" >"$tmp_config"
+    ' "$config_file" >"$tmp_config" 2>/dev/null; then
+      rm -f "$tmp_config"
+      tmp_config=""
+      echo "unavailable"
+      return
+    fi
   else
-    printf 'agent: %s\n' "$agent" >"$tmp_config"
+    if ! printf 'agent: %s\n' "$agent" >"$tmp_config" 2>/dev/null; then
+      rm -f "$tmp_config"
+      tmp_config=""
+      echo "unavailable"
+      return
+    fi
   fi
-  mv "$tmp_config" "$config_file"
+  if ! mv "$tmp_config" "$config_file" 2>/dev/null; then
+    rm -f "$tmp_config"
+    tmp_config=""
+    echo "unavailable"
+    return
+  fi
   tmp_config=""
   chmod 600 "$config_file" 2>/dev/null || true
   echo "updated"

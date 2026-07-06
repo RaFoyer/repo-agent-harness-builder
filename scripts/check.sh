@@ -368,7 +368,7 @@ SH
 chmod +x "$TMP/fake-no-mistakes-ok-bin/no-mistakes"
 (
   cd "$TMP/generated-repo"
-  HOME="$TMP/no-mistakes-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+  HOME="$TMP/no-mistakes-home/user-home" NM_HOME="$TMP/no-mistakes-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
     scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-agent.out"
 )
 if ! grep -q "agent_config: updated" "$TMP/no-mistakes-script-agent.out" || ! grep -q "agent: codex" "$TMP/no-mistakes-script-agent.out"; then
@@ -376,9 +376,57 @@ if ! grep -q "agent_config: updated" "$TMP/no-mistakes-script-agent.out" || ! gr
   echo "setup-no-mistakes should report explicit agent pinning" >&2
   exit 1
 fi
-if ! grep -q "^agent: codex$" "$TMP/no-mistakes-home/.no-mistakes/config.yaml"; then
-  cat "$TMP/no-mistakes-home/.no-mistakes/config.yaml"
+if ! grep -q "^agent: codex$" "$TMP/no-mistakes-home/config.yaml"; then
+  cat "$TMP/no-mistakes-home/config.yaml"
   echo "setup-no-mistakes should write requested user-local no-mistakes agent" >&2
+  exit 1
+fi
+if (
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-invalid-home/user-home" NM_HOME="$TMP/no-mistakes-invalid-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent acp: >"$TMP/no-mistakes-script-invalid-acp.out" 2>"$TMP/no-mistakes-script-invalid-acp.err"
+); then
+  cat "$TMP/no-mistakes-script-invalid-acp.out"
+  echo "setup-no-mistakes should reject empty ACP agent targets" >&2
+  exit 1
+fi
+if ! grep -q "unsupported --agent value" "$TMP/no-mistakes-script-invalid-acp.err"; then
+  cat "$TMP/no-mistakes-script-invalid-acp.err"
+  echo "setup-no-mistakes should report unsupported empty ACP agent targets" >&2
+  exit 1
+fi
+mkdir -p "$TMP/no-mistakes-acp-home"
+(
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-acp-home/user-home" NM_HOME="$TMP/no-mistakes-acp-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent acp:local-agent_1.2 >"$TMP/no-mistakes-script-acp-agent.out"
+)
+if ! grep -q "agent_config: updated" "$TMP/no-mistakes-script-acp-agent.out" || ! grep -q "agent: acp:configured" "$TMP/no-mistakes-script-acp-agent.out"; then
+  cat "$TMP/no-mistakes-script-acp-agent.out"
+  echo "setup-no-mistakes should report explicit ACP agent pinning" >&2
+  exit 1
+fi
+if ! grep -q "^agent: acp:local-agent_1.2$" "$TMP/no-mistakes-acp-home/config.yaml"; then
+  cat "$TMP/no-mistakes-acp-home/config.yaml"
+  echo "setup-no-mistakes should write requested ACP no-mistakes agent" >&2
+  exit 1
+fi
+printf 'not a directory\n' > "$TMP/generated-repo/blocked-gitdir"
+printf 'gitdir: blocked-gitdir\n' > "$TMP/generated-repo/.git"
+mkdir -p "$TMP/no-mistakes-blocked-home"
+(
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-blocked-home/user-home" NM_HOME="$TMP/no-mistakes-blocked-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh >"$TMP/no-mistakes-script-blocked-exclude.out" 2>"$TMP/no-mistakes-script-blocked-exclude.err"
+)
+if ! grep -q "local_exclude: unavailable" "$TMP/no-mistakes-script-blocked-exclude.out"; then
+  cat "$TMP/no-mistakes-script-blocked-exclude.out"
+  echo "setup-no-mistakes should degrade local exclude write failures" >&2
+  exit 1
+fi
+if [ -s "$TMP/no-mistakes-script-blocked-exclude.err" ]; then
+  cat "$TMP/no-mistakes-script-blocked-exclude.err"
+  echo "setup-no-mistakes should suppress raw local exclude file errors" >&2
   exit 1
 fi
 python3 "$SKILL/scripts/scaffold_harness.py" \

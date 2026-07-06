@@ -910,17 +910,31 @@ test("no-mistakes unknown subcommands do not echo arbitrary input", async () => 
 });
 
 test("no-mistakes setup rejects unsupported agent values safely", async () => {
-  const sensitiveAgent = "https://github.com/example/private-agent.git";
-  const { io, out, err } = capture();
-  const code = await runNoMistakes(["setup", "--agent", sensitiveAgent], io, {
-    runImpl: () => ({ ok: false, status: 1, stdout: "", stderr: "" })
-  });
-  assert.equal(code, 2);
-  assert.deepEqual(err, []);
-  const text = out.join("\n");
-  assert.match(text, /code: unknown-flag/);
-  assert.match(text, /detail: "--agent"/);
-  assert.doesNotMatch(text, /github\.com\/example|private-agent/);
+  const cases = [
+    { args: ["setup", "--agent", "https://github.com/example/private-agent.git"], hidden: /github\.com\/example|private-agent/ },
+    { args: ["setup", "--agent", "acp:"], hidden: /agent: acp:/ },
+    { args: ["setup", "--agent=acp:"], hidden: /agent: acp:/ },
+    { args: ["setup", "--agent", "acp:../private-agent"], hidden: /\.\.\/private-agent/ },
+    { args: ["setup", "--agent", "acp:private agent"], hidden: /private agent/ }
+  ];
+
+  for (const entry of cases) {
+    let calls = 0;
+    const { io, out, err } = capture();
+    const code = await runNoMistakes(entry.args, io, {
+      runImpl: () => {
+        calls += 1;
+        return { ok: false, status: 1, stdout: "", stderr: "" };
+      }
+    });
+    assert.equal(code, 2);
+    assert.equal(calls, 0);
+    assert.deepEqual(err, []);
+    const text = out.join("\n");
+    assert.match(text, /code: unknown-flag/);
+    assert.match(text, /detail: "--agent"/);
+    assert.doesNotMatch(text, entry.hidden);
+  }
 });
 
 fixtureTest("no-mistakes setup runs init, post-checks status, and hides fork URLs", async () => {
@@ -972,6 +986,27 @@ fixtureTest("no-mistakes setup can pin a user-local agent when requested", async
   assert.doesNotMatch(text, localPathPattern());
 });
 
+fixtureTest("no-mistakes setup can pin a safe ACP target when requested", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const env = noMistakesTestEnv();
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup", "--agent", "acp:local-agent_1.2"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(fs.readFileSync(path.join(env.HOME, ".no-mistakes", "config.yaml"), "utf-8"), /^agent: acp:local-agent_1\.2$/m);
+  const text = out.join("\n");
+  assert.match(text, /agent_config: updated/);
+  assert.match(text, /agent: "acp:configured"/);
+  assert.match(text, /acp:configured pins no-mistakes through a configured ACP target/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
 fixtureTest("no-mistakes setup supports git worktree pointer files for local exclude", async () => {
   const actualGitDir = path.join(repoRoot, ".git-worktree");
   fs.mkdirSync(path.join(actualGitDir, "info"), { recursive: true });
@@ -989,6 +1024,26 @@ fixtureTest("no-mistakes setup supports git worktree pointer files for local exc
   assert.equal(code, 0, err.join("\n"));
   assert.match(fs.readFileSync(path.join(actualGitDir, "info", "exclude"), "utf-8"), /(^|\n)\.no-mistakes\/\n/);
   assert.match(out.join("\n"), /local_exclude: added/);
+}, { git: false });
+
+fixtureTest("no-mistakes setup degrades when local exclude cannot be written", async () => {
+  fs.writeFileSync(path.join(repoRoot, "blocked-gitdir"), "not a directory\n", "utf-8");
+  fs.writeFileSync(path.join(repoRoot, ".git"), "gitdir: blocked-gitdir\n", "utf-8");
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /local_exclude: unavailable/);
+  assert.doesNotMatch(text, /blocked-gitdir|ENOTDIR/);
+  assert.doesNotMatch(text, localPathPattern());
 }, { git: false });
 
 fixtureTest("no-mistakes setup fails closed when init does not pass post-check", async () => {

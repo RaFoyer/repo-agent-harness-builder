@@ -13,9 +13,10 @@ const DAEMON_UNAVAILABLE_RE = /\bdaemon\b.*\b(not running|stopped|unavailable|mi
 const DEFAULT_SETUP_AGENT = "auto";
 const AGENT_CHOICES = new Set(["auto", "claude", "codex", "rovodev", "opencode", "pi", "copilot"]);
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running"]);
+const ACP_AGENT_RE = /^acp:[a-z0-9][a-z0-9._-]*$/;
 
 function isSupportedAgent(agent) {
-  return AGENT_CHOICES.has(agent) || agent.startsWith("acp:");
+  return AGENT_CHOICES.has(agent) || ACP_AGENT_RE.test(agent);
 }
 
 function normalizeAgent(agent) {
