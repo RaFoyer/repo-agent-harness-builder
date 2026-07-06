@@ -449,6 +449,31 @@ if [ -s "$TMP/no-mistakes-script-agent-blocked.err" ]; then
   echo "setup-no-mistakes should suppress raw agent config file errors" >&2
   exit 1
 fi
+mkdir -p "$TMP/no-mistakes-config-dir-home/config.yaml"
+if (
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-config-dir-user-home" NM_HOME="$TMP/no-mistakes-config-dir-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-config-dir.out" 2>"$TMP/no-mistakes-script-config-dir.err"
+); then
+  cat "$TMP/no-mistakes-script-config-dir.out"
+  echo "setup-no-mistakes should fail when config.yaml is a directory" >&2
+  exit 1
+fi
+if ! grep -q "status: agent-config-failed" "$TMP/no-mistakes-script-config-dir.out" || ! grep -q "agent_config: unavailable" "$TMP/no-mistakes-script-config-dir.out"; then
+  cat "$TMP/no-mistakes-script-config-dir.out"
+  echo "setup-no-mistakes should report config.yaml directory as unavailable" >&2
+  exit 1
+fi
+if [ -s "$TMP/no-mistakes-script-config-dir.err" ]; then
+  cat "$TMP/no-mistakes-script-config-dir.err"
+  echo "setup-no-mistakes should suppress config.yaml directory errors" >&2
+  exit 1
+fi
+if ! rmdir "$TMP/no-mistakes-config-dir-home/config.yaml" 2>/dev/null; then
+  find "$TMP/no-mistakes-config-dir-home/config.yaml" -mindepth 1 -print
+  echo "setup-no-mistakes should not move config files into config.yaml directories" >&2
+  exit 1
+fi
 if (
   cd "$TMP/generated-repo"
   HOME="$TMP/no-mistakes-invalid-home/user-home" NM_HOME="$TMP/no-mistakes-invalid-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \

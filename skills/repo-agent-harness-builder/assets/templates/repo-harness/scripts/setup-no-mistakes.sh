@@ -236,6 +236,10 @@ write_agent_config() {
     return
   fi
   chmod 700 "$config_dir" 2>/dev/null || true
+  if [ -d "$config_file" ]; then
+    echo "unavailable"
+    return
+  fi
   if ! tmp_config="$(mktemp 2>/dev/null)"; then
     echo "unavailable"
     return
