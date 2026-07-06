@@ -13,6 +13,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 | Harness checklist | `ops/HARNESS-CHECKLIST.md` | Baseline/optional module coverage and active/inactive/not-applicable states |
 | Protocol library | `ops/protocols/*.md` | Durable recurring procedures |
 | CLI facade | `./{{CLI_NAME}}`, `apps/cli/*` | Deterministic repeatable tasks |
+| Agent CLI ergonomics | `AGENT-CLI-ERGONOMICS.md` | Content-first, token-aware CLI output contract |
 | Connection registry | `ops/connections.json` | Value-safe metadata for external authorities |
 | Onboarding package | `START-HERE.md`, `AGENT-HANDOFF.md`, `skills/*` | Pre-clone and first-use bridge |
 | Guardrails | preflight, precommit, CI, secrets, tracker | Safety and consistency checks |
@@ -25,6 +26,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 - `ops/HARNESS-CHECKLIST.md` marks baseline and optional modules as active, inactive, or not-applicable.
 - Protocols have stable IDs, review dates, related protocols, and verification sections.
 - The CLI has `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, and `precommit` before domain-specific commands.
+- The CLI has a content-first no-args home view and structured usage errors before domain-specific commands.
 - Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.

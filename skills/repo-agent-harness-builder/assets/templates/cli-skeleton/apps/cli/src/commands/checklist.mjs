@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
+import { rejectUnexpectedArgs } from "../util/agent-output.mjs";
 
 const VALID_STATES = new Set(["active", "inactive", "not-applicable"]);
 
@@ -78,7 +79,8 @@ function validateChecklist(markdown) {
   return { blockers, warnings };
 }
 
-export async function runChecklist(_argv, io) {
+export async function runChecklist(argv, io) {
+  if (rejectUnexpectedArgs(argv, io, { command: "checklist", hints: [`Run ./${CONFIG.cliName} checklist`] })) return 2;
   const checklistPath = path.join(CONFIG.repoRoot, "ops", "HARNESS-CHECKLIST.md");
   if (!fs.existsSync(checklistPath)) {
     io.stderr("blocker: missing ops/HARNESS-CHECKLIST.md");

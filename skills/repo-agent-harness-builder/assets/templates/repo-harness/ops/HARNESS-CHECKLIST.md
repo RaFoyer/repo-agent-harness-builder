@@ -22,6 +22,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Document lifecycle | active | `ops/protocols/DOCUMENT-LIFECYCLE.md` |
 | Document quality | active | `ops/protocols/DOCUMENT-QUALITY.md` |
 | CLI interface | active | `ops/protocols/CLI-INTERFACE.md`, `./{{CLI_NAME}} help` |
+| Agent CLI ergonomics | active | `ops/protocols/AGENT-CLI-ERGONOMICS.md`, `./{{CLI_NAME}}`, `./{{CLI_NAME}} ergonomics status` |
 | Session preflight | active | `ops/protocols/SESSION-PREFLIGHT.md`, `./{{CLI_NAME}} preflight` |
 | Maintenance metadata | active | protocol front matter and review dates |
 | Consent gates | active | root safety defaults and task protocols |

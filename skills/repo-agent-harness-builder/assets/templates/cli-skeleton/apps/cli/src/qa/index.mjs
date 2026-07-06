@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
+import { runErgonomics } from "../ergonomics/index.mjs";
+import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 
 const PLAYWRIGHT_CONFIGS = [
   "playwright.config.ts",
@@ -178,6 +180,7 @@ function help(io) {
   io.stdout("Available commands:");
   io.stdout("  qa help          Show this help");
   io.stdout("  qa status        Detect Playwright configs and browser/e2e scripts");
+  io.stdout("  qa axi           Alias for ergonomics status");
   io.stdout("  qa plan          Print deterministic/live browser QA guidance");
   io.stdout("  qa artifacts     List common browser QA artifact locations");
   io.stdout("  qa no-masking    Detect route mocking/bypass patterns in deterministic E2E tests");
@@ -275,15 +278,39 @@ function noMasking(io) {
 }
 
 export async function runQa(argv, io) {
-  const subcommand = argv[0] || "help";
+  const [subcommand = "help", ...restForCommand] = argv;
   if (subcommand === "help") {
+    if (rejectUnexpectedArgs(restForCommand, io, { command: "qa help", hints: [`Run ./${CONFIG.cliName} qa help`] })) return 2;
     help(io);
     return 0;
   }
-  if (subcommand === "status") return status(io);
-  if (subcommand === "plan") return plan(io);
-  if (subcommand === "artifacts") return artifacts(io);
-  if (subcommand === "no-masking") return noMasking(io);
-  io.stderr(`Unknown qa command: ${subcommand}`);
+  if (subcommand === "status") {
+    if (rejectUnexpectedArgs(restForCommand, io, { command: "qa status", hints: [`Run ./${CONFIG.cliName} qa status`] })) return 2;
+    return status(io);
+  }
+  if (subcommand === "axi" || subcommand === "cli-ergonomics") {
+    const rest = restForCommand;
+    const command = rest[0]?.startsWith("-") ? "audit" : rest[0] || "status";
+    const args = rest[0]?.startsWith("-") ? rest : rest.slice(1);
+    return runErgonomics([command, ...args], io);
+  }
+  if (subcommand === "plan") {
+    if (rejectUnexpectedArgs(restForCommand, io, { command: "qa plan", hints: [`Run ./${CONFIG.cliName} qa plan`] })) return 2;
+    return plan(io);
+  }
+  if (subcommand === "artifacts") {
+    if (rejectUnexpectedArgs(restForCommand, io, { command: "qa artifacts", hints: [`Run ./${CONFIG.cliName} qa artifacts`] })) return 2;
+    return artifacts(io);
+  }
+  if (subcommand === "no-masking") {
+    if (rejectUnexpectedArgs(restForCommand, io, { command: "qa no-masking", hints: [`Run ./${CONFIG.cliName} qa no-masking`] })) return 2;
+    return noMasking(io);
+  }
+  renderUsageError(io, {
+    code: "unknown-qa-command",
+    command: `qa ${subcommand}`,
+    message: `Unknown qa command: ${subcommand}`,
+    hints: [`Run ./${CONFIG.cliName} qa help`]
+  });
   return 2;
 }

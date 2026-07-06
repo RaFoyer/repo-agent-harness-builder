@@ -1,9 +1,12 @@
 import { redactSecrets } from "../util/exec.mjs";
+import { CONFIG } from "../config.mjs";
+import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 
 export async function runSecrets(argv, io) {
-  const subcommand = argv[0] || "help";
+  const [subcommand = "help", ...rest] = argv;
 
   if (subcommand === "help") {
+    if (rejectUnexpectedArgs(rest, io, { command: "secrets help", hints: [`Run ./${CONFIG.cliName} secrets help`] })) return 2;
     io.stdout("Secret commands are value-safe.");
     io.stdout("Available skeleton commands:");
     io.stdout("  secrets help    Show this help");
@@ -12,6 +15,7 @@ export async function runSecrets(argv, io) {
   }
 
   if (subcommand === "doctor") {
+    if (rejectUnexpectedArgs(rest, io, { command: "secrets doctor", hints: [`Run ./${CONFIG.cliName} secrets doctor`] })) return 2;
     io.stdout("Add repo-specific secret-store checks here.");
     io.stdout("Print names, booleans, paths, and counts only. Never print values.");
     return 0;
@@ -22,6 +26,11 @@ export async function runSecrets(argv, io) {
     return 0;
   }
 
-  io.stderr(`Unknown secrets command: ${subcommand}`);
+  renderUsageError(io, {
+    code: "unknown-secrets-command",
+    command: `secrets ${subcommand}`,
+    message: `Unknown secrets command: ${subcommand}`,
+    hints: [`Run ./${CONFIG.cliName} secrets help`]
+  });
   return 2;
 }

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
+import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 
 const DESIGN_PROTOCOL = "ops/protocols/DESIGN-SYSTEM.md";
 const HARNESS_CHECKLIST = "ops/HARNESS-CHECKLIST.md";
@@ -67,7 +68,7 @@ Commands:
 `;
 }
 
-function runStatus(_argv, io) {
+function runStatus(io) {
   io.stdout(`design system: ${protocolStatus()}`);
   io.stdout(`protocol: ${DESIGN_PROTOCOL}`);
   io.stdout(`checklist: ${HARNESS_CHECKLIST}`);
@@ -82,13 +83,19 @@ export async function runDesign(argv = [], io) {
     case "help":
     case "--help":
     case "-h":
+      if (rejectUnexpectedArgs(rest, io, { command: "design help", hints: [`Run ./${CONFIG.cliName} design help`] })) return 2;
       io.stdout(renderDesignHelp());
       return 0;
     case "status":
-      return runStatus(rest, io);
+      if (rejectUnexpectedArgs(rest, io, { command: "design status", hints: [`Run ./${CONFIG.cliName} design status`] })) return 2;
+      return runStatus(io);
     default:
-      io.stderr(`Unknown design command: ${command}`);
-      io.stderr(`Run ./${CONFIG.cliName} design status for inactive module status.`);
+      renderUsageError(io, {
+        code: "unknown-design-command",
+        command: `design ${command}`,
+        message: `Unknown design command: ${command}`,
+        hints: [`Run ./${CONFIG.cliName} design status for inactive module status`]
+      });
       return 2;
   }
 }

@@ -26,6 +26,7 @@ Use this package to help a human install or scaffold the right harness for a rep
 2. Ask the human which mode they want: repository, project folder, personal file steward, or reference-only.
 3. For a non-technical human, read `references/NONTECHNICAL-SETUP.md` and explain only the decision that affects them now.
 4. Confirm local tools needed for the chosen mode. Repository mode usually needs git, node, and Python for scaffolding. Personal-folder mode needs node, Python for scaffolding, and archive tools.
+   Use `scripts/verify-bootstrap.sh --mode reference-only` for archive inspection that will not run a generated CLI.
 5. If installing the skill, read `scripts/install-skill.sh` and `references/AGENT-CLIENTS-AND-SKILL-INSTALL.md` first. Default install is dry-run; use `--yes` only after the human approves.
 6. For repository scaffolding, collect project name, repo slug, CLI name, default branch, and tracker. Read `references/REPO-MECHANICS-FOR-AGENTS.md` before asking the human to handle GitHub mechanics.
 7. For personal-folder scaffolding, collect install folder, managed folders, off-limits folders, scan depth, cleanup style, naming style, and automation preferences. Read `references/PERSONAL-FOLDER-HARNESS.md`.
@@ -65,7 +66,9 @@ First repository checks:
 
 ```bash
 cd "/path/to/project"
+./harness
 ./harness help
+./harness ergonomics status
 ./harness context
 ./harness preflight
 ./harness verify --dry-run

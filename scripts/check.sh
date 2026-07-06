@@ -203,6 +203,7 @@ PY
 python3 "$SKILL/assets/templates/onboarding-package/scripts/verify-package.py" \
   --root "$TMP/extracted/repo-agent-harness-reference" \
   --allow-missing-provenance
+bash "$TMP/extracted/repo-agent-harness-reference/scripts/verify-bootstrap.sh" --mode reference-only --allow-missing-provenance >"$TMP/verify-bootstrap-reference-only.out"
 cp -R "$TMP/extracted/repo-agent-harness-reference" "$TMP/extracted-unsafe-refs"
 python3 - "$TMP/extracted-unsafe-refs" <<'PY'
 import hashlib

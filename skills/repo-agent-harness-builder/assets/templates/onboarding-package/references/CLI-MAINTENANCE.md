@@ -2,13 +2,24 @@
 
 The CLI is part of the harness contract.
 
+Agent-facing output should be AXI-shaped:
+
+- no arguments show compact live harness state, not a full manual
+- `help` remains the concise command catalog
+- stdout carries structured data, usage errors, and next-step hints
+- stderr is for debug/progress details
+- usage mistakes fail before dependency calls and exit `2`
+- list/detail output favors minimal fields and definitive empty states
+- `ergonomics status` audits this contract during ordinary verification and should report zero warnings
+- `qa axi` is an alias for teams looking for CLI-quality checks under QA
+
 When changing commands:
 
 1. Change command implementation.
 2. Update `help`.
-3. Update `CLI-INTERFACE.md`.
+3. Update `CLI-INTERFACE.md` and `AGENT-CLI-ERGONOMICS.md` if behavior changes.
 4. Add or update tests.
-5. Run `./{{CLI_NAME}} help` and the command's safe mode.
+5. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics audit --strict`, and the command's safe mode.
 
 Keep comments near decision points:
 

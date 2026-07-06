@@ -48,10 +48,12 @@ falling back to a generic connector:
 ```
 
 The repo-owned plan may safely show provider names, profile ids, server names,
-remote endpoints, scope names, expected account domains, storage classes, and
-verification commands. Use a generic connector only when the repo profile is
-missing, inaccessible, unsupported by the current client, or blocked by the
-linked work item. Record that reason in the task notes.
+scope names, storage classes, verification commands, and whether an endpoint or
+account-domain boundary is configured. Do not print tenant-specific endpoint
+hosts, account domains, or local credential paths unless a repo protocol
+explicitly marks that metadata shareable. Use a generic connector only when the
+repo profile is missing, inaccessible, unsupported by the current client, or
+blocked by the linked work item. Record that reason in the task notes.
 
 ## Good Connector Uses
 

@@ -14,6 +14,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
   `verify`, `checklist`, `qa`, `secrets`, connection checks, and goal-chain
   inspection
+- AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
+  contextual next steps, and fail-loud usage errors
 - setup checklists with `active`, `inactive`, and `not-applicable` states
 - value-safe secrets, external-authority, and connector boundaries
 - optional loops, automations, heartbeats, and review workflows
@@ -28,7 +30,9 @@ After setup, a human or agent should be able to run a local helper command and
 see a read-only readiness result, such as:
 
 ```bash
+./harness
 ./harness help
+./harness ergonomics status
 ./harness context
 ./harness preflight
 ```

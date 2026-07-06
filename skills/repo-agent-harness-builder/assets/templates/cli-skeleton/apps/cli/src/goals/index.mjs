@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
-import { hasFlag } from "../util/args.mjs";
+import { renderUsageError, truncateText } from "../util/agent-output.mjs";
 import { runCommand } from "../util/exec.mjs";
 
 const GOAL_CHAIN_CANDIDATES = [
@@ -431,12 +431,45 @@ function loadGoals(io) {
 }
 
 function printHelp(io) {
-  io.stdout("Usage: ./{{CLI_NAME}} goals <command> [goal-id]");
+  io.stdout("Usage: ./{{CLI_NAME}} goals <command> [goal-id] [--full]");
   io.stdout("");
   io.stdout("Commands:");
   io.stdout("  status              List goals from the implementation goal chain");
   io.stdout("  verify <goal-id>    Check merge, verification, and next-goal evidence");
   io.stdout("  start-prompt <id>   Print a bounded prompt for a goal thread");
+  io.stdout("");
+  io.stdout("Options:");
+  io.stdout("  --full              Print the complete goal objective for start-prompt");
+}
+
+function parseGoalArgs(args, { allowedFlags = [] } = {}) {
+  const allowed = new Set(allowedFlags);
+  const flags = new Set();
+  const positionals = [];
+  const unexpected = [];
+  for (const arg of args) {
+    if (allowed.has(arg)) {
+      flags.add(arg);
+    } else if (arg.startsWith("-")) {
+      unexpected.push(arg);
+    } else {
+      positionals.push(arg);
+    }
+  }
+  return { flags, positionals, unexpected };
+}
+
+function rejectGoalArgDrift(parsed, io, { command, maxPositionals = 0, hints = [] }) {
+  const unexpected = [...parsed.unexpected, ...parsed.positionals.slice(maxPositionals)];
+  if (unexpected.length === 0) return false;
+  renderUsageError(io, {
+    code: unexpected.some((arg) => arg.startsWith("-")) ? "unknown-flag" : "unexpected-argument",
+    command,
+    message: `Unexpected argument for goals ${command}`,
+    details: unexpected,
+    hints: hints.length ? hints : [`Run ./${CONFIG.cliName} goals help`]
+  });
+  return true;
 }
 
 function runStatus(io) {
@@ -463,7 +496,12 @@ function runStatus(io) {
 
 function runVerify(goalId, io) {
   if (!goalId) {
-    io.stderr("Missing goal id. Usage: ./{{CLI_NAME}} goals verify <goal-id>");
+    renderUsageError(io, {
+      code: "missing-goal-id",
+      command: "goals verify",
+      message: "Missing goal id",
+      hints: [`Run ./${CONFIG.cliName} goals verify <goal-id>`]
+    });
     return 2;
   }
   const loaded = loadGoals(io);
@@ -492,9 +530,14 @@ function verificationLines(goal) {
   return block.split(/\r?\n/).filter(Boolean).map((line) => `- ${line}`);
 }
 
-function runStartPrompt(goalId, io) {
+function runStartPrompt(goalId, io, { full = false } = {}) {
   if (!goalId) {
-    io.stderr("Missing goal id. Usage: ./{{CLI_NAME}} goals start-prompt <goal-id>");
+    renderUsageError(io, {
+      code: "missing-goal-id",
+      command: "goals start-prompt",
+      message: "Missing goal id",
+      hints: [`Run ./${CONFIG.cliName} goals start-prompt <goal-id>`]
+    });
     return 2;
   }
   const loaded = loadGoals(io);
@@ -507,6 +550,7 @@ function runStartPrompt(goalId, io) {
   }
 
   const objective = fieldBlock(goal.body, "Objective") || "Complete the scoped goal from the goal-chain document.";
+  const objectivePreview = full ? { text: objective, truncated: false, shown: objective.length, total: objective.length } : truncateText(objective, { limit: 1200 });
 
   io.stdout(`Goal ${goal.id}: ${goal.title}`);
   io.stdout("");
@@ -517,7 +561,15 @@ function runStartPrompt(goalId, io) {
   io.stdout(`Issue: ${firstIssue(goal)}`);
   io.stdout("");
   io.stdout("Objective:");
-  io.stdout(objective);
+  io.stdout(objectivePreview.text);
+  if (objectivePreview.truncated) {
+    io.stdout("");
+    io.stdout("objective_preview:");
+    io.stdout("  truncated: true");
+    io.stdout(`  shown: ${objectivePreview.shown}`);
+    io.stdout(`  total: ${objectivePreview.total}`);
+    io.stdout(`  full: ./${CONFIG.cliName} goals start-prompt ${goal.id} --full`);
+  }
   io.stdout("");
   io.stdout("Work shape:");
   io.stdout(`- Create a branch from current ${integrationBranch()}.`);
@@ -536,22 +588,35 @@ function runStartPrompt(goalId, io) {
 }
 
 export async function runGoals(argv, io) {
-  const [command = "status", goalId] = argv;
-  if (hasFlag(argv, "--help") || hasFlag(argv, "-h") || command === "help") {
+  const [command = "status", ...rest] = argv;
+  if (argv.includes("--help") || argv.includes("-h") || command === "help") {
     printHelp(io);
     return 0;
   }
 
   switch (command) {
-    case "status":
+    case "status": {
+      const parsed = parseGoalArgs(rest);
+      if (rejectGoalArgDrift(parsed, io, { command: "status" })) return 2;
       return runStatus(io);
-    case "verify":
-      return runVerify(goalId, io);
-    case "start-prompt":
-      return runStartPrompt(goalId, io);
+    }
+    case "verify": {
+      const parsed = parseGoalArgs(rest);
+      if (rejectGoalArgDrift(parsed, io, { command: "verify", maxPositionals: 1 })) return 2;
+      return runVerify(parsed.positionals[0], io);
+    }
+    case "start-prompt": {
+      const parsed = parseGoalArgs(rest, { allowedFlags: ["--full"] });
+      if (rejectGoalArgDrift(parsed, io, { command: "start-prompt", maxPositionals: 1 })) return 2;
+      return runStartPrompt(parsed.positionals[0], io, { full: parsed.flags.has("--full") });
+    }
     default:
-      io.stderr(`Unknown goals command: ${command}`);
-      printHelp(io);
+      renderUsageError(io, {
+        code: "unknown-goals-command",
+        command: "goals",
+        message: `Unknown goals command: ${command}`,
+        hints: [`Run ./${CONFIG.cliName} goals help`]
+      });
       return 2;
   }
 }

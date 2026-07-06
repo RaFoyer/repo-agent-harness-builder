@@ -1,4 +1,36 @@
 import { CONFIG } from "./config.mjs";
+import { renderHelpBlock, toonString } from "./util/agent-output.mjs";
+
+const HOME_COMMANDS = [
+  ["preflight", "Run read-only session-start checks"],
+  ["protocols", "List routed protocol files"],
+  ["checklist", "Show harness module states"],
+  ["doctor", "Check local prerequisites"],
+  ["ergonomics status", "Audit agent-facing CLI ergonomics"],
+  ["verify --dry-run", "Preview the verification sequence"],
+  ["help", "Show the concise command reference"]
+];
+
+export function renderHome() {
+  const commandRows = HOME_COMMANDS.map(([command, purpose]) => `  ${toonString(command)},${toonString(purpose)}`).join("\n");
+  const hints = renderHelpBlock([
+    `Run ./${CONFIG.cliName} preflight before broad edits`,
+    `Run ./${CONFIG.cliName} protocols to choose a task protocol`,
+    `Run ./${CONFIG.cliName} help for all commands`
+  ]);
+
+  return `bin: ${toonString(`./${CONFIG.cliName}`)}
+description: ${toonString(`Operate the ${CONFIG.projectName} repository harness`)}
+repo:
+  name: ${toonString(CONFIG.projectName)}
+  slug: ${toonString(CONFIG.repoSlug)}
+  default_branch: ${toonString(CONFIG.defaultBranch)}
+  tracker: ${toonString(CONFIG.trackerName)}
+commands[${HOME_COMMANDS.length}]{command,purpose}:
+${commandRows}
+${hints}
+`;
+}
 
 export function renderHelp() {
   return `${CONFIG.projectName} repo CLI
@@ -33,6 +65,7 @@ Core commands:
   goals start-prompt <id>
                        Print a bounded prompt for a goal thread
   design status        Show design-system governance status
+  ergonomics status    Audit agent-facing CLI ergonomics
   self check           Check whether the harness can update safely
 
 Safety posture:
