@@ -32,6 +32,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - Baseline and optional setup checklist, including inactive/not-applicable module states: read `references/harness-checklist.md`.
 - Protocol front matter, TOC routing, and documentation governance: read `references/protocol-library.md`.
 - CLI structure, extension, comments, tests, and maintenance: read `references/cli-tooling.md`.
+- Agent-ergonomic CLI output, AXI-style discovery, and TOON-shaped stdout contracts: read `references/agent-cli-ergonomics.md`.
 - Portable zip/handoff package design: read `references/onboarding-package.md`.
 - Preflight, precommit, CI, branch, secrets, tracker, and MCP guardrails: read `references/guardrails-and-devops.md`.
 - Non-technical installation, personal folders, and safe file stewardship: read `references/nontechnical-and-personal-harness.md`.
@@ -44,7 +45,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 ## Bundled Assets
 
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, and protocol templates.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `qa`, `skills`, `secrets`, `connections`, and `self` commands.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `goals`, `design`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/goal-chain/`: implementation goal-chain, goal-start prompt, and handoff templates.
@@ -65,7 +66,7 @@ Use placeholders consistently:
 - `scripts/scaffold_harness.py`: copy templates into a target repo and replace placeholders.
 - `scripts/scaffold_personal_harness.py`: create a safe personal-folder harness in a project folder, not directly in `Documents`, `Downloads`, `Desktop`, or home.
 - `scripts/build_reference_package.py`: assemble the shareable zip from a clean staging directory, inject the skill, generate a manifest, and write a checksum.
-- `scripts/verify_harness.py`: check that a generated harness has the expected docs, CLI files, executable facade, and optional tests.
+- `scripts/verify_harness.py`: check that a generated harness has the expected docs, protocol front matter, CLI files, executable facade, smoke commands, replaced placeholders, and optional tests.
 
 Prefer the scripts for repeatable scaffold/package work. If editing templates manually, keep command help, protocol docs, tests, and root routing in sync in the same change.
 
@@ -74,6 +75,7 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - Root instructions stay short; route task-specific detail through the TOC and protocols.
 - Protocols describe durable recurring behavior, not current status, meeting notes, or one-off handoffs.
 - CLI commands must be real, discoverable through `./{{CLI_NAME}} help`, and covered by focused tests.
+- Agent-facing CLI output should follow the AXI-shaped contract: content-first home views, compact structured stdout, definitive empty states, contextual next-step hints, and fail-loud usage errors.
 - Preflight must be read-only unless the human explicitly approves mutation.
 - Scaffold plausible optional modules as `inactive` rather than omitting them; use `not-applicable` only when context clearly rules them out.
 - Inactive modules must not block preflight, require credentials, or imply permission to use external systems.

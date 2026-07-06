@@ -29,7 +29,7 @@ These apply to almost every harness, including repositories, project folders, an
 | Documentation lifecycle | durable doc lifecycle, review dates, owners, status fields |
 | Documentation quality | style, evidence, recipient-ready writing, stale-doc rules |
 | Protocol taxonomy | what belongs in protocols vs references vs temporal handoffs |
-| CLI or deterministic helpers | discoverable help, context, preflight/readiness check |
+| CLI or deterministic helpers | content-first no-args home, discoverable help, context, ergonomics audit, preflight/readiness check |
 | Session preflight | read-only checks before broad work |
 | Archive/package safety | no secrets, local paths, or traversal; manifest/checksum when packaged |
 | Maintenance metadata | how to review, retire, and update docs and modules |
@@ -41,7 +41,7 @@ Use for software repositories and durable team/project folders:
 
 | Area | Required artifacts |
 | --- | --- |
-| Repo CLI | `help`, `context`, `protocols`, `doctor`, `preflight`, `precommit` |
+| Repo CLI | no-args home, `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `precommit` |
 | CLI tests | focused tests for help, dispatch, redaction, and key safety checks |
 | Source of truth | repo-visible docs vs role-restricted external authority |
 | Connection registry | `ops/connections.json` with value-safe metadata |

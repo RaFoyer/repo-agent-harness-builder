@@ -3,12 +3,14 @@ import path from "node:path";
 import { CONFIG } from "../config.mjs";
 import { runCommand } from "../util/exec.mjs";
 import { isPrecommitHookInstalled } from "../precommit/checklist.mjs";
+import { rejectUnexpectedArgs } from "../util/agent-output.mjs";
 
 function git(args) {
   return runCommand("git", args, { cwd: CONFIG.repoRoot });
 }
 
-export async function runPreflight(_argv, io) {
+export async function runPreflight(argv, io) {
+  if (rejectUnexpectedArgs(argv, io, { command: "preflight", hints: [`Run ./${CONFIG.cliName} preflight`] })) return 2;
   const blockers = [];
   const warnings = [];
 

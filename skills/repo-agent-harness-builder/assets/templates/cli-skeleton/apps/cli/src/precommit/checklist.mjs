@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { CONFIG } from "../config.mjs";
 import { hasFlag } from "../util/args.mjs";
+import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 import { findSecretIndicators } from "../util/secrets.mjs";
 
 const LOCAL_PATH_RE = /(\/Users\/[^\s)'"]+|\/home\/[^\s)'"]+|\/private\/var\/[^\s)'"]+|\/tmp\/[^\s)'"]+|\/var\/folders\/[^\s)'"]+|\/Volumes\/[^/\s)'"]+\/[^\s)'"]+|[A-Za-z]:\\Users\\[^\r\n)'"]+|~\/[^\s)'"]+)/;
@@ -199,11 +200,26 @@ function isStagedSymlink(file) {
 }
 
 export async function runPrecommit(argv, io) {
-  if (argv[0] === "install-hook") return installHook(io);
-  if (argv[0] === "hook-status") {
+  const [command, ...rest] = argv;
+  if (command === "install-hook") {
+    if (rejectUnexpectedArgs(rest, io, { command: "precommit install-hook", hints: [`Run ./${CONFIG.cliName} precommit install-hook`] })) return 2;
+    return installHook(io);
+  }
+  if (command === "hook-status") {
+    if (rejectUnexpectedArgs(rest, io, { command: "precommit hook-status", hints: [`Run ./${CONFIG.cliName} precommit hook-status`] })) return 2;
     io.stdout(isPrecommitHookInstalled() ? "precommit hook: installed" : "precommit hook: not installed");
     return 0;
   }
+  if (command && !command.startsWith("-")) {
+    renderUsageError(io, {
+      code: "unknown-precommit-command",
+      command: `precommit ${command}`,
+      message: `Unknown precommit command: ${command}`,
+      hints: [`Run ./${CONFIG.cliName} precommit --all`, `Run ./${CONFIG.cliName} precommit hook-status`]
+    });
+    return 2;
+  }
+  if (rejectUnexpectedArgs(argv, io, { command: "precommit", allowedFlags: ["--all"], hints: [`Run ./${CONFIG.cliName} precommit --all`] })) return 2;
 
   const all = hasFlag(argv, "--all");
   const { files, source, error } = changedFiles(all);

@@ -1,12 +1,15 @@
 import { runChecklist } from "../commands/checklist.mjs";
 import { runDoctor } from "../commands/doctor.mjs";
 import { listProtocols } from "../commands/protocols.mjs";
+import { CONFIG } from "../config.mjs";
 import { runConnections } from "../connections/index.mjs";
 import { runGoals } from "../goals/index.mjs";
+import { runErgonomics } from "../ergonomics/index.mjs";
 import { runPrecommit } from "../precommit/checklist.mjs";
 import { runPreflight } from "../preflight/session.mjs";
 import { runQa } from "../qa/index.mjs";
 import { hasFlag } from "../util/args.mjs";
+import { rejectUnexpectedArgs } from "../util/agent-output.mjs";
 
 const VERIFY_STEPS = [
   { name: "doctor", run: (io) => runDoctor([], io) },
@@ -15,12 +18,15 @@ const VERIFY_STEPS = [
   { name: "protocols", run: (io) => listProtocols([], io) },
   { name: "connections status", run: (io) => runConnections(["status"], io) },
   { name: "goals status", run: (io) => runGoals(["status"], io) },
+  { name: "ergonomics status", run: (io) => runErgonomics(["status"], io) },
   { name: "qa status", run: (io) => runQa(["status"], io) },
   { name: "qa no-masking", run: (io) => runQa(["no-masking"], io) },
   { name: "precommit --all", run: (io) => runPrecommit(["--all"], io) }
 ];
 
 export async function runVerify(argv, io) {
+  if (rejectUnexpectedArgs(argv, io, { command: "verify", allowedFlags: ["--dry-run"], hints: [`Run ./${CONFIG.cliName} verify --dry-run`] })) return 2;
+
   if (hasFlag(argv, "--help") || hasFlag(argv, "-h")) {
     io.stdout("Usage: ./{{CLI_NAME}} verify [--dry-run]");
     io.stdout("Runs the harness verification sequence and stops after all checks report.");

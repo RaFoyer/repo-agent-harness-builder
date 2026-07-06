@@ -204,7 +204,43 @@ test("help lists core commands", () => {
   assert.match(help, /connections/);
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
+  assert.match(help, /ergonomics status/);
   assert.match(help, /checklist/);
+});
+
+test("no args renders content-first agent home view", async () => {
+  const { io, out, err } = capture();
+  const code = await main([], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, new RegExp(`bin: "\\./${CONFIG.cliName}"`));
+  assert.match(text, /description:/);
+  assert.match(text, /commands\[7\]\{command,purpose\}:/);
+  assert.match(text, /"preflight","Run read-only session-start checks"/);
+  assert.match(text, /"ergonomics status","Audit agent-facing CLI ergonomics"/);
+  assert.match(text, /help\[3\]:/);
+  assert.doesNotMatch(text, /Usage:/);
+  const localPathPattern = new RegExp([
+    String.raw`/` + "Users" + String.raw`/`,
+    String.raw`/` + "home" + String.raw`/`,
+    String.raw`/` + "tmp" + String.raw`/`,
+    String.raw`/` + "private" + String.raw`/` + "var" + String.raw`/`,
+    String.raw`~` + String.raw`/`
+  ].join("|"));
+  assert.doesNotMatch(text, localPathPattern);
+});
+
+test("unknown top-level command is a structured usage error on stdout", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["publsh"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /error:/);
+  assert.match(text, /code: unknown-command/);
+  assert.match(text, /command: "publsh"/);
+  assert.match(text, /Run \.\/{{CLI_NAME}} help for available commands/);
 });
 
 test("design status reports inactive module without design-system source", async () => {
@@ -316,26 +352,128 @@ test("design help resolves CLI name without template placeholders", async () => 
 });
 
 test("unknown design subcommands fail with help pointer", async () => {
-  const { io, err } = capture();
+  const { io, out, err } = capture();
   const code = await main(["design", "validate"], io);
   assert.equal(code, 2);
-  const text = err.join("\n");
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
   assert.ok(text.includes(`./${CONFIG.cliName} design status`));
   assert.doesNotMatch(text, /\{\{CLI_NAME\}\}/);
 });
 
 test("unknown commands fail with help pointer", async () => {
-  const { io, err } = capture();
+  const { io, out, err } = capture();
   const code = await main(["does-not-exist"], io);
   assert.equal(code, 2);
-  assert.match(err.join("\\n"), /help/);
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /help/);
+});
+
+test("ergonomics status audits the agent-facing CLI contract", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["ergonomics", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /agent_cli_ergonomics:/);
+  assert.match(text, /"home-view","pass"/);
+  assert.match(text, /"dispatch-usage-errors","pass"/);
+  assert.match(text, /"tests-cover-contract","pass"/);
+  assert.match(text, /"warning-budget","pass"/);
+  assert.match(text, /status: pass/);
+  assert.match(text, /warnings: 0/);
+  assert.doesNotMatch(text, /warnings\[/);
+});
+
+test("ergonomics strict audit passes with zero warnings", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["ergonomics", "audit", "--strict"], io);
+  assert.equal(code, 0);
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /warnings: 0/);
+});
+
+test("qa axi aliases the ergonomics audit", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["qa", "axi"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /agent_cli_ergonomics:/);
+});
+
+test("qa axi rejects unknown flags with structured stdout", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["qa", "axi", "--bogus"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /code: unknown-flag/);
+});
+
+test("ergonomics rejects unexpected positional args", async () => {
+  for (const argv of [
+    ["ergonomics", "status", "extra"],
+    ["ergonomics", "audit", "extra"],
+    ["ergonomics", "audit", "--strict", "extra"],
+    ["qa", "axi", "status", "extra"]
+  ]) {
+    const { io, out, err } = capture();
+    const code = await main(argv, io);
+    assert.equal(code, 2, `${argv.join(" ")} should be a usage error`);
+    assert.deepEqual(err, []);
+    assert.match(out.join("\n"), /code: unexpected-argument/);
+  }
+});
+
+test("command families reject unexpected args before doing work", async () => {
+  const sensitiveArg = ["super", "secret", "token", "like", "value", "1234567890ABCDEF"].join("-");
+  const cases = [
+    ["context", "--bogus"],
+    ["doctor", "--bogus"],
+    ["protocols", "extra"],
+    ["preflight", "extra"],
+    ["checklist", "--bogus"],
+    ["design", "status", "--bogus"],
+    ["skills", "status", "extra"],
+    ["self", "check", "extra"],
+    ["secrets", "doctor", "--bogus"],
+    ["connections", "status", "--bogus"],
+    ["goals", "status", "--bogus"],
+    ["qa", "status", "--bogus"],
+    ["ergonomics", "status", sensitiveArg],
+    ["verify", "--bogus"],
+    ["precommit", "--bogus"],
+    ["precommit", "hook-status", "--bogus"]
+  ];
+
+  for (const argv of cases) {
+    const { io, out, err } = capture();
+    const code = await main(argv, io);
+    assert.equal(code, 2, `${argv.join(" ")} should be a usage error`);
+    assert.deepEqual(err, [], `${argv.join(" ")} should report usage errors on stdout`);
+    const text = out.join("\n");
+    assert.match(text, /error:\n  code: (unknown-flag|unexpected-argument)/, argv.join(" "));
+    assert.equal(text.includes(sensitiveArg), false);
+  }
+});
+
+fixtureTest("ergonomics status blocks missing ergonomics protocol", async () => {
+  fs.rmSync(path.join(repoRoot, "ops", "protocols", "AGENT-CLI-ERGONOMICS.md"));
+  const { io, out, err } = capture();
+  const code = await main(["ergonomics", "status"], io);
+  assert.equal(code, 1);
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /protocol-active","blocker/);
 });
 
 test("secret redaction hides common values", () => {
-  const text = redactSecrets(`${"tok"}en=abc123 ${"sk-"}testvalue ${"ghp_"}exampletoken`);
+  const localPath = ["/", "Users", "example", "private"].join("/");
+  const highEntropy = ["9f8A7b6C", "5d4E3f2G", "1h0I9j8K", "7l6M5n4O"].join("");
+  const text = redactSecrets(`${"tok"}en=abc123 ${"sk-"}testvalue ${"ghp_"}exampletoken ${localPath} ${highEntropy}`);
   assert.doesNotMatch(text, /abc123/);
   assert.equal(text.includes(`${"sk-"}testvalue`), false);
   assert.equal(text.includes(`${"ghp_"}exampletoken`), false);
+  assert.equal(text.includes(localPath), false);
+  assert.equal(text.includes(highEntropy), false);
   assert.match(text, /<redacted>/);
 });
 
@@ -555,16 +693,46 @@ test("connections plan explains setup without secrets", async () => {
   const { io, out } = capture();
   const code = await main(["connections", "plan"], io);
   assert.equal(code, 0);
-  assert.match(out.join("\\n"), /least-privilege/);
-  assert.match(out.join("\\n"), /credentials outside the repository/);
-  assert.match(out.join("\\n"), /connector profile inventory/i);
-  assert.match(out.join("\\n"), /example-google-workspace/);
-  assert.match(out.join("\\n"), /drive: example-drive/);
-  assert.match(out.join("\\n"), /does not require live auth/i);
+  const text = out.join("\\n");
+  assert.match(text, /least-privilege/);
+  assert.match(text, /credentials outside the repository/);
+  assert.match(text, /connector profile inventory/i);
+  assert.match(text, /example-google-workspace/);
+  assert.match(text, /drive: example-drive/);
+  assert.match(text, /endpoint drive: configured/);
+  assert.match(text, /expected account domain: configured/);
+  assert.doesNotMatch(text, /drivemcp\.googleapis\.com|\/mcp\/v1|example\.com/);
+  assert.match(text, /does not require live auth/i);
+});
+
+fixtureTest("connections list is count-bearing with an explicit empty state", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connections = [];
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, out, err } = capture();
+    const code = await main(["connections", "list"], io);
+    assert.equal(code, 0, err.join("\n"));
+    const text = out.join("\n");
+    assert.match(text, /count: 0/);
+    assert.match(text, /connections\[0\]\{id,provider,authority_class,status\}:/);
+    assert.match(text, /empty: no registered external authorities/);
+    assert.match(text, /help\[1\]:/);
+  });
+});
+
+test("connections doctor missing profile is a structured usage error on stdout", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["connections", "doctor"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /code: missing-profile/);
+  assert.match(out.join("\n"), /connections doctor --profile <profile-id>/);
 });
 
 test("core command smoke paths run", async () => {
-  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
+  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["ergonomics", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
     const { io, err } = capture();
     const code = await main(argv, io);
     assert.equal(code, 0, `${argv.join(" ")} failed: ${err.join("\n")}`);
@@ -577,6 +745,7 @@ test("verify dry-run lists delegated checks", async () => {
   assert.equal(code, 0, err.join("\n"));
   assert.match(out.join("\n"), /doctor/);
   assert.match(out.join("\n"), /preflight/);
+  assert.match(out.join("\n"), /ergonomics status/);
   assert.match(out.join("\n"), /qa no-masking/);
   assert.match(out.join("\n"), /precommit --all/);
 });
@@ -1752,6 +1921,37 @@ Verification:
   assert.match(prompt, /Issue: #789: Keep parser fields separate/);
 });
 
+fixtureTest("goals start-prompt truncates long objectives unless --full is passed", async () => {
+  const longObjective = "Coordinate the downstream harness audit. ".repeat(80);
+  writeGoalChain(`# Implementation Goal Chain
+
+## Goal 4: Long Objective
+
+Objective: ${longObjective}
+
+Issues:
+- #900: Keep prompts bounded
+
+Verification:
+- node --test apps/cli/test/*.test.mjs
+`);
+
+  const preview = capture();
+  const previewCode = await main(["goals", "start-prompt", "4"], preview.io);
+  assert.equal(previewCode, 0, preview.err.join("\n"));
+  const previewText = preview.out.join("\n");
+  assert.match(previewText, /objective_preview:/);
+  assert.match(previewText, /truncated: true/);
+  assert.match(previewText, /--full/);
+
+  const full = capture();
+  const fullCode = await main(["goals", "start-prompt", "4", "--full"], full.io);
+  assert.equal(fullCode, 0, full.err.join("\n"));
+  const fullText = full.out.join("\n");
+  assert.doesNotMatch(fullText, /objective_preview:/);
+  assert.match(fullText, new RegExp(longObjective.slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
 fixtureTest("qa status detects Playwright and e2e scripts", async () => {
   const packagePath = path.join(repoRoot, "package.json");
   const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
@@ -1860,7 +2060,8 @@ fixtureTest("connections doctor validates connector profile identity and path bo
   const wrongDomain = capture();
   const wrongDomainCode = await main(["connections", "doctor", "--profile", "example-google-workspace", "--account", "person@outside.test"], wrongDomain.io);
   assert.equal(wrongDomainCode, 1);
-  assert.match(wrongDomain.err.join("\n"), /expected account domain/i);
+  assert.match(wrongDomain.err.join("\n"), /outside expected domain/i);
+  assert.doesNotMatch(wrongDomain.err.join("\n"), /person@outside\.test|example\.com/);
 
   const localInsideRepo = capture();
   const localInsideRepoCode = await main([
@@ -1875,6 +2076,7 @@ fixtureTest("connections doctor validates connector profile identity and path bo
   ], localInsideRepo.io);
   assert.equal(localInsideRepoCode, 1);
   assert.match(localInsideRepo.err.join("\n"), /credential root/i);
+  assert.doesNotMatch(localInsideRepo.err.join("\n"), /\.credentials|\/Users\/|\/tmp\/|\/private\/var\//);
 
   const remote = capture();
   const remoteCode = await main(["connections", "doctor", "--profile", "example-google-workspace", "--mode", "remote"], remote.io);

@@ -40,11 +40,17 @@ or global client configuration, inspect the repo-owned connector registry first:
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
 ```
 
-Connector profiles may record provider names, server names, remote endpoints,
-scope names, expected account domains, storage classes, and verification
-commands. They must not record tokens, OAuth client secrets, refresh tokens,
+Connector profiles may record provider names, server names, scope names,
+storage classes, verification commands, and whether endpoint or account-domain
+boundaries are configured. Do not print tenant-specific endpoint hosts, account
+domains, local credential paths, tokens, OAuth client secrets, refresh tokens,
 cookies, service-account private keys, local auth blobs, or private document
-contents.
+contents unless a repo protocol explicitly marks that metadata shareable.
+
+Use `connections doctor --account <email>` or `--email <email>` only when
+checking an expected account-domain boundary. Use `--credential-root <path>` only
+for local connector mode; the command should report whether storage is outside
+the repository without printing the path.
 
 Use a generic connector only when a repo-owned profile is missing, inaccessible,
 unsupported by the current client, or explicitly blocked by the linked work

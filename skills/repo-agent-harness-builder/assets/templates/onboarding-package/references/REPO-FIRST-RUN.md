@@ -6,7 +6,9 @@ The `{{CLI_NAME}}` placeholder is replaced in generated harnesses. If you still
 see braces, ask the agent to scaffold or adapt the command before running it.
 
 ```bash
+./{{CLI_NAME}}
 ./{{CLI_NAME}} help
+./{{CLI_NAME}} ergonomics status
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} protocols
 ./{{CLI_NAME}} preflight

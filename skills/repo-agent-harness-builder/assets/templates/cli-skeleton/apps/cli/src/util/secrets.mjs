@@ -49,6 +49,7 @@ const RAW_SECRET_PATTERNS = [
 ];
 
 const HIGH_ENTROPY_TOKEN_RE = /(?:^|[^A-Za-z0-9_+.=-])([A-Za-z0-9_+.-]{32,}={0,2})(?=$|[^A-Za-z0-9_+.=-])/g;
+const LOCAL_PATH_RE = /(\/Users\/[^\s)'"]+|\/home\/[^\s)'"]+|\/private\/var\/[^\s)'"]+|\/tmp\/[^\s)'"]+|\/var\/folders\/[^\s)'"]+|\/Volumes\/[^/\s)'"]+\/[^\s)'"]+|[A-Za-z]:\\Users\\[^\r\n)'"]+|~\/[^\s)'"]+)/g;
 
 function normalizeKey(key) {
   return String(key || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -176,6 +177,13 @@ export function redactSecrets(value) {
     if (!isCredentialKey(key)) return match;
     return match.replace(secretValue, "<redacted>");
   });
+
+  output = output.replace(HIGH_ENTROPY_TOKEN_RE, (match, token) => {
+    if (!looksHighEntropy(token)) return match;
+    return match.replace(token, "<redacted>");
+  });
+
+  output = output.replace(LOCAL_PATH_RE, "<redacted-path>");
 
   return output;
 }

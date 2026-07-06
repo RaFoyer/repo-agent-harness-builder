@@ -1,12 +1,14 @@
 import { CONFIG } from "../config.mjs";
 import { commandExists, runCommand } from "../util/exec.mjs";
 import { isPrecommitHookInstalled } from "../precommit/checklist.mjs";
+import { rejectUnexpectedArgs } from "../util/agent-output.mjs";
 
 const REQUIRED_TOOLS = ["git", "node"];
 const OPTIONAL_TOOLS = ["gh"];
 const MIN_NODE_MAJOR = 18;
 
-export async function runDoctor(_argv, io) {
+export async function runDoctor(argv, io) {
+  if (rejectUnexpectedArgs(argv, io, { command: "doctor", hints: [`Run ./${CONFIG.cliName} doctor`] })) return 2;
   const blockers = [];
   const warnings = [];
 

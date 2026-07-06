@@ -16,6 +16,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `preflight` | yes | Read-only fresh-session checks |
 | `precommit` | yes | Content-aware local commit gate |
 | `verify` | recommended | Run the local harness verification sequence through existing safe checks |
+| `ergonomics` | recommended | Audit agent-facing CLI output against AXI-shaped heuristics |
 | `skills` | recommended | Sync repo-owned skills to local skill dirs |
 | `self` | recommended | Check/update repo harness safely |
 | `secrets` | optional | Value-safe secret inventory and command wrapper |
@@ -38,8 +39,10 @@ apps/cli/bin/{{CLI_NAME}}.mjs
 apps/cli/src/config.mjs
 apps/cli/src/main.mjs
 apps/cli/src/help.mjs
+apps/cli/src/util/agent-output.mjs
 apps/cli/src/util/args.mjs
 apps/cli/src/util/exec.mjs
+apps/cli/src/util/secrets.mjs
 apps/cli/src/commands/context.mjs
 apps/cli/src/commands/checklist.mjs
 apps/cli/src/commands/doctor.mjs
@@ -47,10 +50,12 @@ apps/cli/src/commands/protocols.mjs
 apps/cli/src/commands/self.mjs
 apps/cli/src/preflight/session.mjs
 apps/cli/src/precommit/checklist.mjs
+apps/cli/src/ergonomics/index.mjs
 apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
 apps/cli/src/goals/index.mjs
+apps/cli/src/design/index.mjs
 apps/cli/src/qa/index.mjs
 apps/cli/src/verify/index.mjs
 apps/cli/test/cli.test.mjs
@@ -66,6 +71,20 @@ apps/cli/test/cli.test.mjs
 - Redact secret-like values at the boundary before output reaches chat, logs, or tickets.
 - Prefer dry-run defaults for external writes.
 
+## AXI-Shaped Output Contract
+
+Use `references/agent-cli-ergonomics.md` when changing any command output. The generated CLI should make the first agent invocation useful:
+
+- no arguments print a compact content-first home view
+- `help` prints the concise command catalog
+- stdout carries structured data, usage errors, and next-step hints
+- stderr is limited to debug/progress details
+- usage mistakes exit `2` and explain the valid next command
+- list/detail output favors TOON-shaped structures with minimal default fields
+- empty states are explicit successes, not blank output
+
+Do not make the CLI depend on one agent client. AXI-style behavior is a shell interface design pattern around the shared harness contract.
+
 ## Extension Contract
 
 When adding a command:
@@ -75,9 +94,20 @@ When adding a command:
 3. Add help text in `help.mjs`.
 4. Add or update the relevant protocol.
 5. Add tests in `apps/cli/test/`.
-6. Run `./{{CLI_NAME}} help` and the command's safe/default mode.
+6. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics audit --strict`, and the command's safe/default mode.
 
 If any step is missing, the CLI and docs are out of sync.
+
+## Ergonomics Command Contract
+
+Scaffold `ergonomics` as a read-only quality gate for every repo harness. Minimum behavior:
+
+- `ergonomics status`: inspect the local CLI implementation, protocol, help text, tests, and verify sequence; print structured blockers, warnings, checks, and next steps.
+- `ergonomics audit --strict`: run the same inspection and exit non-zero on warnings.
+- `ergonomics help`: show concise command usage.
+- `qa axi`: optional alias for teams that look for CLI-quality checks under the QA command family.
+
+The generated steady state is zero warnings with `ergonomicsWarningBudget: 0`. The command should fail on hard drift such as missing `AGENT-CLI-ERGONOMICS.md`, missing no-args home view, missing structured top-level or subcommand usage errors, command handlers that silently ignore argv, missing truncation escape hatches, unsafe high-risk output paths, or missing tests. Keep it read-only and credential-free.
 
 ## Loop Command Contract
 
@@ -119,7 +149,8 @@ Minimum behavior:
   as configuration blockers, not silently ignored.
 - `goals start-prompt <goal-id>`: print a bounded goal-thread prompt using the
   repo path, integration branch, issue reference, objective, and verification
-  expectations.
+  expectations. Long objectives should be truncated with an `objective_preview`
+  size hint and a `--full` escape hatch for the complete objective.
 
 Goal commands must not merge PRs, update trackers, create new threads, or run
 write-capable work. Treat them as read-only inspection and prompt-generation
@@ -184,6 +215,7 @@ Minimum:
 
 ```bash
 node --test apps/cli/test/*.test.mjs
+./{{CLI_NAME}}
 ./{{CLI_NAME}} help
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} checklist
@@ -192,6 +224,7 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} preflight
 ./{{CLI_NAME}} verify --dry-run
 ./{{CLI_NAME}} precommit --all
+./{{CLI_NAME}} ergonomics audit --strict
 ./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} secrets help
 ./{{CLI_NAME}} connections status
@@ -205,5 +238,7 @@ Tests should use temporary directories and fake command runners for git/gh where
 
 - `help.mjs` is a contract, not decoration.
 - `CLI-INTERFACE.md` must match command behavior.
+- `AGENT-CLI-ERGONOMICS.md` must match the stdout, stderr, exit-code, and no-args behavior.
+- `ergonomics status` must stay in the `verify` sequence so command-quality drift is visible.
 - `preflight` and `precommit` must stay fast enough for routine use.
 - Generated CLI syntax matrices or latest pointers are useful but must not become canonical truth.

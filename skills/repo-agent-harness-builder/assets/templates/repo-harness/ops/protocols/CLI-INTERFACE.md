@@ -7,6 +7,7 @@ owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines the repository CLI contract for agents and maintainers.
 related_protocols:
+  - AGENT-CLI-ERGONOMICS
   - SESSION-PREFLIGHT
   - PRE-COMMIT
 ---
@@ -16,6 +17,14 @@ related_protocols:
 ## Purpose
 
 Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository operations.
+
+## Agent-Ergonomic Defaults
+
+- `./{{CLI_NAME}}` prints a compact content-first home view.
+- `./{{CLI_NAME}} help` prints the concise command catalog.
+- Usage errors are structured, actionable, and exit `2`.
+- Agent-consumed data and usage errors go to stdout; debug/progress details go to stderr.
+- List and detail output should follow `AGENT-CLI-ERGONOMICS.md`.
 
 ## Required Commands
 
@@ -38,6 +47,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections doctor` | Check a named connector profile without printing secret values |
 | `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |
+| `ergonomics` | Audit agent-facing CLI output against `AGENT-CLI-ERGONOMICS.md` |
 | `self` | Check or update the harness safely |
 
 ## Extension Rules
@@ -59,6 +69,7 @@ Run:
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} checklist
 ./{{CLI_NAME}} protocols
+./{{CLI_NAME}} ergonomics status
 ./{{CLI_NAME}} preflight
 ./{{CLI_NAME}} verify --dry-run
 ./{{CLI_NAME}} qa status

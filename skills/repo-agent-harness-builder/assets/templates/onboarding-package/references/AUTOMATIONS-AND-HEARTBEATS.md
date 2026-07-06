@@ -126,6 +126,8 @@ generic scheduled loop. Each goal should start from the current integration
 branch, land one PR, record verification, and queue the next goal from merged
 state. Useful read-only commands are `./<cli> goals status`,
 `./<cli> goals verify <goal-id>`, and `./<cli> goals start-prompt <goal-id>`.
+The start-prompt command should stay bounded by default and expose `--full` only
+when the complete objective is needed.
 
 If loops become an active module, add deterministic local commands such as
 `./<cli> loops list`, `./<cli> loops validate`, and

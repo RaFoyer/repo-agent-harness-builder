@@ -13,18 +13,26 @@ SETUP-CHECKPOINTS.md
 SOURCES.md
 MANIFEST.json
 references/
+  ARCHIVE-INSPECTION.md
   HARNESS-CHECKLIST.md
+  REPO-FIRST-RUN.md
+  REPO-MECHANICS-FOR-AGENTS.md
+  GITHUB-ACCOUNT-AND-TOOLS.md
   NONTECHNICAL-SETUP.md
   PERSONAL-FOLDER-HARNESS.md
   DOCUMENT-TAXONOMY-AND-LIFECYCLE.md
   AGENT-CLIENTS-AND-SKILL-INSTALL.md
   EXTERNAL-AUTHORITY-AND-CONNECTIONS.md
   AUTOMATIONS-AND-HEARTBEATS.md
+  CLI-MAINTENANCE.md
+  OPTIONAL-CONNECTORS.md
   SECRETS-AND-PRIVACY.md
-skills/bootstrap/SKILL.md
-skills/repo-operator/SKILL.md
+scripts/verify-package.py
+scripts/install-skill.sh
 scripts/verify-bootstrap.sh
 scripts/build-reference-package.sh
+skills/bootstrap/SKILL.md
+skills/repo-operator/SKILL.md
 ```
 
 ## Entry Points
