@@ -142,6 +142,20 @@ function renderLavishHelp(io) {
   io.stdout("  tracker commands are proposal-first and never write to the tracker");
 }
 
+function renderUpdateHelp(io) {
+  io.stdout(`${CONFIG.projectName} Lavish update`);
+  io.stdout("");
+  io.stdout(`Usage: ./${CONFIG.cliName} lavish update [--check|--apply]`);
+  io.stdout("");
+  io.stdout("Options:");
+  io.stdout("  --check  Check lavish-axi updates without applying changes");
+  io.stdout("  --apply  Explicitly apply lavish-axi updates");
+  io.stdout("");
+  io.stdout("Safety:");
+  io.stdout("  Defaults to --check");
+  io.stdout("  Calls npx -y lavish-axi only when not rendering help");
+}
+
 function renderStatus(status, io) {
   io.stdout("lavish:");
   io.stdout(`  module: ${toonString(status.module)}`);
@@ -182,6 +196,18 @@ function runLavishAxi(args, io, { runImpl, action, mode, artifact = null }) {
 }
 
 function runUpdate(argv, io, options) {
+  if (hasFlag(argv, "--help") || hasFlag(argv, "-h")) {
+    const nonHelpArgs = argv.filter((arg) => arg !== "--help" && arg !== "-h");
+    if (rejectUnexpectedArgs(nonHelpArgs, io, {
+      command: "lavish update",
+      allowedFlags: ["--check", "--apply"],
+      hints: [`Run ./${CONFIG.cliName} lavish update --check`]
+    })) {
+      return 2;
+    }
+    renderUpdateHelp(io);
+    return 0;
+  }
   if (rejectUnexpectedArgs(argv, io, {
     command: "lavish update",
     allowedFlags: ["--check", "--apply"],
@@ -265,24 +291,15 @@ function runEnd(argv, io, options) {
 }
 
 function trackerCapture(argv, io) {
+  if (!validatePassThroughFlags(argv, io, {
+    command: "lavish tracker capture",
+    valueFlags: ["--issue", "--artifact", "--decisions"]
+  })) {
+    return 2;
+  }
   const issue = readOption(argv, "--issue");
   const artifact = readOption(argv, "--artifact");
   const decisions = readOption(argv, "--decisions");
-  const allowed = new Set(["--issue", "--artifact", "--decisions"]);
-  for (let index = 0; index < argv.length; index += 1) {
-    const [flag] = argv[index].split("=", 1);
-    if (!allowed.has(flag)) {
-      renderUsageError(io, {
-        code: argv[index].startsWith("-") ? "unknown-flag" : "unexpected-argument",
-        command: "lavish tracker capture",
-        message: "Unexpected argument for tracker capture",
-        details: [argv[index]],
-        hints: [`Run ./${CONFIG.cliName} lavish tracker capture --issue <id> --artifact <html-file>`]
-      });
-      return 2;
-    }
-    if (!argv[index].includes("=")) index += 1;
-  }
   if (!issue) {
     renderUsageError(io, {
       code: "missing-issue",
@@ -318,14 +335,14 @@ function trackerCapture(argv, io) {
 }
 
 function trackerReconcile(argv, io) {
-  const issue = readOption(argv, "--issue");
-  if (rejectUnexpectedArgs(argv.filter((arg) => !["--issue", issue].includes(arg) && !arg.startsWith("--issue=")), io, {
+  if (!validatePassThroughFlags(argv, io, {
     command: "lavish tracker reconcile",
-    allowedFlags: ["--dry-run"],
-    hints: [`Run ./${CONFIG.cliName} lavish tracker reconcile --issue <id>`]
+    booleanFlags: ["--dry-run"],
+    valueFlags: ["--issue"]
   })) {
     return 2;
   }
+  const issue = readOption(argv, "--issue");
   if (!issue) {
     renderUsageError(io, {
       code: "missing-issue",

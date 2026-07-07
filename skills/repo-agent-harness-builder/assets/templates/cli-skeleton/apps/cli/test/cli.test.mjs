@@ -302,6 +302,19 @@ test("lavish update defaults to check mode", async () => {
   assert.match(text, /ok: true/);
 });
 
+test("lavish update help is local and does not invoke npx", async () => {
+  const runner = fakeCommandRunner({
+    default: { ok: false, status: 1, stderr: "should not run\n" }
+  });
+  const { io, out, err } = capture();
+  const code = await runLavish(["update", "--help"], io, { runImpl: runner.runImpl });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(runner.calls, []);
+  const text = out.join("\n");
+  assert.match(text, new RegExp(`Usage: \\./${CONFIG.cliName} lavish update \\[--check\\|--apply\\]`));
+  assert.match(text, /Defaults to --check/);
+});
+
 test("lavish update apply is explicit", async () => {
   const runner = fakeCommandRunner({
     "npx -y lavish-axi update": { ok: true, stdout: "updated\n" }
@@ -338,6 +351,16 @@ test("lavish tracker capture requires an issue", async () => {
   assert.match(out.join("\n"), /code: missing-issue/);
 });
 
+test("lavish tracker capture rejects flag-like separated issue values", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "capture", "--issue", "--dry-run"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: missing-flag-value/);
+  assert.doesNotMatch(text, /tracker_update_proposal:/);
+});
+
 test("lavish tracker reconcile previews the goal handoff sequence", async () => {
   const { io, out, err } = capture();
   const code = await runLavish(["tracker", "reconcile", "--issue", "INT-936"], io);
@@ -348,6 +371,16 @@ test("lavish tracker reconcile previews the goal handoff sequence", async () => 
   assert.match(text, /issue: "INT-936"/);
   assert.match(text, /"capture decisions in tracker","proposal-first"/);
   assert.match(text, /"run no-mistakes when initialized","strongly recommended before merge"/);
+});
+
+test("lavish tracker reconcile rejects flag-like separated issue values", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "reconcile", "--issue", "--dry-run"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: missing-flag-value/);
+  assert.doesNotMatch(text, /lavish_tracker_reconcile:/);
 });
 
 test("unknown top-level command is a structured usage error on stdout", async () => {
