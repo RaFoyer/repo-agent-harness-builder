@@ -9,6 +9,7 @@ summary: Defines ticket-backed implementation goal chains with merge, verificati
 related_protocols:
   - AUTOMATIONS
   - CLI-INTERFACE
+  - LAVISH-REVIEW
   - NO-MISTAKES-GATE
   - PRE-COMMIT
 ---
@@ -36,21 +37,23 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 1. Confirm the canonical tracker, integration branch, and verification commands.
 2. Cluster related tickets only when they share a system boundary or acceptance evidence.
 3. Start each goal from the current integration branch, not an old feature branch.
-4. Create one ticket-backed branch for the goal.
-5. Produce a concise implementation plan before large edits.
-6. Implement only the scoped goal.
-7. Run local verification and record commands/results.
-8. Open a PR with evidence and resolve review.
-9. When no-mistakes is initialized for the repository, run the PR gate before merge.
-10. Merge the PR into the integration branch.
-11. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
-12. Start the next goal only after the merge or squash integration commit is visible from the integration branch unless the goal chain explicitly allows parallel work.
+4. If decisions were made in a Lavish artifact, capture them in the tracker with `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` before implementation starts.
+5. Create one ticket-backed branch for the goal.
+6. Produce a concise implementation plan before large edits.
+7. Implement only the scoped goal.
+8. Run local verification and record commands/results.
+9. Open a PR with evidence and resolve review.
+10. When no-mistakes is initialized for the repository, run the PR gate before merge.
+11. Merge the PR into the integration branch.
+12. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
+13. Start the next goal only after the merge or squash integration commit is visible from the integration branch unless the goal chain explicitly allows parallel work.
 
 ## Guardrails
 
 - Keep secrets out of repo, chat, logs, tickets, commits, and CI.
 - Do not close foundation work as product acceptance unless the visible product path has been verified.
 - Do not carry scratch context into the next goal. Put durable decisions in repo docs or tracker comments.
+- Do not treat Lavish feedback as implementation scope until the decision has been captured in the canonical tracker or an approved repository decision record.
 - Do not broaden a goal into unrelated tickets.
 - Preserve unrelated user work and require approval for destructive, production, financial, privacy-sensitive, or external-message actions.
 
@@ -62,6 +65,7 @@ Use the repo CLI when the goal-chain module is active:
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} goals verify <goal-id>
 ./{{CLI_NAME}} goals start-prompt <goal-id>
+./{{CLI_NAME}} lavish tracker reconcile --issue <id>
 ```
 
 `goals status` is read-only and may run before activation. `goals verify` rejects missing linked issue evidence, unresolved placeholders, negated verification text, negated PR evidence, missing residual-risk evidence, and merge or squash integration commits that either do not match the recorded PR number or are not reachable from the configured local integration branch or its configured local remote-tracking ref. Generated CLI config defaults `integrationBranch` to the default branch, `integrationRemote` to `origin`, `requiredGoalCloseoutFields` to `Issues:` and `Residual risks:`, and `trackerIssuePattern` to an empty value with common GitHub/Jira/Linear/Azure-style issue references accepted by default, with or without a trailing colon; update those values when the repository uses a different integration branch, remote, tracker reference shape, or migrated goal-chain schema. Fetch or pull the integration branch first if the PR was just merged remotely. The command does not verify live PR state, merge, update trackers, or create the next thread. `goals start-prompt` prints a bounded prompt for a goal thread, truncates long objectives with an `objective_preview` size hint, and accepts `--full` when the complete objective is needed.

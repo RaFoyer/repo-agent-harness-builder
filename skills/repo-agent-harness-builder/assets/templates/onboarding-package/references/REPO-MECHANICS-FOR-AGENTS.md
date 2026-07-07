@@ -14,8 +14,9 @@ The agent handles mechanics and explains only the human decision. Do not make th
 4. Explain whether the harness is present, missing, or stale.
 5. Ask before writing scaffold files.
 6. Run generated helper commands and tests.
-7. If feature PR validation is in scope, check `no-mistakes status` and ask before setup.
-8. Report what changed in plain language.
+7. If visual artifact review is useful, check `lavish status` and keep Lavish decisions proposal-first until they are captured in the tracker.
+8. If feature PR validation is in scope, check `no-mistakes status` and ask before setup.
+9. Report what changed in plain language.
 
 ## Agent-Owned Mechanics
 
@@ -27,6 +28,7 @@ The agent should handle:
 - CLI install and test commands
 - pull request preparation
 - no-mistakes status checks and approval-gated setup
+- Lavish status checks and tracker-decision capture before goal starts
 - CI result interpretation
 - tracker updates, if authorized
 

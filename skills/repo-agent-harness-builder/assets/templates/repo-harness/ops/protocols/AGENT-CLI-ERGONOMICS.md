@@ -8,6 +8,7 @@ last_reviewed: YYYY-MM-DD
 summary: Defines the content-first, structured-output contract for the repository CLI.
 related_protocols:
   - CLI-INTERFACE
+  - LAVISH-REVIEW
   - NO-MISTAKES-GATE
   - SESSION-PREFLIGHT
   - PRE-COMMIT
@@ -69,6 +70,7 @@ The no-args command should print:
 - Do not make one agent client the owner of the CLI contract. Codex, Claude Code, Gemini CLI, Cursor, Kimi, and similar tools are adapters around the same shell interface.
 - Keep contextual help relevant. Suggest the next useful command, not the entire manual.
 - When wrapping no-mistakes or another external gate, summarize value-safe setup state instead of echoing raw tool output.
+- When wrapping Lavish, keep `status` local-only, make `update` default to `--check`, require `--apply` for mutation, and make tracker capture proposal-first unless a repository-specific protocol grants write authority.
 
 ## Verification
 
@@ -79,6 +81,7 @@ Run:
 ./{{CLI_NAME}} help
 ./{{CLI_NAME}} ergonomics audit --strict
 ./{{CLI_NAME}} no-mistakes status
+./{{CLI_NAME}} lavish status
 ./{{CLI_NAME}} qa axi
 ./{{CLI_NAME}} preflight
 ./{{CLI_NAME}} protocols

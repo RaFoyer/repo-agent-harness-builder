@@ -26,11 +26,14 @@ lacks a tracker, integration branch, or verification gate.
 4. Add or activate `ops/protocols/GOAL-CHAIN.md`.
 5. Route `AGENTS-TOC.md` to the protocol and mark the checklist row active only
    after tracker, integration branch, and verification gates exist.
-6. Use `./{{CLI_NAME}} goals status` to inspect the chain and
+6. If review decisions were made in Lavish, capture them in the tracker or an
+   approved decision record with `./{{CLI_NAME}} lavish tracker capture --issue
+   <id>` before starting the implementation goal.
+7. Use `./{{CLI_NAME}} goals status` to inspect the chain and
    `./{{CLI_NAME}} goals start-prompt <goal-id>` to create a bounded thread
    prompt. If the objective is truncated, rerun with `--full` only when the
    complete objective is needed.
-7. Fetch or pull the integration branch if the PR was just merged remotely,
+8. Fetch or pull the integration branch if the PR was just merged remotely,
    then use `./{{CLI_NAME}} goals verify <goal-id>` before closing a goal.
    The generated verifier inspects local git evidence and recorded text; it does
    not verify live PR state. Fresh generated CLIs require `Issues:` and
@@ -71,5 +74,7 @@ Completed goals should additionally include:
   treating the PR as merge-ready.
 - Do not copy scratch context into the next thread. Put durable decisions in
   tracker comments or repository docs.
+- Do not treat Lavish feedback as implementation scope until it has been
+  captured in the canonical tracker or an approved decision record.
 - Do not let the CLI merge, update trackers, or create threads unless the target
   repository adds an explicit tested protocol for that authority.

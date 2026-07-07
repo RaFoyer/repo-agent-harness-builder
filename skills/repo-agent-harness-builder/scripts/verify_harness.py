@@ -18,6 +18,7 @@ REQUIRED_PROTOCOLS = [
     "DOCUMENT-QUALITY.md",
     "CLI-INTERFACE.md",
     "DESIGN-SYSTEM.md",
+    "LAVISH-REVIEW.md",
     "SOURCE-OF-TRUTH.md",
     "GOAL-CHAIN.md",
     "QA-BROWSER.md",
@@ -44,6 +45,7 @@ COMMAND_SMOKE_TESTS = [
     ["goals", "status"],
     ["design", "status"],
     ["no-mistakes", "status"],
+    ["lavish", "status"],
     ["self", "check"],
 ]
 HARNESS_PLACEHOLDER_RE = re.compile(
@@ -231,6 +233,7 @@ def main() -> int:
         "apps/cli/src/connections/index.mjs",
         "apps/cli/src/ergonomics/index.mjs",
         "apps/cli/src/goals/index.mjs",
+        "apps/cli/src/lavish/index.mjs",
         "apps/cli/src/no-mistakes/index.mjs",
         "apps/cli/src/qa/index.mjs",
         "apps/cli/src/verify/index.mjs",

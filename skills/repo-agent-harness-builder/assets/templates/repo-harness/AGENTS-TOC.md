@@ -21,12 +21,14 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Changing or auditing agent-facing CLI output, command discovery, stdout/stderr behavior, or usage errors | `ops/protocols/AGENT-CLI-ERGONOMICS.md`, `ops/protocols/CLI-INTERFACE.md`, then `./{{CLI_NAME}} ergonomics status` |
 | Preparing a commit | `ops/protocols/PRE-COMMIT.md` |
 | Preparing a PR or validating a branch through no-mistakes | `ops/protocols/NO-MISTAKES-GATE.md`, then `./{{CLI_NAME}} no-mistakes status` |
+| Reviewing complex plans, diagrams, audit reports, QA packets, or PR/adversarial summaries as HTML artifacts | `ops/protocols/LAVISH-REVIEW.md`, then `./{{CLI_NAME}} lavish status` |
 | Running browser, Playwright, Storybook, or UI QA | `ops/protocols/QA-BROWSER.md` if present |
 | Changing UI, UX, product interface, design-system source, components, tokens, brand surfaces, adaptive UI, generated UI, or agent-composed interface behavior | `ops/protocols/DESIGN-SYSTEM.md` if present |
 | Handling tracker work | `ops/protocols/PROJECT-TRACKING.md` if present |
 | Handling secrets or credentials | `ops/protocols/SECRETS.md` if present |
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |
 | Planning ticket-backed goal chains | `ops/protocols/GOAL-CHAIN.md`, then `./{{CLI_NAME}} goals status` |
+| Capturing Lavish review decisions before implementation | `ops/protocols/LAVISH-REVIEW.md`, tracker protocol if active, then `./{{CLI_NAME}} lavish tracker capture --issue <id>` |
 | Changing CI, deploy, or branches | `ops/protocols/CICD.md` or `ops/protocols/BRANCH-PROMOTION.md` if present |
 | Using, discovering, or installing external connectors | `ops/protocols/EXTERNAL-SYSTEMS.md`, then `./{{CLI_NAME}} connections plan` |
 

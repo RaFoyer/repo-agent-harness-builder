@@ -15,6 +15,7 @@ import { runGoals } from "./goals/index.mjs";
 import { runDesign } from "./design/index.mjs";
 import { runErgonomics } from "./ergonomics/index.mjs";
 import { runNoMistakes } from "./no-mistakes/index.mjs";
+import { runLavish } from "./lavish/index.mjs";
 import { renderHelpBlock, toonString } from "./util/agent-output.mjs";
 
 export const defaultIO = {
@@ -68,6 +69,8 @@ export async function main(argv = [], io = defaultIO) {
       return runErgonomics(rest, io);
     case "no-mistakes":
       return runNoMistakes(rest, io);
+    case "lavish":
+      return runLavish(rest, io);
     case "self":
       return runSelf(rest, io);
     default:

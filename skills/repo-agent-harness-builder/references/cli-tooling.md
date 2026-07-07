@@ -26,6 +26,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `design` | optional | Report design-system governance status and, when activated, inspect safe design-system source pointers |
+| `lavish` | optional | Check optional Lavish review-surface posture, update lavish-axi deliberately, run review sessions, and draft tracker captures |
 | `pm` | optional | Tracker lifecycle wrapper |
 | `workspace` | optional | External workspace/MCP governance |
 | `review-gate` | optional | High-risk PR or protected-branch guard |
@@ -58,6 +59,7 @@ apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
 apps/cli/src/goals/index.mjs
 apps/cli/src/design/index.mjs
+apps/cli/src/lavish/index.mjs
 apps/cli/src/qa/index.mjs
 apps/cli/src/verify/index.mjs
 apps/cli/test/cli.test.mjs
@@ -209,6 +211,32 @@ inactive. Minimum inactive behavior:
 - Do not add validation, generation, CI gates, external-system inspection, or
   product-code scanning until the module is active and covered by tests.
 
+## Lavish Command Contract
+
+Scaffold `lavish` as an optional visual review-surface helper when the harness
+includes `LAVISH-REVIEW.md`, even while the module remains inactive. Minimum
+behavior:
+
+- `lavish status` / `lavish doctor`: report local protocol posture,
+  project-skill presence, and whether `npx` is available without installing,
+  contacting npm, opening a browser, or writing tracker state.
+- `lavish update`: default to the same behavior as `lavish update --check`.
+  `--apply` must be explicit for local tool mutation. Do not silently update
+  `lavish-axi` from status, doctor, verify, or preflight.
+- `lavish open <html-file>`, `lavish poll <html-file>`, and
+  `lavish end <html-file>`: wrap `npx -y lavish-axi` with structured,
+  value-safe summaries rather than raw dependency output.
+- `lavish tracker capture --issue <id>`: draft a tracker update proposal from
+  Lavish decisions and never write to Linear, Jira, GitHub Issues, or another
+  tracker unless a repository-specific protocol adds tested write authority.
+- `lavish tracker reconcile --issue <id>`: preview the review artifact ->
+  tracker capture -> ticket-backed goal -> local verification -> no-mistakes
+  sequence.
+
+Keep Lavish optional. Do not add `lavish-axi` as a required project dependency
+unless a repository intentionally activates this protocol. Use fake command
+runners in tests for update/open/poll/end.
+
 ## Preflight Contract
 
 `preflight` must be read-only. It may check:
@@ -253,6 +281,7 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} ergonomics audit --strict
 ./{{CLI_NAME}} no-mistakes status
+./{{CLI_NAME}} lavish status
 ./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} secrets help
 ./{{CLI_NAME}} connections status

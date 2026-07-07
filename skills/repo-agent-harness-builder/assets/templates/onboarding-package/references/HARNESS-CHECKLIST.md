@@ -35,9 +35,10 @@ Repositories and durable project folders should usually have:
 - CLI facade or deterministic helper commands
 - content-first no-args CLI home view and structured usage errors
 - CLI ergonomics audit command for checking agent-facing output quality
-- CLI no-args home, help, ergonomics status, no-mistakes status, context, checklist, protocols, doctor, preflight, verify
+- CLI no-args home, help, ergonomics status, no-mistakes status, lavish status, context, checklist, protocols, doctor, preflight, verify
 - precommit or local content checks
 - strongly recommended no-mistakes PR validation flow, inactive until initialized
+- optional Lavish review-surface flow, inactive until visual artifact review is useful
 - source-of-truth model
 - privileged document boundary
 - external connection registry

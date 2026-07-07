@@ -54,6 +54,6 @@ Use this classification while importing inspiration from existing harnesses:
 
 1. Scaffold `AGENTS.md`, `AGENTS-TOC.md`, and core protocols.
 2. Scaffold the CLI facade and tests.
-3. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics status`, `./{{CLI_NAME}} no-mistakes status`, `./{{CLI_NAME}} context`, `./{{CLI_NAME}} protocols`, `./{{CLI_NAME}} preflight`, and `./{{CLI_NAME}} verify --dry-run`.
+3. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics status`, `./{{CLI_NAME}} no-mistakes status`, `./{{CLI_NAME}} lavish status`, `./{{CLI_NAME}} context`, `./{{CLI_NAME}} protocols`, `./{{CLI_NAME}} preflight`, and `./{{CLI_NAME}} verify --dry-run`.
 4. Register any new protocols in `AGENTS-TOC.md`.
 5. Add onboarding package only after the repo-native harness is coherent.

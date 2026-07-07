@@ -8,6 +8,7 @@ const HOME_COMMANDS = [
   ["doctor", "Check local prerequisites"],
   ["ergonomics status", "Audit agent-facing CLI ergonomics"],
   ["no-mistakes status", "Check branch-to-PR validation gate setup"],
+  ["lavish status", "Check optional Lavish review-surface posture"],
   ["verify --dry-run", "Preview the verification sequence"],
   ["help", "Show the concise command reference"]
 ];
@@ -69,12 +70,17 @@ Core commands:
   ergonomics status    Audit agent-facing CLI ergonomics
   no-mistakes status   Check no-mistakes validation gate setup
   no-mistakes setup    Initialize no-mistakes and verify post-setup status
+  lavish status        Show optional Lavish review-surface posture
+  lavish update        Check lavish-axi updates; use --apply to mutate
+  lavish tracker       Draft tracker updates from Lavish decisions
   self check           Check whether the harness can update safely
 
 Safety posture:
   - preflight is read-only
   - secrets output is value-safe
   - no-mistakes wrappers summarize setup status without printing raw local paths
+  - lavish tracker commands are proposal-first and never write to the tracker
+  - lavish update defaults to --check; --apply is explicit
   - write-capable operations should support dry-run first
   - command help, protocol docs, and tests must stay in sync
 `;

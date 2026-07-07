@@ -12,6 +12,7 @@ Agent-facing output should be AXI-shaped:
 - list/detail output favors minimal fields and definitive empty states
 - `ergonomics status` audits this contract during ordinary verification and should report zero warnings
 - `no-mistakes status` summarizes PR-gate setup without echoing raw tool output
+- `lavish status` stays local and non-mutating; `lavish update` defaults to `--check`
 - `qa axi` is an alias for teams looking for CLI-quality checks under QA
 
 When changing commands:
@@ -30,6 +31,13 @@ then confirm initialized status before reporting success. The direct script's
 echo raw status output, fork URLs, local paths, account identifiers, or
 secret-like values. Setup is mutating and should keep `.no-mistakes/` out of
 commits through local git exclude when a checkout exists.
+
+For Lavish tooling, keep `./{{CLI_NAME}} lavish status`,
+`./{{CLI_NAME}} lavish update`, `./{{CLI_NAME}} lavish tracker capture`, and
+`ops/protocols/LAVISH-REVIEW.md` in sync. Status must not install, contact npm,
+open a browser, or write tracker state. Update defaults to `--check`, and
+`--apply` is required for mutation. Tracker capture drafts a proposal only
+unless a repo-specific project-tracking protocol adds tested write authority.
 
 Keep comments near decision points:
 
@@ -55,6 +63,8 @@ exist and have tests.
 For ticket-backed implementation chains, keep `goals` commands read-only unless
 the repository adds stronger tested authority. Minimum useful commands are
 `goals status`, `goals verify <goal-id>`, and `goals start-prompt <goal-id>`.
+If decisions were made through Lavish, capture them in the tracker or an
+approved decision record before generating the goal start prompt.
 `goals start-prompt` should keep the default prompt bounded, report
 `objective_preview` when truncating long objectives, and support `--full` for
 the complete objective.

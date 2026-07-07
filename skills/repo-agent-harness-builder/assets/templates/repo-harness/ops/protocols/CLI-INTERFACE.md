@@ -8,6 +8,7 @@ last_reviewed: YYYY-MM-DD
 summary: Defines the repository CLI contract for agents and maintainers.
 related_protocols:
   - AGENT-CLI-ERGONOMICS
+  - LAVISH-REVIEW
   - NO-MISTAKES-GATE
   - SESSION-PREFLIGHT
   - PRE-COMMIT
@@ -48,6 +49,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections doctor` | Check a named connector profile without printing secret values |
 | `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |
+| `lavish` | Check optional Lavish posture, run Lavish review lifecycle commands, check/apply Lavish updates, and draft tracker captures |
 | `ergonomics` | Audit agent-facing CLI output against `AGENT-CLI-ERGONOMICS.md` |
 | `no-mistakes` | Check and initialize the strongly recommended branch-to-PR validation gate |
 | `self` | Check or update the harness safely |
@@ -79,6 +81,7 @@ Run:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status
+./{{CLI_NAME}} lavish status
 ./{{CLI_NAME}} no-mistakes status
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} precommit hook-status

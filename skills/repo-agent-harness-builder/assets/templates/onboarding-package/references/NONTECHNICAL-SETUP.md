@@ -88,7 +88,7 @@ For personal-folder mode, collect:
 
 End the first session with one small result:
 
-- repository mode: no-args home, `help`, `ergonomics status`, `no-mistakes status`, `context`, and `preflight` ran
+- repository mode: no-args home, `help`, `ergonomics status`, `no-mistakes status`, `lavish status`, `context`, and `preflight` ran
 - project-folder mode: root instructions and TOC exist
 - personal mode: metadata-only inventory exists
 - reference-only mode: explain the package map and no installation performed

@@ -10,6 +10,7 @@ see braces, ask the agent to scaffold or adapt the command before running it.
 ./{{CLI_NAME}} help
 ./{{CLI_NAME}} ergonomics status
 ./{{CLI_NAME}} no-mistakes status
+./{{CLI_NAME}} lavish status
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} protocols
 ./{{CLI_NAME}} preflight
@@ -36,3 +37,8 @@ unchanged. If status reports an active no-mistakes run on another
 branch/worktree, leave that run alone unless the current task is to manage it.
 After local checks pass and a feature branch is committed, prefer the
 no-mistakes gate before opening or merging a PR.
+
+Lavish is optional. Use `./{{CLI_NAME}} lavish status` to check posture without
+installing or contacting npm. Use `./{{CLI_NAME}} lavish update --check` before
+HTML artifact review work, and capture review decisions in the tracker before
+starting a ticket-backed goal.
