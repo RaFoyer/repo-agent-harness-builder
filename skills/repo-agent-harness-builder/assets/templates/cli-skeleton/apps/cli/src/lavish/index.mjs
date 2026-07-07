@@ -79,9 +79,9 @@ function validatePassThroughFlags(argv, io, { command, booleanFlags = [], valueF
     const [flag] = arg.split("=", 1);
     if (booleans.has(arg)) continue;
     if (values.has(flag)) {
-      if (!arg.includes("=")) {
-        index += 1;
-        if (index >= argv.length || argv[index].startsWith("-")) {
+      if (arg.includes("=")) {
+        const value = arg.slice(flag.length + 1);
+        if (!value || value.startsWith("-")) {
           renderUsageError(io, {
             code: "missing-flag-value",
             command,
@@ -91,6 +91,18 @@ function validatePassThroughFlags(argv, io, { command, booleanFlags = [], valueF
           });
           return false;
         }
+        continue;
+      }
+      index += 1;
+      if (index >= argv.length || argv[index].startsWith("-")) {
+        renderUsageError(io, {
+          code: "missing-flag-value",
+          command,
+          message: `Missing value for ${flag}`,
+          details: [flag],
+          hints: [`Run ./${CONFIG.cliName} lavish help`]
+        });
+        return false;
       }
       continue;
     }
