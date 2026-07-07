@@ -16,7 +16,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 | Agent CLI ergonomics | `AGENT-CLI-ERGONOMICS.md` | Content-first, token-aware CLI output contract |
 | Connection registry | `ops/connections.json` | Value-safe metadata for external authorities |
 | Onboarding package | `START-HERE.md`, `AGENT-HANDOFF.md`, `skills/*` | Pre-clone and first-use bridge |
-| Guardrails | preflight, precommit, CI, secrets, tracker | Safety and consistency checks |
+| Guardrails | preflight, precommit, no-mistakes, CI, secrets, tracker | Safety and consistency checks |
 | Advanced modules | hooks, intent authority, evidence maps | Scale patterns for complex repos |
 
 ## Base Harness Checklist
@@ -25,7 +25,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 - `AGENTS-TOC.md` routes by task type, not by team lore.
 - `ops/HARNESS-CHECKLIST.md` marks baseline and optional modules as active, inactive, or not-applicable.
 - Protocols have stable IDs, review dates, related protocols, and verification sections.
-- The CLI has a content-first no-args home view, structured usage errors, and `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, and `precommit` before domain-specific commands.
+- The CLI has a content-first no-args home view, structured usage errors, and `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, and `precommit` before domain-specific commands.
 - Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.
@@ -54,6 +54,6 @@ Use this classification while importing inspiration from existing harnesses:
 
 1. Scaffold `AGENTS.md`, `AGENTS-TOC.md`, and core protocols.
 2. Scaffold the CLI facade and tests.
-3. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics status`, `./{{CLI_NAME}} context`, `./{{CLI_NAME}} protocols`, `./{{CLI_NAME}} preflight`, and `./{{CLI_NAME}} verify --dry-run`.
+3. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics status`, `./{{CLI_NAME}} no-mistakes status`, `./{{CLI_NAME}} context`, `./{{CLI_NAME}} protocols`, `./{{CLI_NAME}} preflight`, and `./{{CLI_NAME}} verify --dry-run`.
 4. Register any new protocols in `AGENTS-TOC.md`.
 5. Add onboarding package only after the repo-native harness is coherent.

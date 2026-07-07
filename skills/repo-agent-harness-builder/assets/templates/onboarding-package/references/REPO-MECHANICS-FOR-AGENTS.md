@@ -14,7 +14,8 @@ The agent handles mechanics and explains only the human decision. Do not make th
 4. Explain whether the harness is present, missing, or stale.
 5. Ask before writing scaffold files.
 6. Run generated helper commands and tests.
-7. Report what changed in plain language.
+7. If feature PR validation is in scope, check `no-mistakes status` and ask before setup.
+8. Report what changed in plain language.
 
 ## Agent-Owned Mechanics
 
@@ -25,6 +26,7 @@ The agent should handle:
 - staged vs unstaged changes
 - CLI install and test commands
 - pull request preparation
+- no-mistakes status checks and approval-gated setup
 - CI result interpretation
 - tracker updates, if authorized
 
@@ -36,6 +38,7 @@ Ask the human for:
 - whether to install or replace a skill
 - whether to scaffold missing files
 - whether to push/share/open review
+- whether to initialize or use the no-mistakes PR gate
 - whether to connect external systems
 
 ## Stop Points

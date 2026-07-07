@@ -38,7 +38,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | --- | --- |
 | Agent workflow | `AGENT-WORKFLOW.md`, `SESSION-PREFLIGHT.md` |
 | Documentation | `DOCUMENT-LIFECYCLE.md`, `DOCUMENT-QUALITY.md`, `REPO-NAVIGATION.md` |
-| CLI | `CLI-INTERFACE.md`, `AGENT-CLI-ERGONOMICS.md`, `PRE-COMMIT.md` |
+| CLI | `CLI-INTERFACE.md`, `AGENT-CLI-ERGONOMICS.md`, `PRE-COMMIT.md`, `NO-MISTAKES-GATE.md` |
 | Tracker | `PROJECT-TRACKING.md` |
 | Security | `SECRETS.md`, `EXTERNAL-MCP.md` |
 | DevOps | `CICD.md`, `BRANCH-PROMOTION.md`, `DEVOPS-SECURITY.md` |
@@ -55,6 +55,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Running repo commands | `CLI-INTERFACE.md` |
 | Changing agent-facing CLI output | `CLI-INTERFACE.md`, `AGENT-CLI-ERGONOMICS.md` |
 | Preparing a commit | `PRE-COMMIT.md` |
+| Preparing a PR or validating a branch through no-mistakes | `NO-MISTAKES-GATE.md` |
 | Changing UI, UX, design systems, components, tokens, brand surfaces, adaptive UI, or generated UI | `DESIGN-SYSTEM.md` if present |
 | Working with tickets | `PROJECT-TRACKING.md` |
 | Handling credentials | `SECRETS.md` |

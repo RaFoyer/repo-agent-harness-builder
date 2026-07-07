@@ -14,6 +14,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
   `verify`, `checklist`, `qa`, `secrets`, connection checks, and goal-chain
   inspection
+- strongly recommended no-mistakes setup and branch-aware status commands for
+  branch-to-PR validation, with optional user-local agent pinning
 - AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
   contextual next steps, and fail-loud usage errors
 - setup checklists with `active`, `inactive`, and `not-applicable` states
@@ -33,6 +35,7 @@ see a read-only readiness result, such as:
 ./harness
 ./harness help
 ./harness ergonomics status
+./harness no-mistakes status
 ./harness context
 ./harness preflight
 ```
@@ -47,6 +50,8 @@ metadata-only inventory report and a written plan before any file changes.
 - Python 3 for scaffold and packaging scripts.
 - `git` for repository mode.
 - `gh` only if you want the agent to create or publish GitHub repositories.
+- `no-mistakes` only if you want the branch-to-PR validation gate; generated
+  `no-mistakes status` reports when it is unavailable.
 
 Native Windows without WSL/Git Bash is a direct-read/reference path until a
 Windows adapter is added. Give the package to the agent and ask it to read
@@ -148,7 +153,8 @@ The skill can help with:
 - portable onboarding packages
 - CLI skeletons with no-args home views, ergonomics audits, preflight,
   precommit, verify, doctor, checklist, browser QA, secrets, connection
-  commands, design status, skill/self checks, and goal-chain helpers
+  commands, design status, branch-aware no-mistakes status/setup with optional
+  local agent pinning, skill/self checks, and goal-chain helpers
 - loops, goal chains, and recurring work definitions with bounded verification
   and stop rules
 
@@ -174,7 +180,12 @@ The check script validates:
 - Python script syntax
 - package build, manifest safety, package verification, and unsafe zip-name refusal
 - generated repo harness CLI tests
+- generated no-mistakes setup/status contracts and harness verifier coverage
 - protected personal-folder scope behavior
+
+For feature PRs, prefer the no-mistakes gate after local checks when the
+no-mistakes remote is initialized. This meta repository pins that gate to Codex;
+generated harnesses remain agent-agnostic with `agent: auto`.
 
 After the GitHub repo is public, verify public install discovery with:
 

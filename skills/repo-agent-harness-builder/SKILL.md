@@ -19,7 +19,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 6. Choose the smallest viable active layer, while scaffolding plausible optional modules as inactive:
    - Base: `AGENTS.md`, `AGENTS-TOC.md`, protocol library, and repo CLI.
    - Onboarding: portable handoff package, bootstrap skill, repo-operator skill, and verification script.
-   - Guardrails: preflight, precommit, secrets, tracker, CI, branch promotion, and external-system boundaries.
+   - Guardrails: preflight, precommit, no-mistakes PR validation, secrets, tracker, CI, branch promotion, and external-system boundaries.
    - Personal steward: read-only inventory, folder taxonomy, safe cleanup plans, receipts, undo, and quarantine.
    - Advanced: hooks, intent routing, artifact pointers, evidence maps, and multi-agent enforcement.
 7. Read only the relevant reference files below, then copy or adapt templates from `assets/templates/`.
@@ -34,7 +34,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - CLI structure, extension, comments, tests, and maintenance: read `references/cli-tooling.md`.
 - Agent-ergonomic CLI output, AXI-style discovery, and TOON-shaped stdout contracts: read `references/agent-cli-ergonomics.md`.
 - Portable zip/handoff package design: read `references/onboarding-package.md`.
-- Preflight, precommit, CI, branch, secrets, tracker, and MCP guardrails: read `references/guardrails-and-devops.md`.
+- Preflight, precommit, no-mistakes PR validation, CI, branch, secrets, tracker, and MCP guardrails: read `references/guardrails-and-devops.md`.
 - Non-technical installation, personal folders, and safe file stewardship: read `references/nontechnical-and-personal-harness.md`.
 - External authority, permanent Drive/email/document/database connections, and role-based permission boundaries: read `references/external-authority-and-connections.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
@@ -44,8 +44,8 @@ Build repository and personal-folder harnesses that give coding agents one durab
 
 ## Bundled Assets
 
-- `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, and protocol templates.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `goals`, `design`, and `self` commands.
+- `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, protocol templates, no-mistakes repo policy, and setup script.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `goals`, `design`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/goal-chain/`: implementation goal-chain, goal-start prompt, and handoff templates.
@@ -77,6 +77,9 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - CLI commands must be real, discoverable through `./{{CLI_NAME}} help`, and covered by focused tests.
 - Agent-facing CLI output should follow the AXI-shaped contract: content-first home views, compact structured stdout, definitive empty states, contextual next-step hints, and fail-loud usage errors.
 - Preflight must be read-only unless the human explicitly approves mutation.
+- No-mistakes setup/status should be available as a strongly recommended PR
+  validation flow for repository harnesses, while remaining inactive until the
+  repo remote is initialized.
 - Scaffold plausible optional modules as `inactive` rather than omitting them; use `not-applicable` only when context clearly rules them out.
 - Inactive modules must not block preflight, require credentials, or imply permission to use external systems.
 - Personal-folder harnesses must use plan-before-apply, receipts, and undo/quarantine by default.

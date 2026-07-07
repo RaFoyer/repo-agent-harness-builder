@@ -33,6 +33,40 @@ Gate:
 
 Support both staged-file mode and `--all`.
 
+## No-Mistakes PR Gate
+
+No-mistakes is the strongly recommended branch-to-PR validation loop after local
+checks pass and before maintainers merge feature work.
+
+Scaffold:
+
+- `.no-mistakes.yaml` with deterministic commands and no secrets
+- `ops/protocols/NO-MISTAKES-GATE.md`
+- `scripts/setup-no-mistakes.sh`
+- `./{{CLI_NAME}} no-mistakes status`
+- `./{{CLI_NAME}} no-mistakes setup [--fork-url <url>] [--agent <agent>]`
+
+Keep generated configs agent-agnostic with `agent: auto`. A concrete repo can
+change repo policy to `codex`, `claude`, or another supported agent only after
+the repo protocol says so. The setup wrapper may expose `--agent` as an
+explicit user-local pin; omitting it must leave an existing global no-mistakes
+agent preference unchanged.
+
+For direct script use, `scripts/setup-no-mistakes.sh --check-only` should report
+initialized status without changing no-mistakes or git state.
+
+The setup flow must fail closed: `no-mistakes init` is not enough unless a
+follow-up status check confirms initialization. CLI and script output should
+summarize availability, initialization, config presence, setup-script presence,
+active runs on other branches/worktrees, and next steps without printing raw
+status output, fork URLs, local paths, raw run tables, or
+credential-like values.
+
+Setup is mutating and approval-gated. It may change local no-mistakes state, git
+remote configuration, and `.git/info/exclude`; add `.no-mistakes/` to the local
+exclude file when a git checkout exists so repo-local no-mistakes state is not
+committed.
+
 ## Secrets
 
 Use value-safe output:

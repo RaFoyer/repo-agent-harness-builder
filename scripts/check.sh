@@ -288,6 +288,240 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --target "$TMP/generated-repo" \
   --cli-name harness \
   --run-tests
+mkdir -p "$TMP/fake-no-mistakes-bin"
+cat > "$TMP/fake-no-mistakes-bin/no-mistakes" <<'SH'
+#!/usr/bin/env sh
+case "$1" in
+  --version)
+    echo "no-mistakes version v9.9.9"
+    ;;
+  status)
+    echo "not in a git repository"
+    ;;
+  init)
+    echo "not in a git repository" >&2
+    exit 1
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$TMP/fake-no-mistakes-bin/no-mistakes"
+(
+  cd "$TMP/generated-repo"
+  PATH="$TMP/fake-no-mistakes-bin:$PATH" ./harness no-mistakes status >"$TMP/no-mistakes-status-non-git.out"
+)
+if ! grep -q "initialized: false" "$TMP/no-mistakes-status-non-git.out" || ! grep -q "repo_state: not-ready" "$TMP/no-mistakes-status-non-git.out"; then
+  cat "$TMP/no-mistakes-status-non-git.out"
+  echo "no-mistakes status should fail closed for non-git success output" >&2
+  exit 1
+fi
+if (
+  cd "$TMP/generated-repo"
+  PATH="$TMP/fake-no-mistakes-bin:$PATH" ./harness no-mistakes setup >"$TMP/no-mistakes-setup-non-git.out"
+); then
+  cat "$TMP/no-mistakes-setup-non-git.out"
+  echo "no-mistakes setup should fail for non-git output" >&2
+  exit 1
+fi
+if ! grep -q "initialized: false" "$TMP/no-mistakes-setup-non-git.out" || ! grep -q "post_check: fail" "$TMP/no-mistakes-setup-non-git.out"; then
+  cat "$TMP/no-mistakes-setup-non-git.out"
+  echo "no-mistakes setup should report failed post-check for non-git output" >&2
+  exit 1
+fi
+if (
+  cd "$TMP/generated-repo"
+  PATH="$TMP/fake-no-mistakes-bin:$PATH" scripts/setup-no-mistakes.sh --check-only >"$TMP/no-mistakes-script-check-non-git.out"
+); then
+  cat "$TMP/no-mistakes-script-check-non-git.out"
+  echo "setup-no-mistakes --check-only should fail for non-git output" >&2
+  exit 1
+fi
+if ! grep -q "initialized: false" "$TMP/no-mistakes-script-check-non-git.out"; then
+  cat "$TMP/no-mistakes-script-check-non-git.out"
+  echo "setup-no-mistakes --check-only should report initialized false" >&2
+  exit 1
+fi
+mkdir -p "$TMP/fake-no-mistakes-ok-bin" "$TMP/no-mistakes-home"
+cat > "$TMP/fake-no-mistakes-ok-bin/no-mistakes" <<'SH'
+#!/usr/bin/env sh
+case "$1" in
+  --version)
+    echo "no-mistakes version v9.9.9"
+    ;;
+  status)
+    echo "gate: configured"
+    echo "daemon running"
+    ;;
+  init)
+    echo "initialized"
+    ;;
+  axi)
+    echo "current_branch: RA/generated-check"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$TMP/fake-no-mistakes-ok-bin/no-mistakes"
+mkdir -p "$TMP/fake-no-mistakes-cwd-bin" "$TMP/no-mistakes-cwd-home"
+cat > "$TMP/fake-no-mistakes-cwd-bin/no-mistakes" <<'SH'
+#!/usr/bin/env sh
+printf '%s %s\n' "$1" "$(pwd)" >> "$NO_MISTAKES_CWD_LOG"
+case "$1" in
+  --version)
+    echo "no-mistakes version v9.9.9"
+    ;;
+  status)
+    echo "gate: configured"
+    echo "daemon running"
+    ;;
+  init)
+    echo "initialized"
+    ;;
+  axi)
+    echo "current_branch: RA/generated-check"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$TMP/fake-no-mistakes-cwd-bin/no-mistakes"
+mkdir -p "$TMP/caller-repo"
+git -C "$TMP/caller-repo" init -q
+: > "$TMP/no-mistakes-cwd.log"
+(
+  cd "$TMP/caller-repo"
+  HOME="$TMP/no-mistakes-cwd-home/user-home" NM_HOME="$TMP/no-mistakes-cwd-home" \
+    NO_MISTAKES_CWD_LOG="$TMP/no-mistakes-cwd.log" PATH="$TMP/fake-no-mistakes-cwd-bin:$PATH" \
+    "$TMP/generated-repo/scripts/setup-no-mistakes.sh" >"$TMP/no-mistakes-script-cwd.out"
+)
+if grep -Fq "$TMP/caller-repo" "$TMP/no-mistakes-cwd.log"; then
+  cat "$TMP/no-mistakes-cwd.log"
+  echo "setup-no-mistakes should run no-mistakes from the generated repo root" >&2
+  exit 1
+fi
+if ! grep -Fq "$TMP/generated-repo" "$TMP/no-mistakes-cwd.log"; then
+  cat "$TMP/no-mistakes-cwd.log"
+  echo "setup-no-mistakes did not run no-mistakes from the generated repo root" >&2
+  exit 1
+fi
+if [ -f "$TMP/caller-repo/.git/info/exclude" ] && grep -q "^.no-mistakes/$" "$TMP/caller-repo/.git/info/exclude"; then
+  cat "$TMP/caller-repo/.git/info/exclude"
+  echo "setup-no-mistakes should not edit the caller repo local exclude" >&2
+  exit 1
+fi
+(
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-home/user-home" NM_HOME="$TMP/no-mistakes-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-agent.out"
+)
+if ! grep -q "agent_config: updated" "$TMP/no-mistakes-script-agent.out" || ! grep -q "agent: codex" "$TMP/no-mistakes-script-agent.out"; then
+  cat "$TMP/no-mistakes-script-agent.out"
+  echo "setup-no-mistakes should report explicit agent pinning" >&2
+  exit 1
+fi
+if ! grep -q "^agent: codex$" "$TMP/no-mistakes-home/config.yaml"; then
+  cat "$TMP/no-mistakes-home/config.yaml"
+  echo "setup-no-mistakes should write requested user-local no-mistakes agent" >&2
+  exit 1
+fi
+printf 'not a directory\n' > "$TMP/no-mistakes-agent-blocked-home"
+if (
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-agent-blocked-user-home" NM_HOME="$TMP/no-mistakes-agent-blocked-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-agent-blocked.out" 2>"$TMP/no-mistakes-script-agent-blocked.err"
+); then
+  cat "$TMP/no-mistakes-script-agent-blocked.out"
+  echo "setup-no-mistakes should fail when explicit agent pinning cannot be written" >&2
+  exit 1
+fi
+if ! grep -q "status: agent-config-failed" "$TMP/no-mistakes-script-agent-blocked.out" || ! grep -q "agent_config: unavailable" "$TMP/no-mistakes-script-agent-blocked.out"; then
+  cat "$TMP/no-mistakes-script-agent-blocked.out"
+  echo "setup-no-mistakes should report explicit agent pin write failure" >&2
+  exit 1
+fi
+if [ -s "$TMP/no-mistakes-script-agent-blocked.err" ]; then
+  cat "$TMP/no-mistakes-script-agent-blocked.err"
+  echo "setup-no-mistakes should suppress raw agent config file errors" >&2
+  exit 1
+fi
+mkdir -p "$TMP/no-mistakes-config-dir-home/config.yaml"
+if (
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-config-dir-user-home" NM_HOME="$TMP/no-mistakes-config-dir-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent codex >"$TMP/no-mistakes-script-config-dir.out" 2>"$TMP/no-mistakes-script-config-dir.err"
+); then
+  cat "$TMP/no-mistakes-script-config-dir.out"
+  echo "setup-no-mistakes should fail when config.yaml is a directory" >&2
+  exit 1
+fi
+if ! grep -q "status: agent-config-failed" "$TMP/no-mistakes-script-config-dir.out" || ! grep -q "agent_config: unavailable" "$TMP/no-mistakes-script-config-dir.out"; then
+  cat "$TMP/no-mistakes-script-config-dir.out"
+  echo "setup-no-mistakes should report config.yaml directory as unavailable" >&2
+  exit 1
+fi
+if [ -s "$TMP/no-mistakes-script-config-dir.err" ]; then
+  cat "$TMP/no-mistakes-script-config-dir.err"
+  echo "setup-no-mistakes should suppress config.yaml directory errors" >&2
+  exit 1
+fi
+if ! rmdir "$TMP/no-mistakes-config-dir-home/config.yaml" 2>/dev/null; then
+  find "$TMP/no-mistakes-config-dir-home/config.yaml" -mindepth 1 -print
+  echo "setup-no-mistakes should not move config files into config.yaml directories" >&2
+  exit 1
+fi
+if (
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-invalid-home/user-home" NM_HOME="$TMP/no-mistakes-invalid-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent acp: >"$TMP/no-mistakes-script-invalid-acp.out" 2>"$TMP/no-mistakes-script-invalid-acp.err"
+); then
+  cat "$TMP/no-mistakes-script-invalid-acp.out"
+  echo "setup-no-mistakes should reject empty ACP agent targets" >&2
+  exit 1
+fi
+if ! grep -q "unsupported --agent value" "$TMP/no-mistakes-script-invalid-acp.err"; then
+  cat "$TMP/no-mistakes-script-invalid-acp.err"
+  echo "setup-no-mistakes should report unsupported empty ACP agent targets" >&2
+  exit 1
+fi
+mkdir -p "$TMP/no-mistakes-acp-home"
+(
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-acp-home/user-home" NM_HOME="$TMP/no-mistakes-acp-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh --agent acp:local-agent_1.2 >"$TMP/no-mistakes-script-acp-agent.out"
+)
+if ! grep -q "agent_config: updated" "$TMP/no-mistakes-script-acp-agent.out" || ! grep -q "agent: acp:configured" "$TMP/no-mistakes-script-acp-agent.out"; then
+  cat "$TMP/no-mistakes-script-acp-agent.out"
+  echo "setup-no-mistakes should report explicit ACP agent pinning" >&2
+  exit 1
+fi
+if ! grep -q "^agent: acp:local-agent_1.2$" "$TMP/no-mistakes-acp-home/config.yaml"; then
+  cat "$TMP/no-mistakes-acp-home/config.yaml"
+  echo "setup-no-mistakes should write requested ACP no-mistakes agent" >&2
+  exit 1
+fi
+printf 'not a directory\n' > "$TMP/generated-repo/blocked-gitdir"
+printf 'gitdir: blocked-gitdir\n' > "$TMP/generated-repo/.git"
+mkdir -p "$TMP/no-mistakes-blocked-home"
+(
+  cd "$TMP/generated-repo"
+  HOME="$TMP/no-mistakes-blocked-home/user-home" NM_HOME="$TMP/no-mistakes-blocked-home" PATH="$TMP/fake-no-mistakes-ok-bin:$PATH" \
+    scripts/setup-no-mistakes.sh >"$TMP/no-mistakes-script-blocked-exclude.out" 2>"$TMP/no-mistakes-script-blocked-exclude.err"
+)
+if ! grep -q "local_exclude: unavailable" "$TMP/no-mistakes-script-blocked-exclude.out"; then
+  cat "$TMP/no-mistakes-script-blocked-exclude.out"
+  echo "setup-no-mistakes should degrade local exclude write failures" >&2
+  exit 1
+fi
+if [ -s "$TMP/no-mistakes-script-blocked-exclude.err" ]; then
+  cat "$TMP/no-mistakes-script-blocked-exclude.err"
+  echo "setup-no-mistakes should suppress raw local exclude file errors" >&2
+  exit 1
+fi
 python3 "$SKILL/scripts/scaffold_harness.py" \
   --target "$TMP/generated-weird" \
   --project-name 'Generated "Repo" `quote` ${notEval}' \

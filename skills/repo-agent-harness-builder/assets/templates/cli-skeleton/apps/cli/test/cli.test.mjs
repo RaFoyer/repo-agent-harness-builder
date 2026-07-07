@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
+import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -194,6 +195,43 @@ function capture() {
   };
 }
 
+function localPathPattern() {
+  return new RegExp([
+    String.raw`/` + "Users" + String.raw`/`,
+    String.raw`/` + "home" + String.raw`/`,
+    String.raw`/` + "tmp" + String.raw`/`,
+    String.raw`/` + "private" + String.raw`/` + "var" + String.raw`/`,
+    String.raw`~` + String.raw`/`
+  ].join("|"));
+}
+
+function exampleLocalPath() {
+  return ["", "Users", "example", "private"].join("/");
+}
+
+function noMistakesTestEnv() {
+  return { HOME: repoRoot };
+}
+
+function fakeCommandRunner(responses) {
+  const calls = [];
+  let index = 0;
+  const runImpl = (command, args = [], options = {}) => {
+    calls.push({ command, args, options });
+    const key = [command, ...args].join(" ");
+    const response = Array.isArray(responses)
+      ? responses[index++]
+      : responses[key] || responses.default || { ok: false, status: 1, stdout: "", stderr: "" };
+    return {
+      ok: response.ok ?? response.status === 0,
+      status: response.status ?? (response.ok ? 0 : 1),
+      stdout: response.stdout || "",
+      stderr: response.stderr || ""
+    };
+  };
+  return { runImpl, calls };
+}
+
 test("help lists core commands", () => {
   const help = renderHelp();
   assert.match(help, /preflight/);
@@ -205,6 +243,7 @@ test("help lists core commands", () => {
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
+  assert.match(help, /no-mistakes status/);
   assert.match(help, /checklist/);
 });
 
@@ -216,9 +255,10 @@ test("no args renders content-first agent home view", async () => {
   const text = out.join("\n");
   assert.match(text, new RegExp(`bin: "\\./${CONFIG.cliName}"`));
   assert.match(text, /description:/);
-  assert.match(text, /commands\[7\]\{command,purpose\}:/);
+  assert.match(text, /commands\[8\]\{command,purpose\}:/);
   assert.match(text, /"preflight","Run read-only session-start checks"/);
   assert.match(text, /"ergonomics status","Audit agent-facing CLI ergonomics"/);
+  assert.match(text, /"no-mistakes status","Check branch-to-PR validation gate setup"/);
   assert.match(text, /help\[3\]:/);
   assert.doesNotMatch(text, /Usage:/);
   const localPathPattern = new RegExp([
@@ -439,6 +479,8 @@ test("command families reject unexpected args before doing work", async () => {
     ["connections", "status", "--bogus"],
     ["goals", "status", "--bogus"],
     ["qa", "status", "--bogus"],
+    ["no-mistakes", "status", "--bogus"],
+    ["no-mistakes", "setup", "--bogus"],
     ["ergonomics", "status", sensitiveArg],
     ["verify", "--bogus"],
     ["precommit", "--bogus"],
@@ -732,7 +774,7 @@ test("connections doctor missing profile is a structured usage error on stdout",
 });
 
 test("core command smoke paths run", async () => {
-  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["ergonomics", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
+  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["ergonomics", "status"], ["no-mistakes", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
     const { io, err } = capture();
     const code = await main(argv, io);
     assert.equal(code, 0, `${argv.join(" ")} failed: ${err.join("\n")}`);
@@ -746,8 +788,343 @@ test("verify dry-run lists delegated checks", async () => {
   assert.match(out.join("\n"), /doctor/);
   assert.match(out.join("\n"), /preflight/);
   assert.match(out.join("\n"), /ergonomics status/);
+  assert.match(out.join("\n"), /no-mistakes status/);
   assert.match(out.join("\n"), /qa no-masking/);
   assert.match(out.join("\n"), /precommit --all/);
+});
+
+fixtureTest("no-mistakes status is value-safe when the tool is unavailable", async () => {
+  const { runImpl } = fakeCommandRunner({
+    "no-mistakes --version": { ok: false, status: 1 }
+  });
+  const status = collectNoMistakesStatus({ repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(status.available, false);
+  assert.equal(status.config, "present");
+
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["status"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /no_mistakes:/);
+  assert.match(text, /available: false/);
+  assert.match(text, /initialized: false/);
+  assert.match(text, /config: present/);
+  assert.doesNotMatch(text, localPathPattern());
+  assert.doesNotMatch(text, /fork\.git/);
+});
+
+fixtureTest("no-mistakes status degrades when user-local agent config is unavailable", async () => {
+  const env = { HOME: path.join(repoRoot, "home") };
+  fs.mkdirSync(env.HOME, { recursive: true });
+  fs.writeFileSync(path.join(env.HOME, ".no-mistakes"), "not a directory\n", "utf-8");
+  const { runImpl } = fakeCommandRunner({
+    "no-mistakes --version": { ok: false, status: 1 }
+  });
+
+  const status = collectNoMistakesStatus({ repoRoot, runImpl, env });
+  assert.equal(status.agent_config, "unavailable");
+  assert.equal(status.agent, null);
+
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["status"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /agent_config: unavailable/);
+  assert.doesNotMatch(text, /ENOTDIR|not a directory/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("no-mistakes status summarizes initialized setup without raw status output", async () => {
+  const forkUrl = "https://github.com/example/private-fork.git";
+  const { runImpl } = fakeCommandRunner({
+    "no-mistakes --version": { ok: true, status: 0, stdout: `no-mistakes 1.2.3 ${forkUrl} ${exampleLocalPath()}\n` },
+    "no-mistakes status": { ok: true, status: 0, stdout: `repo: ${exampleLocalPath()}\ngate: ${exampleLocalPath()}/gate.git\ndaemon running\nrepo initialized\n` },
+    "no-mistakes axi": {
+      ok: true,
+      status: 0,
+      stdout: [
+        "current_branch: RA/test-no-mistakes",
+        "active_run:",
+        '  id: "01CURRENT"',
+        "  branch: RA/test-no-mistakes",
+        "  status: running"
+      ].join("\n")
+    }
+  });
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["status"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /available: true/);
+  assert.match(text, /initialized: true/);
+  assert.match(text, /repo_state: initialized/);
+  assert.match(text, /daemon: ready/);
+  assert.match(text, /agent_config: missing/);
+  assert.match(text, /agent: "\(unset\)"/);
+  assert.match(text, /current_branch: "RA\/test-no-mistakes"/);
+  assert.match(text, /current_run: "RA\/test-no-mistakes running 01CURRENT"/);
+  assert.match(text, /version: "no-mistakes 1\.2\.3"/);
+  assert.doesNotMatch(text, /github\.com\/example|private-fork|example\/private|repo initialized/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("no-mistakes status reports active runs on other branches", async () => {
+  const { runImpl } = fakeCommandRunner({
+    "no-mistakes --version": { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    "no-mistakes status": { ok: true, status: 0, stdout: "gate: configured\ndaemon running\n" },
+    "no-mistakes axi": {
+      ok: true,
+      status: 0,
+      stdout: [
+        "current_branch: RA/current-work",
+        "other_branch_active_run:",
+        '  id: "01OTHER"',
+        "  branch: RA/other-validation",
+        "  status: running",
+        "runs[3]{id,branch,status,head,pr}:",
+        '  "01OTHER",RA/other-validation,running,abc123,"https://github.com/example/private/pull/1"',
+        '  "01SECOND",RA/second-validation,pending,def456,""',
+        '  "01OLD",RA/old-validation,failed,aaa111,""'
+      ].join("\n")
+    }
+  });
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["status"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /other_runs:/);
+  assert.match(text, /RA\/other-validation running 01OTHER/);
+  assert.match(text, /RA\/second-validation pending 01SECOND/);
+  assert.match(text, /leave active validations in other branches\/worktrees alone/);
+  assert.doesNotMatch(text, /RA\/old-validation|github\.com\/example|private\/pull/);
+});
+
+fixtureTest("no-mistakes status does not treat non-git success output as initialized", async () => {
+  const { runImpl } = fakeCommandRunner({
+    "no-mistakes --version": { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    "no-mistakes status": { ok: true, status: 0, stdout: "not in a git repository\n" }
+  });
+  const status = collectNoMistakesStatus({ repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(status.available, true);
+  assert.equal(status.initialized, false);
+  assert.equal(status.repo_state, "not-ready");
+
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["status"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /available: true/);
+  assert.match(text, /initialized: false/);
+  assert.match(text, /repo_state: not-ready/);
+});
+
+test("no-mistakes unknown subcommands do not echo arbitrary input", async () => {
+  const sensitiveCommand = "https://github.com/example/private-fork.git";
+  const { io, out, err } = capture();
+  const code = await runNoMistakes([sensitiveCommand], io, { runImpl: () => ({ ok: false, status: 1, stdout: "", stderr: "" }) });
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: unknown-no-mistakes-command/);
+  assert.doesNotMatch(text, /github\.com\/example|private-fork/);
+});
+
+test("no-mistakes setup rejects unsupported agent values safely", async () => {
+  const cases = [
+    { args: ["setup", "--agent", "https://github.com/example/private-agent.git"], hidden: /github\.com\/example|private-agent/ },
+    { args: ["setup", "--agent", "acp:"], hidden: /agent: acp:/ },
+    { args: ["setup", "--agent=acp:"], hidden: /agent: acp:/ },
+    { args: ["setup", "--agent", "acp:../private-agent"], hidden: /\.\.\/private-agent/ },
+    { args: ["setup", "--agent", "acp:private agent"], hidden: /private agent/ }
+  ];
+
+  for (const entry of cases) {
+    let calls = 0;
+    const { io, out, err } = capture();
+    const code = await runNoMistakes(entry.args, io, {
+      runImpl: () => {
+        calls += 1;
+        return { ok: false, status: 1, stdout: "", stderr: "" };
+      }
+    });
+    assert.equal(code, 2);
+    assert.equal(calls, 0);
+    assert.deepEqual(err, []);
+    const text = out.join("\n");
+    assert.match(text, /code: unknown-flag/);
+    assert.match(text, /detail: "--agent"/);
+    assert.doesNotMatch(text, entry.hidden);
+  }
+});
+
+fixtureTest("no-mistakes setup runs init, post-checks status, and hides fork URLs", async () => {
+  const forkUrl = "https://github.com/example/fork.git";
+  const { runImpl, calls } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: `not initialized at ${exampleLocalPath()}\n` },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup", "--fork-url", forkUrl], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(calls[2].args, ["init", "--fork-url", forkUrl]);
+  const excludeText = fs.readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf-8");
+  assert.match(excludeText, /(^|\n)\.no-mistakes\/\n/);
+  const text = out.join("\n");
+  assert.match(text, /no_mistakes_setup:/);
+  assert.match(text, /status: ok/);
+  assert.match(text, /fork_url: provided/);
+  assert.match(text, /agent_config: unchanged/);
+  assert.match(text, /agent: "unchanged"/);
+  assert.match(text, /local_exclude: (added|present)/);
+  assert.match(text, /post_check: pass/);
+  assert.doesNotMatch(text, /github\.com\/example|repo initialized/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("no-mistakes setup can pin a user-local agent when requested", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const env = noMistakesTestEnv();
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup", "--agent", "codex"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(fs.readFileSync(path.join(env.HOME, ".no-mistakes", "config.yaml"), "utf-8"), /^agent: codex$/m);
+  const text = out.join("\n");
+  assert.match(text, /agent_config: updated/);
+  assert.match(text, /agent: "codex"/);
+  assert.match(text, /codex pins no-mistakes fixes to Codex/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("no-mistakes setup fails when an explicit agent pin cannot be written", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const env = { HOME: path.join(repoRoot, "home") };
+  fs.mkdirSync(env.HOME, { recursive: true });
+  fs.writeFileSync(path.join(env.HOME, ".no-mistakes"), "not a directory\n", "utf-8");
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup", "--agent", "codex"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 1, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /status: agent-config-failed/);
+  assert.match(text, /initialized: true/);
+  assert.match(text, /agent_config: unavailable/);
+  assert.match(text, /agent: "unchanged"/);
+  assert.match(text, /post_check: pass/);
+  assert.doesNotMatch(text, /ENOTDIR|not a directory/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("no-mistakes setup can pin a safe ACP target when requested", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const env = noMistakesTestEnv();
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup", "--agent", "acp:local-agent_1.2"], io, { repoRoot, runImpl, env });
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(fs.readFileSync(path.join(env.HOME, ".no-mistakes", "config.yaml"), "utf-8"), /^agent: acp:local-agent_1\.2$/m);
+  const text = out.join("\n");
+  assert.match(text, /agent_config: updated/);
+  assert.match(text, /agent: "acp:configured"/);
+  assert.match(text, /acp:configured pins no-mistakes through a configured ACP target/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("no-mistakes setup supports git worktree pointer files for local exclude", async () => {
+  const actualGitDir = path.join(repoRoot, ".git-worktree");
+  fs.mkdirSync(path.join(actualGitDir, "info"), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, ".git"), `gitdir: ${path.relative(repoRoot, actualGitDir)}\n`, "utf-8");
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  assert.match(fs.readFileSync(path.join(actualGitDir, "info", "exclude"), "utf-8"), /(^|\n)\.no-mistakes\/\n/);
+  assert.match(out.join("\n"), /local_exclude: added/);
+}, { git: false });
+
+fixtureTest("no-mistakes setup degrades when local exclude cannot be written", async () => {
+  fs.writeFileSync(path.join(repoRoot, "blocked-gitdir"), "not a directory\n", "utf-8");
+  fs.writeFileSync(path.join(repoRoot, ".git"), "gitdir: blocked-gitdir\n", "utf-8");
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "gate: configured\ndaemon running\nrepo initialized\n" },
+    { ok: true, status: 0, stdout: "current_branch: RA/test-no-mistakes\n" }
+  ]);
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /local_exclude: unavailable/);
+  assert.doesNotMatch(text, /blocked-gitdir|ENOTDIR/);
+  assert.doesNotMatch(text, localPathPattern());
+}, { git: false });
+
+fixtureTest("no-mistakes setup fails closed when init does not pass post-check", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" },
+    { ok: true, status: 0, stdout: "initialized\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: false, status: 1, stderr: "not initialized\n" }
+  ]);
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 1, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /status: failed/);
+  assert.match(text, /post_check: fail/);
+});
+
+fixtureTest("no-mistakes setup keeps post-check false for non-git success output", async () => {
+  const { runImpl } = fakeCommandRunner([
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "not in a git repository\n" },
+    { ok: false, status: 1, stderr: "init failed\n" },
+    { ok: true, status: 0, stdout: "no-mistakes 1.2.3\n" },
+    { ok: true, status: 0, stdout: "not in a git repository\n" }
+  ]);
+  const { io, out, err } = capture();
+  const code = await runNoMistakes(["setup"], io, { repoRoot, runImpl, env: noMistakesTestEnv() });
+  assert.equal(code, 1, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /status: failed/);
+  assert.match(text, /initialized: false/);
+  assert.match(text, /post_check: fail/);
 });
 
 fixtureTest("goals status reports configured implementation goals", async () => {
@@ -2076,7 +2453,8 @@ fixtureTest("connections doctor validates connector profile identity and path bo
   ], localInsideRepo.io);
   assert.equal(localInsideRepoCode, 1);
   assert.match(localInsideRepo.err.join("\n"), /credential root/i);
-  assert.doesNotMatch(localInsideRepo.err.join("\n"), /\.credentials|\/Users\/|\/tmp\/|\/private\/var\//);
+  assert.doesNotMatch(localInsideRepo.err.join("\n"), /\.credentials/);
+  assert.doesNotMatch(localInsideRepo.err.join("\n"), localPathPattern());
 
   const remote = capture();
   const remoteCode = await main(["connections", "doctor", "--profile", "example-google-workspace", "--mode", "remote"], remote.io);

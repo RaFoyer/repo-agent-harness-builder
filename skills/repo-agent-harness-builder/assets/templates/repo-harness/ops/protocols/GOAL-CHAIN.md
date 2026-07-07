@@ -9,6 +9,7 @@ summary: Defines ticket-backed implementation goal chains with merge, verificati
 related_protocols:
   - AUTOMATIONS
   - CLI-INTERFACE
+  - NO-MISTAKES-GATE
   - PRE-COMMIT
 ---
 
@@ -40,9 +41,10 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 6. Implement only the scoped goal.
 7. Run local verification and record commands/results.
 8. Open a PR with evidence and resolve review.
-9. Merge the PR into the integration branch.
-10. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
-11. Start the next goal only after the merge or squash integration commit is visible from the integration branch unless the goal chain explicitly allows parallel work.
+9. When no-mistakes is initialized for the repository, run the PR gate before merge.
+10. Merge the PR into the integration branch.
+11. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
+12. Start the next goal only after the merge or squash integration commit is visible from the integration branch unless the goal chain explicitly allows parallel work.
 
 ## Guardrails
 

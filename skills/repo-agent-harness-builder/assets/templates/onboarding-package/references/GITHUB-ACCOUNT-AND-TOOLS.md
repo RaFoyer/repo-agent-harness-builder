@@ -17,6 +17,7 @@ Check:
 
 - git is installed
 - GitHub CLI is installed, if the workflow uses it
+- no-mistakes is installed, if the workflow uses the branch-to-PR validation gate
 - the human is signed in, if required
 - the repository can be read
 - the target folder exists or can be created
@@ -31,6 +32,7 @@ git --version
 gh --version
 gh auth status
 git clone <repo-url>
+no-mistakes --version
 ```
 
 ## Boundaries
@@ -42,4 +44,5 @@ Ask before:
 - adding collaborators
 - pushing code
 - creating releases
+- initializing or changing the no-mistakes validation remote
 - connecting deploy keys, apps, or external integrations

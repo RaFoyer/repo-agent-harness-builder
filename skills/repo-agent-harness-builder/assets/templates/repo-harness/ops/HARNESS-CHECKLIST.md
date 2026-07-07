@@ -36,6 +36,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Precommit checks | active | `ops/protocols/PRE-COMMIT.md`, `./{{CLI_NAME}} precommit` |
 | Source-of-truth model | active | `ops/protocols/SOURCE-OF-TRUTH.md` |
 | Privileged docs boundary | active | `ops/protocols/PRIVILEGED-DOCUMENTS.md` |
+| No-mistakes PR gate | inactive | `ops/protocols/NO-MISTAKES-GATE.md`, `.no-mistakes.yaml`, `./{{CLI_NAME}} no-mistakes status`; strongly recommended before feature PRs |
 | External system registry | inactive | `ops/connections.json`, `./{{CLI_NAME}} connections status` |
 
 ## Optional Modules

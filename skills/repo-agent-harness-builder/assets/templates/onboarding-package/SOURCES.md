@@ -8,6 +8,7 @@ This package is based on generalized patterns from mature repo-agent harnesses:
 - deterministic repo CLI facades
 - read-only preflight checks
 - content-aware precommit gates
+- branch-to-PR validation gate setup and status patterns
 - value-safe secret handling
 - portable onboarding handoff packages
 - optional advanced hooks, intent routing, and evidence maps

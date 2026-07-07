@@ -11,6 +11,7 @@ Agent-facing output should be AXI-shaped:
 - usage mistakes fail before dependency calls and exit `2`
 - list/detail output favors minimal fields and definitive empty states
 - `ergonomics status` audits this contract during ordinary verification and should report zero warnings
+- `no-mistakes status` summarizes PR-gate setup without echoing raw tool output
 - `qa axi` is an alias for teams looking for CLI-quality checks under QA
 
 When changing commands:
@@ -20,6 +21,15 @@ When changing commands:
 3. Update `CLI-INTERFACE.md` and `AGENT-CLI-ERGONOMICS.md` if behavior changes.
 4. Add or update tests.
 5. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics audit --strict`, and the command's safe mode.
+
+For no-mistakes tooling, keep `./{{CLI_NAME}} no-mistakes status`,
+`./{{CLI_NAME}} no-mistakes setup`, `.no-mistakes.yaml`, and
+`scripts/setup-no-mistakes.sh` in sync. Setup must run `no-mistakes init` and
+then confirm initialized status before reporting success. The direct script's
+`--check-only` mode should report initialized status without mutation. Do not
+echo raw status output, fork URLs, local paths, account identifiers, or
+secret-like values. Setup is mutating and should keep `.no-mistakes/` out of
+commits through local git exclude when a checkout exists.
 
 Keep comments near decision points:
 

@@ -32,6 +32,7 @@ This package includes:
 - repository harness templates
 - personal-folder harness templates
 - CLI skeletons and scaffolding scripts
+- optional no-mistakes PR-gate setup and status templates
 - plain-language setup references
 - automation, heartbeat, and run-log templates
 

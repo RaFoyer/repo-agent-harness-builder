@@ -35,8 +35,9 @@ Repositories and durable project folders should usually have:
 - CLI facade or deterministic helper commands
 - content-first no-args CLI home view and structured usage errors
 - CLI ergonomics audit command for checking agent-facing output quality
-- CLI no-args home, help, ergonomics status, context, checklist, protocols, doctor, preflight, verify
+- CLI no-args home, help, ergonomics status, no-mistakes status, context, checklist, protocols, doctor, preflight, verify
 - precommit or local content checks
+- strongly recommended no-mistakes PR validation flow, inactive until initialized
 - source-of-truth model
 - privileged document boundary
 - external connection registry
@@ -65,6 +66,7 @@ Scaffold as inactive when plausible:
 - automations and heartbeats
 - goal-chain workflows
 - project tracker
+- no-mistakes setup, if the repository cannot use the default generated flow
 - CI, branch promotion, deploy readiness
 - QA/browser checks
 - design system
