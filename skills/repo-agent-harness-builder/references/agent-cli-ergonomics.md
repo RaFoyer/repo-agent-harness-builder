@@ -38,13 +38,14 @@ repo:
   slug: "{{REPO_SLUG}}"
   default_branch: "{{DEFAULT_BRANCH}}"
   tracker: "{{TRACKER_NAME}}"
-commands[8]{command,purpose}:
+commands[9]{command,purpose}:
   "preflight","Run read-only session-start checks"
   "protocols","List routed protocol files"
   "checklist","Show harness module states"
   "doctor","Check local prerequisites"
   "ergonomics status","Audit agent-facing CLI ergonomics"
   "no-mistakes status","Check branch-to-PR validation gate setup"
+  "lavish status","Check optional Lavish review-surface posture"
   "verify --dry-run","Preview the verification sequence"
   "help","Show the concise command reference"
 help[3]:
@@ -92,6 +93,7 @@ help[1]:
 - `preflight`, `doctor`, `verify`, and `precommit` may still print human-readable blockers, but new output should be structured enough for an agent to quote or route without rereading docs.
 - `protocols`, `checklist`, `connections`, `goals`, and `design` are good candidates for tabular TOON lists because agents often filter or compare their output.
 - `no-mistakes` wrappers should summarize availability, initialization, config state, and next steps without echoing raw wrapped-tool output.
+- `lavish` wrappers should keep status checks local-only, make update checks explicit and non-mutating by default, and turn tracker captures into proposals rather than silent external writes.
 - External-service wrappers should expose repo-local commands rather than asking the agent to discover a generic SDK, MCP tool catalog, or provider CLI from scratch.
 - Session hooks and installable skills should point to the same CLI contract. A hook may provide live state; a skill should contain static guidance and noninteractive command examples.
 - Never print secret values. Use names, scopes, booleans, counts, redacted fingerprints, or credential reference labels only.
@@ -106,6 +108,7 @@ Run the generated CLI tests and these smoke commands after changing CLI behavior
 ./{{CLI_NAME}} ergonomics status
 ./{{CLI_NAME}} ergonomics audit --strict
 ./{{CLI_NAME}} no-mistakes status
+./{{CLI_NAME}} lavish status
 ./{{CLI_NAME}} qa axi
 ./{{CLI_NAME}} preflight
 ./{{CLI_NAME}} protocols

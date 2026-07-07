@@ -33,6 +33,7 @@ This package includes:
 - personal-folder harness templates
 - CLI skeletons and scaffolding scripts
 - optional no-mistakes PR-gate setup and status templates
+- optional Lavish review-surface protocol and tracker-capture templates
 - plain-language setup references
 - automation, heartbeat, and run-log templates
 

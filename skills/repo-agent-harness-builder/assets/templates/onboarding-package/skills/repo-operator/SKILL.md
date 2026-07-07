@@ -14,7 +14,8 @@ description: Use when operating inside a repository that has AGENTS.md, AGENTS-T
 5. Use `AGENTS-TOC.md` to select task-specific protocols.
 6. Before installing or requesting generic connectors, run the discovered CLI's `connections plan` command when that command exists.
 7. Prefer the repo-local CLI for repeatable checks and repo operations.
-8. Before opening or merging feature PRs, run the discovered CLI's `no-mistakes status` command when that command exists and prefer the initialized gate.
-9. Keep docs, CLI help, and tests in sync; run the CLI ergonomics audit when command output changes.
+8. Before using Lavish HTML artifact review, run the discovered CLI's `lavish status` command when that command exists and capture decisions in the tracker before starting a ticket-backed goal.
+9. Before opening or merging feature PRs, run the discovered CLI's `no-mistakes status` command when that command exists and prefer the initialized gate.
+10. Keep docs, CLI help, and tests in sync; run the CLI ergonomics audit when command output changes.
 
 If the repo has no native harness yet, use `repo-agent-harness-builder` to scaffold one.

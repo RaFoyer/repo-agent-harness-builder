@@ -37,6 +37,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Source-of-truth model | active | `ops/protocols/SOURCE-OF-TRUTH.md` |
 | Privileged docs boundary | active | `ops/protocols/PRIVILEGED-DOCUMENTS.md` |
 | No-mistakes PR gate | inactive | `ops/protocols/NO-MISTAKES-GATE.md`, `.no-mistakes.yaml`, `./{{CLI_NAME}} no-mistakes status`; strongly recommended before feature PRs |
+| Lavish review surface | inactive | `ops/protocols/LAVISH-REVIEW.md`, `./{{CLI_NAME}} lavish status`; optional visual review and tracker-decision capture |
 | External system registry | inactive | `ops/connections.json`, `./{{CLI_NAME}} connections status` |
 
 ## Optional Modules
@@ -50,6 +51,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Project tracker | inactive | Add `PROJECT-TRACKING.md` and CLI wrapper when tracker is canonical |
 | CI/branch/deploy | inactive | Add CI and branch-promotion protocols when environments exist |
 | QA/browser | inactive | `ops/protocols/QA-BROWSER.md`, `./{{CLI_NAME}} qa status`; activate for browser/UI apps |
+| Visual artifact review | inactive | `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>`; activate when visual decisions must become tracker scope |
 | Repo-agent operations | inactive | Add repo-owned bootstrap/operator skills and skill drift checks for cross-machine handoff |
 | Design system | inactive | `ops/protocols/DESIGN-SYSTEM.md`, `./{{CLI_NAME}} design status`; activate when UI, UX, component, token, brand, adaptive UI, or generated UI work needs governance |
 | Brand identity | inactive | Add protocol/assets pointer when external-facing work is relevant |

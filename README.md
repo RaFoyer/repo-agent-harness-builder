@@ -12,12 +12,14 @@ The durable contract lives in ordinary files in the target repo or folder:
 - `AGENTS.md` and a table of contents for progressive disclosure
 - lifecycle and maintenance docs for protocols
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
-  `verify`, `checklist`, `qa`, `secrets`, connection checks, and goal-chain
-  inspection
+  `verify`, `checklist`, `qa`, `secrets`, connection checks, Lavish review
+  posture, and goal-chain inspection
 - strongly recommended no-mistakes setup and branch-aware status commands for
   branch-to-PR validation, with optional user-local agent pinning
 - AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
   contextual next steps, and fail-loud usage errors
+- optional Lavish review-surface commands for visual artifacts, explicit
+  update checks, and tracker-decision capture before ticket-backed goals
 - setup checklists with `active`, `inactive`, and `not-applicable` states
 - value-safe secrets, external-authority, and connector boundaries
 - optional loops, automations, heartbeats, and review workflows
@@ -36,6 +38,7 @@ see a read-only readiness result, such as:
 ./harness help
 ./harness ergonomics status
 ./harness no-mistakes status
+./harness lavish status
 ./harness context
 ./harness preflight
 ```
@@ -52,6 +55,8 @@ metadata-only inventory report and a written plan before any file changes.
 - `gh` only if you want the agent to create or publish GitHub repositories.
 - `no-mistakes` only if you want the branch-to-PR validation gate; generated
   `no-mistakes status` reports when it is unavailable.
+- `lavish-axi` only if you want optional HTML artifact review sessions;
+  generated `lavish status` and `lavish update --check` keep this optional.
 
 Native Windows without WSL/Git Bash is a direct-read/reference path until a
 Windows adapter is added. Give the package to the agent and ask it to read
@@ -153,8 +158,9 @@ The skill can help with:
 - portable onboarding packages
 - CLI skeletons with no-args home views, ergonomics audits, preflight,
   precommit, verify, doctor, checklist, browser QA, secrets, connection
-  commands, design status, branch-aware no-mistakes status/setup with optional
-  local agent pinning, skill/self checks, and goal-chain helpers
+  commands, design status, optional Lavish review/tracker-capture commands,
+  branch-aware no-mistakes status/setup with optional local agent pinning,
+  skill/self checks, and goal-chain helpers
 - loops, goal chains, and recurring work definitions with bounded verification
   and stop rules
 

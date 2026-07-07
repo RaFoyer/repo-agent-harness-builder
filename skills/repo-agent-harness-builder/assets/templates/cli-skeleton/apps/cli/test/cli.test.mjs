@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
+import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
@@ -244,6 +245,8 @@ test("help lists core commands", () => {
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
   assert.match(help, /no-mistakes status/);
+  assert.match(help, /lavish status/);
+  assert.match(help, /lavish update/);
   assert.match(help, /checklist/);
 });
 
@@ -255,10 +258,11 @@ test("no args renders content-first agent home view", async () => {
   const text = out.join("\n");
   assert.match(text, new RegExp(`bin: "\\./${CONFIG.cliName}"`));
   assert.match(text, /description:/);
-  assert.match(text, /commands\[8\]\{command,purpose\}:/);
+  assert.match(text, /commands\[9\]\{command,purpose\}:/);
   assert.match(text, /"preflight","Run read-only session-start checks"/);
   assert.match(text, /"ergonomics status","Audit agent-facing CLI ergonomics"/);
   assert.match(text, /"no-mistakes status","Check branch-to-PR validation gate setup"/);
+  assert.match(text, /"lavish status","Check optional Lavish review-surface posture"/);
   assert.match(text, /help\[3\]:/);
   assert.doesNotMatch(text, /Usage:/);
   const localPathPattern = new RegExp([
@@ -269,6 +273,134 @@ test("no args renders content-first agent home view", async () => {
     String.raw`~` + String.raw`/`
   ].join("|"));
   assert.doesNotMatch(text, localPathPattern);
+});
+
+test("lavish status is local and non-mutating", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["status"], io, { commandExistsImpl: () => true });
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /lavish:/);
+  assert.match(text, /module: "inactive-optional"/);
+  assert.match(text, /protocol: "present"/);
+  assert.match(text, /npx_available: true/);
+  assert.match(text, new RegExp(`update_check: "\\./${CONFIG.cliName} lavish update --check"`));
+  assert.match(text, /tracker_capture:/);
+});
+
+test("lavish update defaults to check mode", async () => {
+  const runner = fakeCommandRunner({
+    "npx -y lavish-axi update --check": { ok: true, stdout: "lavish-axi 0.1.37 is current\n" }
+  });
+  const { io, out, err } = capture();
+  const code = await runLavish(["update"], io, { runImpl: runner.runImpl });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(runner.calls.map((call) => [call.command, call.args]), [["npx", ["-y", "lavish-axi", "update", "--check"]]]);
+  const text = out.join("\n");
+  assert.match(text, /action: "update"/);
+  assert.match(text, /mode: "check"/);
+  assert.match(text, /ok: true/);
+});
+
+test("lavish update help is local and does not invoke npx", async () => {
+  const runner = fakeCommandRunner({
+    default: { ok: false, status: 1, stderr: "should not run\n" }
+  });
+  const { io, out, err } = capture();
+  const code = await runLavish(["update", "--help"], io, { runImpl: runner.runImpl });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(runner.calls, []);
+  const text = out.join("\n");
+  assert.match(text, new RegExp(`Usage: \\./${CONFIG.cliName} lavish update \\[--check\\|--apply\\]`));
+  assert.match(text, /Defaults to --check/);
+});
+
+test("lavish update apply is explicit", async () => {
+  const runner = fakeCommandRunner({
+    "npx -y lavish-axi update": { ok: true, stdout: "updated\n" }
+  });
+  const { io, out, err } = capture();
+  const code = await runLavish(["update", "--apply"], io, { runImpl: runner.runImpl });
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(runner.calls.map((call) => [call.command, call.args]), [["npx", ["-y", "lavish-axi", "update"]]]);
+  assert.match(out.join("\n"), /mode: "apply"/);
+});
+
+test("lavish tracker capture drafts a proposal without writing", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(
+    ["tracker", "capture", "--issue", "INT-936", "--artifact", ".lavish/review.html", "--decisions", "docs/lavish-decisions.md"],
+    io
+  );
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /tracker_update_proposal:/);
+  assert.match(text, /mode: dry-run/);
+  assert.match(text, /write_authority: none/);
+  assert.match(text, /issue: "INT-936"/);
+  assert.match(text, /artifact: "\.lavish\/review\.html"/);
+  assert.match(text, /decisions_source: "docs\/lavish-decisions\.md"/);
+  assert.match(text, /No-mistakes gate/);
+});
+
+test("lavish tracker capture requires an issue", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "capture", "--artifact", ".lavish/review.html"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  assert.match(out.join("\n"), /code: missing-issue/);
+});
+
+test("lavish tracker capture rejects flag-like separated issue values", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "capture", "--issue", "--dry-run"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: missing-flag-value/);
+  assert.doesNotMatch(text, /tracker_update_proposal:/);
+});
+
+test("lavish tracker capture rejects flag-like inline issue values", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "capture", "--issue=--artifact"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: missing-flag-value/);
+  assert.doesNotMatch(text, /tracker_update_proposal:/);
+});
+
+test("lavish tracker reconcile previews the goal handoff sequence", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "reconcile", "--issue", "INT-936"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /lavish_tracker_reconcile:/);
+  assert.match(text, /mode: dry-run/);
+  assert.match(text, /issue: "INT-936"/);
+  assert.match(text, /"capture decisions in tracker","proposal-first"/);
+  assert.match(text, /"run no-mistakes when initialized","strongly recommended before merge"/);
+});
+
+test("lavish tracker reconcile rejects flag-like separated issue values", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "reconcile", "--issue", "--dry-run"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: missing-flag-value/);
+  assert.doesNotMatch(text, /lavish_tracker_reconcile:/);
+});
+
+test("lavish tracker reconcile rejects flag-like inline issue values", async () => {
+  const { io, out, err } = capture();
+  const code = await runLavish(["tracker", "reconcile", "--issue=--dry-run"], io);
+  assert.equal(code, 2);
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /code: missing-flag-value/);
+  assert.doesNotMatch(text, /lavish_tracker_reconcile:/);
 });
 
 test("unknown top-level command is a structured usage error on stdout", async () => {
@@ -481,6 +613,7 @@ test("command families reject unexpected args before doing work", async () => {
     ["qa", "status", "--bogus"],
     ["no-mistakes", "status", "--bogus"],
     ["no-mistakes", "setup", "--bogus"],
+    ["lavish", "status", "--bogus"],
     ["ergonomics", "status", sensitiveArg],
     ["verify", "--bogus"],
     ["precommit", "--bogus"],
@@ -774,7 +907,7 @@ test("connections doctor missing profile is a structured usage error on stdout",
 });
 
 test("core command smoke paths run", async () => {
-  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["ergonomics", "status"], ["no-mistakes", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
+  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["ergonomics", "status"], ["no-mistakes", "status"], ["lavish", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
     const { io, err } = capture();
     const code = await main(argv, io);
     assert.equal(code, 0, `${argv.join(" ")} failed: ${err.join("\n")}`);
@@ -789,6 +922,7 @@ test("verify dry-run lists delegated checks", async () => {
   assert.match(out.join("\n"), /preflight/);
   assert.match(out.join("\n"), /ergonomics status/);
   assert.match(out.join("\n"), /no-mistakes status/);
+  assert.match(out.join("\n"), /lavish status/);
   assert.match(out.join("\n"), /qa no-masking/);
   assert.match(out.join("\n"), /precommit --all/);
 });

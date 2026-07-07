@@ -41,7 +41,7 @@ Use for software repositories and durable team/project folders:
 
 | Area | Required artifacts |
 | --- | --- |
-| Repo CLI | no-args home, `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, `precommit` |
+| Repo CLI | no-args home, `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, `lavish`, `precommit` |
 | CLI tests | focused tests for help, dispatch, redaction, and key safety checks |
 | Source of truth | repo-visible docs vs role-restricted external authority |
 | Connection registry | `ops/connections.json` with value-safe metadata |
@@ -74,6 +74,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Goal-chain workflow | `GOAL-CHAIN.md`, `goals` CLI, goal-chain templates | sequential tracker-backed implementation needs merge and handoff evidence |
 | Project tracker | tracker protocol and CLI wrapper | GitHub Issues, Linear, Jira, or similar is canonical |
 | No-mistakes customization | `.no-mistakes.yaml`, `NO-MISTAKES-GATE.md`, setup script, `no-mistakes` CLI | the repo needs a concrete agent, command set, or fork URL beyond the generated default |
+| Lavish review surface | `LAVISH-REVIEW.md`, `lavish` CLI | complex plans, audits, diagrams, QA packets, or PR reviews benefit from HTML artifact feedback and tracker-decision capture |
 | CI/branch/deploy | CI protocol, branch promotion rules, deploy readiness | repo has tests, releases, environments, or deployments |
 | Design system governance | design-system protocol, design status command, source pointers, optional tokens/components, optional review/proof governance | UI, UX, component, token, brand, adaptive UI, or generated UI work may happen |
 | Brand identity | brand protocol, approved assets pointer, usage rules | external-facing comms or visual identity matters |

@@ -22,6 +22,7 @@ export const CONFIG = {
     "DOCUMENT-QUALITY.md",
     "AGENT-CLI-ERGONOMICS.md",
     "CLI-INTERFACE.md",
+    "LAVISH-REVIEW.md",
     "SOURCE-OF-TRUTH.md",
     "PRIVILEGED-DOCUMENTS.md",
     "EXTERNAL-SYSTEMS.md",
