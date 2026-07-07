@@ -28,7 +28,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Handling secrets or credentials | `ops/protocols/SECRETS.md` if present |
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |
 | Planning ticket-backed goal chains | `ops/protocols/GOAL-CHAIN.md`, then `./{{CLI_NAME}} goals status` |
-| Capturing Lavish review decisions before implementation | `ops/protocols/LAVISH-REVIEW.md`, tracker protocol if active, then `./{{CLI_NAME}} lavish tracker capture --issue <id>` |
+| Capturing Lavish review decisions before implementation | `ops/protocols/LAVISH-REVIEW.md`, tracker protocol if active, then `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` |
 | Changing CI, deploy, or branches | `ops/protocols/CICD.md` or `ops/protocols/BRANCH-PROMOTION.md` if present |
 | Using, discovering, or installing external connectors | `ops/protocols/EXTERNAL-SYSTEMS.md`, then `./{{CLI_NAME}} connections plan` |
 

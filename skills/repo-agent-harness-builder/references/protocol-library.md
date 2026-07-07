@@ -42,7 +42,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Tracker | `PROJECT-TRACKING.md` |
 | Security | `SECRETS.md`, `EXTERNAL-MCP.md` |
 | DevOps | `CICD.md`, `BRANCH-PROMOTION.md`, `DEVOPS-SECURITY.md` |
-| Optional evidence | `EVIDENCE-MAP.md`, `ARTIFACT-CONVENTIONS.md` |
+| Optional evidence | `LAVISH-REVIEW.md`, `EVIDENCE-MAP.md`, `ARTIFACT-CONVENTIONS.md` |
 
 ## TOC Routing Rules
 
@@ -56,6 +56,8 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Changing agent-facing CLI output | `CLI-INTERFACE.md`, `AGENT-CLI-ERGONOMICS.md` |
 | Preparing a commit | `PRE-COMMIT.md` |
 | Preparing a PR or validating a branch through no-mistakes | `NO-MISTAKES-GATE.md` |
+| Reviewing complex plans, diagrams, QA packets, or PR summaries as HTML artifacts | `LAVISH-REVIEW.md` if present |
+| Capturing reviewed Lavish decisions before implementation | `LAVISH-REVIEW.md`, plus `PROJECT-TRACKING.md` or `GOAL-CHAIN.md` if active |
 | Changing UI, UX, design systems, components, tokens, brand surfaces, adaptive UI, or generated UI | `DESIGN-SYSTEM.md` if present |
 | Working with tickets | `PROJECT-TRACKING.md` |
 | Handling credentials | `SECRETS.md` |

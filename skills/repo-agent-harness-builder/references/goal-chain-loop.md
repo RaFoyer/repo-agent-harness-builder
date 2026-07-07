@@ -28,7 +28,8 @@ lacks a tracker, integration branch, or verification gate.
    after tracker, integration branch, and verification gates exist.
 6. If review decisions were made in Lavish, capture them in the tracker or an
    approved decision record with `./{{CLI_NAME}} lavish tracker capture --issue
-   <id>` before starting the implementation goal.
+   <id> --artifact <html-file>` before starting the implementation goal. Add
+   `--decisions <file>` when decisions are in a separate file.
 7. Use `./{{CLI_NAME}} goals status` to inspect the chain and
    `./{{CLI_NAME}} goals start-prompt <goal-id>` to create a bounded thread
    prompt. If the objective is truncated, rerun with `--full` only when the

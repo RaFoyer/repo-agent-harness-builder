@@ -50,7 +50,7 @@ Do not use Lavish when a short answer, normal code review comment, or existing i
 5. Open the review with `./{{CLI_NAME}} lavish open <html-file>`.
 6. Poll for feedback with `./{{CLI_NAME}} lavish poll <html-file>`.
 7. Fix fresh error-severity layout warnings before asking the user to rely on the artifact.
-8. After decisions are made, run `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` to draft the tracker update.
+8. After decisions are made, run `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` to draft the tracker update. Add `--decisions <file>` when decisions are recorded separately from the HTML artifact.
 9. Ask the human to approve the tracker write or copy the proposal into the canonical tracker through the repo-approved project-management workflow.
 10. Start or update the ticket-backed goal only after the tracker captures the reviewed decisions.
 11. Implement the scoped goal, run local verification, then run no-mistakes when initialized before treating the PR as merge-ready.
@@ -65,11 +65,16 @@ Do not use Lavish when a short answer, normal code review comment, or existing i
 ./{{CLI_NAME}} lavish open <html-file>
 ./{{CLI_NAME}} lavish poll <html-file>
 ./{{CLI_NAME}} lavish end <html-file>
-./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>
-./{{CLI_NAME}} lavish tracker reconcile --issue <id>
+./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file> [--decisions <file>]
+./{{CLI_NAME}} lavish tracker reconcile --issue <id> [--dry-run]
 ```
 
 `status` and `doctor` are local and non-mutating. `update` defaults to `--check`; applying an update requires `--apply`. Tracker commands are dry-run and proposal-first in the generic harness. A repository may add tested tracker writes only when `PROJECT-TRACKING.md` grants that authority and the command keeps a dry-run mode.
+
+`open` accepts `--no-open`, `--no-gate`, and `--reopen`. `poll` accepts
+`--agent-reply <text>` and `--timeout-ms <ms>`. `end` accepts no extra flags.
+`tracker capture` requires `--issue` and accepts `--artifact` and `--decisions`;
+`tracker reconcile` requires `--issue` and accepts `--dry-run`.
 
 ## Tracker Capture
 
@@ -109,7 +114,7 @@ When this protocol or the `lavish` command changes, run:
 ```bash
 ./{{CLI_NAME}} lavish status
 ./{{CLI_NAME}} lavish update --check
-./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>
+./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file> --decisions <file>
 ./{{CLI_NAME}} verify --dry-run
 node --test apps/cli/test/*.test.mjs
 ```

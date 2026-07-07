@@ -225,13 +225,15 @@ behavior:
   `lavish-axi` from status, doctor, verify, or preflight.
 - `lavish open <html-file>`, `lavish poll <html-file>`, and
   `lavish end <html-file>`: wrap `npx -y lavish-axi` with structured,
-  value-safe summaries rather than raw dependency output.
-- `lavish tracker capture --issue <id>`: draft a tracker update proposal from
-  Lavish decisions and never write to Linear, Jira, GitHub Issues, or another
-  tracker unless a repository-specific protocol adds tested write authority.
-- `lavish tracker reconcile --issue <id>`: preview the review artifact ->
-  tracker capture -> ticket-backed goal -> local verification -> no-mistakes
-  sequence.
+  value-safe summaries rather than raw dependency output. Validate the known
+  pass-through flags instead of accepting arbitrary arguments.
+- `lavish tracker capture --issue <id> [--artifact <html-file>] [--decisions <file>]`:
+  draft a tracker update proposal from Lavish decisions and never write to
+  Linear, Jira, GitHub Issues, or another tracker unless a repository-specific
+  protocol adds tested write authority.
+- `lavish tracker reconcile --issue <id> [--dry-run]`: preview the review
+  artifact -> tracker capture -> ticket-backed goal -> local verification ->
+  no-mistakes sequence.
 
 Keep Lavish optional. Do not add `lavish-axi` as a required project dependency
 unless a repository intentionally activates this protocol. Use fake command

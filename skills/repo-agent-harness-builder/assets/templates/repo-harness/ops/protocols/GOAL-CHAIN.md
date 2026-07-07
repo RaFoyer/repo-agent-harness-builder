@@ -37,7 +37,7 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 1. Confirm the canonical tracker, integration branch, and verification commands.
 2. Cluster related tickets only when they share a system boundary or acceptance evidence.
 3. Start each goal from the current integration branch, not an old feature branch.
-4. If decisions were made in a Lavish artifact, capture them in the tracker with `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` before implementation starts.
+4. If decisions were made in a Lavish artifact, capture them in the tracker with `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` before implementation starts. Add `--decisions <file>` when decisions are recorded separately.
 5. Create one ticket-backed branch for the goal.
 6. Produce a concise implementation plan before large edits.
 7. Implement only the scoped goal.
@@ -65,7 +65,7 @@ Use the repo CLI when the goal-chain module is active:
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} goals verify <goal-id>
 ./{{CLI_NAME}} goals start-prompt <goal-id>
-./{{CLI_NAME}} lavish tracker reconcile --issue <id>
+./{{CLI_NAME}} lavish tracker reconcile --issue <id> [--dry-run]
 ```
 
 `goals status` is read-only and may run before activation. `goals verify` rejects missing linked issue evidence, unresolved placeholders, negated verification text, negated PR evidence, missing residual-risk evidence, and merge or squash integration commits that either do not match the recorded PR number or are not reachable from the configured local integration branch or its configured local remote-tracking ref. Generated CLI config defaults `integrationBranch` to the default branch, `integrationRemote` to `origin`, `requiredGoalCloseoutFields` to `Issues:` and `Residual risks:`, and `trackerIssuePattern` to an empty value with common GitHub/Jira/Linear/Azure-style issue references accepted by default, with or without a trailing colon; update those values when the repository uses a different integration branch, remote, tracker reference shape, or migrated goal-chain schema. Fetch or pull the integration branch first if the PR was just merged remotely. The command does not verify live PR state, merge, update trackers, or create the next thread. `goals start-prompt` prints a bounded prompt for a goal thread, truncates long objectives with an `objective_preview` size hint, and accepts `--full` when the complete objective is needed.

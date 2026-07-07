@@ -33,9 +33,10 @@ secret-like values. Setup is mutating and should keep `.no-mistakes/` out of
 commits through local git exclude when a checkout exists.
 
 For Lavish tooling, keep `./{{CLI_NAME}} lavish status`,
-`./{{CLI_NAME}} lavish update`, `./{{CLI_NAME}} lavish tracker capture`, and
-`ops/protocols/LAVISH-REVIEW.md` in sync. Status must not install, contact npm,
-open a browser, or write tracker state. Update defaults to `--check`, and
+`./{{CLI_NAME}} lavish update`,
+`./{{CLI_NAME}} lavish tracker capture --issue <id> [--artifact <html-file>] [--decisions <file>]`,
+and `ops/protocols/LAVISH-REVIEW.md` in sync. Status must not install, contact
+npm, open a browser, or write tracker state. Update defaults to `--check`, and
 `--apply` is required for mutation. Tracker capture drafts a proposal only
 unless a repo-specific project-tracking protocol adds tested write authority.
 
