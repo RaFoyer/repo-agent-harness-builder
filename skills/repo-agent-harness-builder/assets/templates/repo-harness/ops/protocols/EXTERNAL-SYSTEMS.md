@@ -10,6 +10,7 @@ related_protocols:
   - SOURCE-OF-TRUTH
   - PRIVILEGED-DOCUMENTS
   - SECRETS
+  - CONNECTOR-AUTH-PROFILES
 ---
 
 # External Systems And Connections
@@ -26,6 +27,7 @@ Before using plugin search, connector marketplace flows, generic MCP setup, or g
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+./{{CLI_NAME}} connections auth-plan --profile <profile-id>
 ```
 
 If a service-specific namespace exists, inspect that help before installing a generic connector:
@@ -43,6 +45,14 @@ an expected account-domain boundary. Use `--credential-root <path>` only for
 local connector mode; doctor output should report path safety without printing
 the local path.
 
+For browser-based or CLI provider authentication, read
+`CONNECTOR-AUTH-PROFILES.md` first. Connector packages may be global, but
+credentials, active accounts, mutable profiles, provider config roots, and live
+authorization attempts should be scoped to the active repository by default.
+Use `connections auth-plan` and `connections env` before invoking provider
+login commands. These commands are read-only and must not start real
+authorization.
+
 ## Connection Classes
 
 | Class | Examples | Typical use |
@@ -59,8 +69,9 @@ the local path.
 3. Store tokens, OAuth refresh credentials, app passwords, service-account keys, and database passwords outside the repository.
 4. Add a value-safe entry to `ops/connections.json`.
 5. Run `./{{CLI_NAME}} connections status`.
-6. Add or update protocol pointers so agents know which system is authoritative.
-7. Document revoke/rotation instructions.
+6. If login or local CLI auth is needed, run `./{{CLI_NAME}} connections auth-plan --profile <profile-id>`.
+7. Add or update protocol pointers so agents know which system is authoritative.
+8. Document revoke/rotation instructions.
 
 `scopeRefs` must be provably read-only to avoid write approval. Unknown scopes,
 or scopes that can send, write, share, delete, administer, or mutate data, need

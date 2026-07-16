@@ -56,6 +56,21 @@
       "expectedAccountDomain": "example.com",
       "readOnlyScopes": ["drive.readonly"],
       "approvalGatedWriteScopes": ["drive.file"],
+      "cliAuth": {
+        "status": "inactive",
+        "profileBoundary": "repository",
+        "globalStatePolicy": "refuse-global-mutable-state",
+        "configRoot": {
+          "strategy": "env",
+          "env": "HARNESS_CONNECTOR_HOME",
+          "providerSubdir": "google-workspace"
+        },
+        "authFlowTypes": ["browser", "device-code", "copied-code"],
+        "browserPolicy": "explicit-browser-is-binding",
+        "identityCheckCommands": [
+          "./{{CLI_NAME}} connections doctor --profile example-google-workspace --mode remote"
+        ]
+      },
       "writeApproval": {
         "required": true,
         "policy": "Explicit human approval is required before write-capable connector scopes are enabled."
@@ -66,6 +81,67 @@
       ],
       "revocation": "Remove provider grant and delete external token storage for this profile.",
       "genericFallbackRule": "Use generic connectors only when this repo-owned profile is missing, inaccessible, unsupported by the client, or explicitly blocked by a linked work item."
+    },
+    {
+      "id": "example-gcloud",
+      "provider": "gcloud",
+      "status": "inactive",
+      "mode": "local",
+      "description": "Example Google Cloud CLI profile using a repository-scoped CLOUDSDK_CONFIG root.",
+      "authStorageClass": "repository-scoped-config-root",
+      "expectedAccountLabelRef": "repo-google-cloud-account",
+      "readOnlyScopes": ["cloud-platform.read-only"],
+      "cliAuth": {
+        "status": "inactive",
+        "profileBoundary": "repository",
+        "globalStatePolicy": "refuse-global-mutable-state",
+        "configRoot": {
+          "strategy": "env",
+          "env": "CLOUDSDK_CONFIG",
+          "providerSubdir": "gcloud"
+        },
+        "authFlowTypes": ["browser", "copied-code"],
+        "browserPolicy": "explicit-browser-is-binding",
+        "identityCheckCommands": [
+          "gcloud auth list --filter=status:ACTIVE",
+          "gcloud config get-value project"
+        ]
+      },
+      "verificationCommands": [
+        "./{{CLI_NAME}} connections auth-plan --profile example-gcloud",
+        "./{{CLI_NAME}} connections env --profile example-gcloud"
+      ],
+      "revocation": "Revoke the Google Cloud OAuth grant and remove this profile's external config root."
+    },
+    {
+      "id": "example-neon",
+      "provider": "neonctl",
+      "status": "inactive",
+      "mode": "local",
+      "description": "Example Neon CLI profile using a repository-scoped --config-dir.",
+      "authStorageClass": "repository-scoped-config-root",
+      "expectedAccountLabelRef": "repo-neon-account",
+      "cliAuth": {
+        "status": "inactive",
+        "profileBoundary": "repository",
+        "globalStatePolicy": "refuse-global-mutable-state",
+        "configRoot": {
+          "strategy": "flag",
+          "flag": "--config-dir",
+          "executable": "neonctl",
+          "providerSubdir": "neonctl"
+        },
+        "authFlowTypes": ["browser", "api-key"],
+        "browserPolicy": "explicit-browser-is-binding",
+        "identityCheckCommands": [
+          "neonctl me --output json"
+        ]
+      },
+      "verificationCommands": [
+        "./{{CLI_NAME}} connections auth-plan --profile example-neon",
+        "./{{CLI_NAME}} connections env --profile example-neon"
+      ],
+      "revocation": "Revoke the Neon grant or API key and remove this profile's external config root."
     }
   ]
 }

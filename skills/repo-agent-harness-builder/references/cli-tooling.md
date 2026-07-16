@@ -21,7 +21,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `skills` | recommended | Sync repo-owned skills to local skill dirs |
 | `self` | recommended | Check/update repo harness safely |
 | `secrets` | optional | Value-safe secret inventory and command wrapper |
-| `connections` | recommended | Validate permanent external-authority connection metadata |
+| `connections` | recommended | Validate permanent external-authority connection metadata, connector profiles, auth plans, and config-root guidance |
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
@@ -287,6 +287,8 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} secrets help
 ./{{CLI_NAME}} connections status
+./{{CLI_NAME}} connections auth-plan --profile example-gcloud
+./{{CLI_NAME}} connections env --profile example-gcloud
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} self check
 ```

@@ -38,12 +38,23 @@ server, or global client configuration:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+./{{CLI_NAME}} connections auth-plan --profile <profile-id>
+./{{CLI_NAME}} connections env --profile <profile-id>
 ```
 
 Use `connections doctor --account <email>` or `--email <email>` only when
 checking an expected account-domain boundary. Use `--credential-root <path>` only
 for local connector mode; the command should report path safety without printing
 the path.
+
+For browser-based or provider CLI authentication, connector packages may be
+global but mutable authentication state should be scoped to the target
+repository by default. Use `connections auth-plan` before starting any login
+flow. Use `connections env` to see the value-safe environment variable or
+config-directory flag that repo wrappers should apply. These commands must not
+start auth, open browsers, create credential directories, inspect token files, or
+print authorization URLs, device codes, copied codes, callback state, tokens,
+cookies, browser storage, or local credential paths.
 
 When a service-specific CLI namespace exists, inspect that namespace help before
 falling back to a generic connector:

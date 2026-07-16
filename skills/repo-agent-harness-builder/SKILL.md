@@ -37,6 +37,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - Preflight, precommit, no-mistakes PR validation, CI, branch, secrets, tracker, and MCP guardrails: read `references/guardrails-and-devops.md`.
 - Non-technical installation, personal folders, and safe file stewardship: read `references/nontechnical-and-personal-harness.md`.
 - External authority, permanent Drive/email/document/database connections, and role-based permission boundaries: read `references/external-authority-and-connections.md`.
+- Repository-scoped CLI and connector authentication profiles, browser login boundaries, and config-root isolation: read `references/external-authority-and-connections.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
 - Ticket-backed implementation goal chains with merge, verification, and handoff evidence: read `references/goal-chain-loop.md`.
@@ -86,5 +87,6 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - Secret handling must be value-safe: names, paths, booleans, and counts only.
 - Repositories hold non-privileged internal documentation; role-restricted material belongs in an external authority with explicit permission boundaries.
 - External systems are auxiliary unless a protocol explicitly makes them authoritative for a named scope.
+- Connector packages may be global, but mutable authentication profiles must be repo-scoped by default unless a protocol explicitly marks a different boundary.
 - Never make Codex, Claude, Gemini, Kimi, Cursor, or any single client the conceptual owner of the harness. Client-specific files and commands are adapters around the shared protocol/CLI contract.
 - Advanced Flow-style hooks and artifact hubs are optional modules; do not make them the base harness.

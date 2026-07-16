@@ -241,6 +241,8 @@ test("help lists core commands", () => {
   assert.match(help, /qa status/);
   assert.match(help, /secrets/);
   assert.match(help, /connections/);
+  assert.match(help, /connections auth-plan/);
+  assert.match(help, /connections env/);
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
@@ -876,8 +878,90 @@ test("connections plan explains setup without secrets", async () => {
   assert.match(text, /drive: example-drive/);
   assert.match(text, /endpoint drive: configured/);
   assert.match(text, /expected account domain: configured/);
+  assert.match(text, /auth profile boundary: repository/);
+  assert.match(text, /config root strategy: env/);
   assert.doesNotMatch(text, /drivemcp\.googleapis\.com|\/mcp\/v1|example\.com/);
   assert.match(text, /does not require live auth/i);
+});
+
+fixtureTest("connections auth-plan describes repository-scoped auth without starting a flow", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["connections", "auth-plan", "--profile", "example-gcloud", "--browser", "Chrome", "--flow", "browser"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /Connector auth plan: example-gcloud/);
+  assert.match(text, /repo_id: [a-z0-9-]+--[a-f0-9]{12}/);
+  assert.match(text, /profile_boundary: repository/);
+  assert.match(text, /config_root_strategy: env/);
+  assert.match(text, /selected_browser: "Chrome"/);
+  assert.match(text, /starts_auth: false/);
+  assert.match(text, /opens_browser: false/);
+  assert.match(text, /prints_authorization_values: false/);
+  assert.doesNotMatch(text, /https?:\/\/|device code|callback state|ya29\.|credentials\.json/i);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("connections auth-plan rejects flow types outside the profile contract", async () => {
+  const { io, err } = capture();
+  const code = await main(["connections", "auth-plan", "--profile", "example-gcloud", "--flow", "device-code"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /requested auth flow/i);
+});
+
+fixtureTest("connections env renders env-var config-root guidance without local paths", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["connections", "env", "--profile", "example-gcloud"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /Connector auth environment: example-gcloud/);
+  assert.match(text, /strategy: env/);
+  assert.match(text, /env: CLOUDSDK_CONFIG/);
+  assert.match(text, /export CLOUDSDK_CONFIG=\\?"\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/agent-connectors\/[a-z0-9-]+--[a-f0-9]{12}\/gcloud\\?"/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("connections env renders config-dir flag guidance for Neon-style CLIs", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["connections", "env", "--profile", "example-neon"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /strategy: flag/);
+  assert.match(text, /flag: --config-dir/);
+  assert.match(text, /executable: neonctl/);
+  assert.match(text, /command_hint: "neonctl --config-dir/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("connections status blocks unsafe auth profile config-root metadata", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connectorProfiles = [
+    {
+      id: "bad-gcloud-auth",
+      provider: "gcloud",
+      status: "configured",
+      authStorageClass: "repository-scoped-config-root",
+      cliAuth: {
+        profileBoundary: "repository",
+        globalStatePolicy: "refuse-global-mutable-state",
+        configRoot: {
+          strategy: "env",
+          env: "cloudsdk_config",
+          providerSubdir: "../gcloud"
+        },
+        authFlowTypes: ["browser"]
+      }
+    }
+  ];
+
+  await withFile(registryPath, JSON.stringify(registry, null, 2) + "\n", async () => {
+    const { io, err } = capture();
+    const code = await main(["connections", "status"], io);
+    assert.equal(code, 1);
+    const text = err.join("\n");
+    assert.match(text, /safe env name/i);
+    assert.match(text, /providerSubdir/i);
+  });
 });
 
 fixtureTest("connections list is count-bearing with an explicit empty state", async () => {

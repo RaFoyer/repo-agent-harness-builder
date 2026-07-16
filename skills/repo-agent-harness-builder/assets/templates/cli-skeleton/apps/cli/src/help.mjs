@@ -62,6 +62,9 @@ Core commands:
   connections status   Validate external-authority connection metadata
   connections plan     Show repo-owned connector profile inventory
   connections doctor   Check a connector profile without printing secrets
+  connections auth-plan
+                       Show read-only browser/CLI auth isolation plan
+  connections env      Print value-safe config-root env or flag guidance
   goals status         List implementation goal-chain goals
   goals verify <id>    Check closeout evidence for one goal
   goals start-prompt <id>

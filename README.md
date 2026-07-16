@@ -22,6 +22,7 @@ The durable contract lives in ordinary files in the target repo or folder:
   update checks, and tracker-decision capture before ticket-backed goals
 - setup checklists with `active`, `inactive`, and `not-applicable` states
 - value-safe secrets, external-authority, and connector boundaries
+- repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
 - portable onboarding material for nontechnical recipients
 
@@ -158,9 +159,9 @@ The skill can help with:
 - portable onboarding packages
 - CLI skeletons with no-args home views, ergonomics audits, preflight,
   precommit, verify, doctor, checklist, browser QA, secrets, connection
-  commands, design status, optional Lavish review/tracker-capture commands,
-  branch-aware no-mistakes status/setup with optional local agent pinning,
-  skill/self checks, and goal-chain helpers
+  commands, connector auth-profile planning, design status, optional Lavish
+  review/tracker-capture commands, branch-aware no-mistakes status/setup with
+  optional local agent pinning, skill/self checks, and goal-chain helpers
 - loops, goal chains, and recurring work definitions with bounded verification
   and stop rules
 

@@ -14,7 +14,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 | Protocol library | `ops/protocols/*.md` | Durable recurring procedures |
 | CLI facade | `./{{CLI_NAME}}`, `apps/cli/*` | Deterministic repeatable tasks |
 | Agent CLI ergonomics | `AGENT-CLI-ERGONOMICS.md` | Content-first, token-aware CLI output contract |
-| Connection registry | `ops/connections.json` | Value-safe metadata for external authorities |
+| Connection registry | `ops/connections.json` | Value-safe metadata for external authorities and repo-scoped connector auth profiles |
 | Onboarding package | `START-HERE.md`, `AGENT-HANDOFF.md`, `skills/*` | Pre-clone and first-use bridge |
 | Guardrails | preflight, precommit, no-mistakes, CI, secrets, tracker | Safety and consistency checks |
 | Advanced modules | hooks, intent authority, evidence maps | Scale patterns for complex repos |
@@ -26,7 +26,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 - `ops/HARNESS-CHECKLIST.md` marks baseline and optional modules as active, inactive, or not-applicable.
 - Protocols have stable IDs, review dates, related protocols, and verification sections.
 - The CLI has a content-first no-args home view, structured usage errors, and `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, optional `lavish`, and `precommit` before domain-specific commands.
-- Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
+- Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `CONNECTOR-AUTH-PROFILES.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.
 

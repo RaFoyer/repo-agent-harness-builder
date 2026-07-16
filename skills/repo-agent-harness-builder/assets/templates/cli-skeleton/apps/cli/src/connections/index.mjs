@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { CONFIG } from "../config.mjs";
 import { readOption } from "../util/args.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, safeLine, toonString } from "../util/agent-output.mjs";
@@ -10,6 +11,16 @@ const WRITE_OPERATIONS_RE = /^(write|send|modify|delete|admin|share|upload|publi
 const WRITE_SCOPE_RE = /(gmail\.send|mail\.send|readwrite|write|modify|delete|share|admin|manage|upload|publish|full[_-]?access|full[_-]?control|drive\.file|auth\/drive$|files\.readwrite|sites\.readwrite|mail\.readwrite)/i;
 const READ_ONLY_SCOPE_RE = /(readonly|read\.only|(^|[./:_-])read($|[./:_-])|\.read\.all($|[./:_-]))/i;
 const DOCTOR_VALUE_OPTIONS = new Set(["--profile", "--mode", "--account", "--email", "--credential-root"]);
+const AUTH_PLAN_VALUE_OPTIONS = new Set(["--profile", "--browser", "--flow"]);
+const ENV_VALUE_OPTIONS = new Set(["--profile"]);
+const CONFIG_ROOT_STRATEGIES = new Set(["env", "flag", "unsupported"]);
+const AUTH_FLOW_TYPES = new Set(["browser", "localhost-callback", "device-code", "copied-code", "api-key", "noninteractive"]);
+const PROFILE_BOUNDARIES = new Set(["repository", "worktree", "unsupported"]);
+const GLOBAL_STATE_POLICIES = new Set(["refuse-global-mutable-state", "isolated-config-root-required", "unsupported-global-session"]);
+const SAFE_PROVIDER_SUBDIR_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+const SAFE_ENV_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const SAFE_FLAG_RE = /^--[a-z][a-z0-9-]{0,63}$/;
+const SAFE_EXECUTABLE_RE = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
 
 function loadRegistry() {
   const registryPath = path.join(CONFIG.repoRoot, "ops", "connections.json");
@@ -56,6 +67,33 @@ function rejectUnknownDoctorArgs(argv, io) {
   return true;
 }
 
+function rejectUnknownValueArgs(argv, allowedOptions, io, command) {
+  const unexpected = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    const option = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
+    if (allowedOptions.has(option)) {
+      if (!arg.includes("=")) {
+        const next = argv[index + 1];
+        if (next === undefined || next.startsWith("--")) unexpected.push(`${arg} requires a value`);
+        else index += 1;
+      }
+      continue;
+    }
+    unexpected.push(arg);
+  }
+
+  if (unexpected.length === 0) return false;
+  renderUsageError(io, {
+    code: unexpected.some((arg) => String(arg).startsWith("-")) ? "unknown-flag" : "unexpected-argument",
+    command,
+    message: `Unexpected argument for ${command}`,
+    details: unexpected,
+    hints: [`Run ./${CONFIG.cliName} connections help`]
+  });
+  return true;
+}
+
 function pathInsideRepo(candidatePath) {
   const resolved = path.resolve(candidatePath);
   const repoRoot = path.resolve(CONFIG.repoRoot);
@@ -71,6 +109,87 @@ function writeCapableScope(scope) {
 
 function connectorProfiles(registry) {
   return Array.isArray(registry.connectorProfiles) ? registry.connectorProfiles : [];
+}
+
+function authConfig(profile) {
+  if (profile.cliAuth && typeof profile.cliAuth === "object") return profile.cliAuth;
+  if (profile.authProfile && typeof profile.authProfile === "object") return profile.authProfile;
+  return null;
+}
+
+function safeProviderSubdir(profile, auth = authConfig(profile)) {
+  const configured = auth?.configRoot?.providerSubdir || auth?.configRoot?.subdir || profile.provider || profile.id || "provider";
+  return String(configured).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "provider";
+}
+
+function repoProfileId() {
+  const source = String(CONFIG.repoSlug || CONFIG.projectName || "repository");
+  const slug = source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "repository";
+  const hash = crypto.createHash("sha256").update(source).digest("hex").slice(0, 12);
+  return `${slug}--${hash}`;
+}
+
+function connectorRootExpression(profile) {
+  return `\${XDG_CONFIG_HOME:-$HOME/.config}/agent-connectors/${repoProfileId()}/${safeProviderSubdir(profile)}`;
+}
+
+function commandList(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()) : [];
+}
+
+function validateCliAuth(profile, id) {
+  const blockers = [];
+  const warnings = [];
+  const auth = authConfig(profile);
+  if (!auth) {
+    warnings.push(`${id} has no cliAuth profile isolation metadata`);
+    return { blockers, warnings };
+  }
+
+  if (auth.status === "unsupported") warnings.push(`${id} connector auth profile is unsupported`);
+  if (auth.profileBoundary && !PROFILE_BOUNDARIES.has(auth.profileBoundary)) {
+    blockers.push(`${id} cliAuth.profileBoundary must be repository, worktree, or unsupported`);
+  }
+  if (auth.globalStatePolicy && !GLOBAL_STATE_POLICIES.has(auth.globalStatePolicy)) {
+    blockers.push(`${id} cliAuth.globalStatePolicy must be refuse-global-mutable-state, isolated-config-root-required, or unsupported-global-session`);
+  }
+  if (auth.profileBoundary === "unsupported" || auth.globalStatePolicy === "unsupported-global-session") {
+    warnings.push(`${id} reports a global mutable session limitation`);
+  }
+
+  const configRoot = auth.configRoot || {};
+  const strategy = configRoot.strategy;
+  if (!strategy) blockers.push(`${id} cliAuth.configRoot.strategy is required`);
+  else if (!CONFIG_ROOT_STRATEGIES.has(strategy)) blockers.push(`${id} unknown config root strategy ${strategy}`);
+
+  const configuredSubdir = auth?.configRoot?.providerSubdir || auth?.configRoot?.subdir;
+  const providerSubdir = safeProviderSubdir(profile, auth);
+  if (configuredSubdir && !SAFE_PROVIDER_SUBDIR_RE.test(String(configuredSubdir))) {
+    blockers.push(`${id} cliAuth.configRoot.providerSubdir must be a safe relative name`);
+  } else if (!SAFE_PROVIDER_SUBDIR_RE.test(providerSubdir)) {
+    blockers.push(`${id} cliAuth.configRoot.providerSubdir must be a safe relative name`);
+  }
+
+  if (strategy === "env") {
+    if (!SAFE_ENV_RE.test(String(configRoot.env || ""))) blockers.push(`${id} env config root strategy requires a safe env name`);
+  } else if (strategy === "flag") {
+    if (!SAFE_FLAG_RE.test(String(configRoot.flag || ""))) blockers.push(`${id} flag config root strategy requires a safe flag name`);
+    if (!SAFE_EXECUTABLE_RE.test(String(configRoot.executable || profile.provider || ""))) blockers.push(`${id} flag config root strategy requires a safe executable name`);
+  } else if (strategy === "unsupported") {
+    warnings.push(`${id} does not support repository-scoped config roots`);
+  }
+
+  const flowTypes = Array.isArray(auth.authFlowTypes) ? auth.authFlowTypes : [];
+  for (const flow of flowTypes) {
+    if (!AUTH_FLOW_TYPES.has(flow)) blockers.push(`${id} unsupported auth flow type ${flow}`);
+  }
+  if (!flowTypes.length && strategy !== "unsupported") warnings.push(`${id} has no authFlowTypes metadata`);
+
+  for (const command of commandList(auth.identityCheckCommands)) {
+    for (const finding of findSecretIndicators(command, { source: id })) blockers.push(`${finding}. Keep identity check commands value-safe.`);
+  }
+
+  return { blockers, warnings };
 }
 
 const SCOPE_FIELDS = new Set(["readOnlyScopes", "approvalGatedWriteScopes", "writeScopes", "scopes", "oauthScopes", "requiredScopes", "scopeRefs"]);
@@ -128,6 +247,9 @@ function validateConnectorProfiles(registry) {
     if (writeScopes.length && !writeApprovalRequired(profile)) {
       blockers.push(`${id} write-capable connector scopes require writeApproval.required=true metadata`);
     }
+    const authValidation = validateCliAuth(profile, id);
+    blockers.push(...authValidation.blockers);
+    warnings.push(...authValidation.warnings);
     for (const finding of findSecretIndicators(JSON.stringify(profile), { source: id })) {
       blockers.push(`${finding}. Store credential values outside connector profile metadata.`);
     }
@@ -187,6 +309,8 @@ function help(io) {
   io.stdout("  connections list      List registered external authorities");
   io.stdout("  connections plan      Print setup checklist and connector profile inventory");
   io.stdout("  connections doctor    Check a connector profile without printing secrets");
+  io.stdout("  connections auth-plan Print repository-scoped auth plan for a connector profile");
+  io.stdout("  connections env       Print value-safe env or flag guidance for a connector profile");
 }
 
 function status(io) {
@@ -230,8 +354,10 @@ function plan(io) {
   io.stdout("3. Store credentials outside the repository.");
   io.stdout("4. Add value-safe metadata to ops/connections.json.");
   io.stdout("5. Run ./{{CLI_NAME}} connections status.");
-  io.stdout("6. Add repo-safe pointers instead of copying privileged content.");
-  io.stdout("7. Document revoke, rotation, and owner contact.");
+  io.stdout("6. For browser or CLI login, run ./{{CLI_NAME}} connections auth-plan --profile <profile-id>.");
+  io.stdout("7. Put provider config-root selection in repo wrappers, not global shell startup files.");
+  io.stdout("8. Add repo-safe pointers instead of copying privileged content.");
+  io.stdout("9. Document revoke, rotation, and owner contact.");
   io.stdout("");
   io.stdout("Connector profile inventory (does not require live auth):");
   const loaded = loadRegistry();
@@ -253,6 +379,12 @@ function plan(io) {
     if (profile.expectedAccountDomain) io.stdout("  expected account domain: configured");
     const storageClass = profile.authStorageClass || profile.credentialStorage;
     if (storageClass) io.stdout(`  credential storage: ${safeLine(storageClass)}`);
+    const auth = authConfig(profile);
+    if (auth) {
+      io.stdout(`  auth profile boundary: ${safeLine(auth.profileBoundary || "unknown")}`);
+      const strategy = auth.configRoot?.strategy || "unknown";
+      io.stdout(`  config root strategy: ${safeLine(strategy)}`);
+    }
   }
   return 0;
 }
@@ -337,6 +469,118 @@ function doctor(argv, io) {
   return 0;
 }
 
+function loadProfileForCommand(argv, io, command) {
+  const loaded = loadRegistry();
+  if (!loaded.ok) {
+    io.stderr(`blocker: ${loaded.error}`);
+    return { ok: false, code: 1 };
+  }
+  const profileId = readOption(argv, "--profile");
+  if (!profileId) {
+    renderUsageError(io, {
+      code: "missing-profile",
+      command,
+      message: "Missing connector profile id",
+      hints: [`Run ./${CONFIG.cliName} ${command} --profile <profile-id>`]
+    });
+    return { ok: false, code: 2 };
+  }
+  const profile = findProfile(loaded.registry, profileId);
+  if (!profile) {
+    io.stderr("blocker: unknown connector profile supplied");
+    return { ok: false, code: 1 };
+  }
+  return { ok: true, profile };
+}
+
+function authPlan(argv, io) {
+  if (rejectUnknownValueArgs(argv, AUTH_PLAN_VALUE_OPTIONS, io, "connections auth-plan")) return 2;
+  const loaded = loadProfileForCommand(argv, io, "connections auth-plan");
+  if (!loaded.ok) return loaded.code;
+  const { profile } = loaded;
+  const auth = authConfig(profile);
+  if (!auth) {
+    io.stderr("blocker: connector profile has no cliAuth profile isolation metadata");
+    return 1;
+  }
+
+  const validation = validateCliAuth(profile, profile.id);
+  const requestedFlow = readOption(argv, "--flow", "");
+  const flowTypes = Array.isArray(auth.authFlowTypes) ? auth.authFlowTypes : [];
+  if (requestedFlow && !flowTypes.includes(requestedFlow)) {
+    validation.blockers.push(`${profile.id} requested auth flow is not listed for this connector profile`);
+  }
+
+  io.stdout(`Connector auth plan: ${safeLine(profile.id)}`);
+  io.stdout(`provider: ${safeLine(profile.provider || "unknown")}`);
+  io.stdout(`repo_id: ${safeLine(repoProfileId())}`);
+  io.stdout(`profile_boundary: ${safeLine(auth.profileBoundary || "unknown")}`);
+  io.stdout(`global_state_policy: ${safeLine(auth.globalStatePolicy || "unknown")}`);
+  io.stdout(`config_root_strategy: ${safeLine(auth.configRoot?.strategy || "unknown")}`);
+  io.stdout("config_root: computed outside repository");
+  io.stdout(`expected_account_label: ${(profile.expectedAccountLabelRef || profile.expectedAccountDomain || profile.accountRef) ? "configured" : "not configured"}`);
+  io.stdout(`auth_flow_types: ${flowTypes.length ? flowTypes.map(safeLine).join(",") : "not configured"}`);
+  const browser = readOption(argv, "--browser", "");
+  io.stdout(`selected_browser: ${browser ? toonString(safeLine(browser)) : "not provided"}`);
+  io.stdout(`identity_checks: ${commandList(auth.identityCheckCommands).length ? "configured" : "not configured"}`);
+  io.stdout("starts_auth: false");
+  io.stdout("opens_browser: false");
+  io.stdout("prints_authorization_values: false");
+  io.stdout("postconditions:");
+  io.stdout("  - start one fresh provider auth process only after human approval");
+  io.stdout("  - route the one-time authorization handoff through the selected browser or documented flow");
+  io.stdout("  - verify completion with the original process exit status and read-only identity checks");
+  io.stdout("  - remove stale attempt artifacts after proving the originating process is gone");
+
+  for (const warning of validation.warnings) io.stdout(`warning: ${warning}`);
+  for (const blocker of validation.blockers) io.stderr(`blocker: ${blocker}`);
+  return validation.blockers.length ? 1 : 0;
+}
+
+function envPlan(argv, io) {
+  if (rejectUnknownValueArgs(argv, ENV_VALUE_OPTIONS, io, "connections env")) return 2;
+  const loaded = loadProfileForCommand(argv, io, "connections env");
+  if (!loaded.ok) return loaded.code;
+  const { profile } = loaded;
+  const auth = authConfig(profile);
+  if (!auth) {
+    io.stderr("blocker: connector profile has no cliAuth profile isolation metadata");
+    return 1;
+  }
+
+  const validation = validateCliAuth(profile, profile.id);
+  for (const warning of validation.warnings) io.stdout(`warning: ${warning}`);
+  for (const blocker of validation.blockers) io.stderr(`blocker: ${blocker}`);
+  if (validation.blockers.length) return 1;
+
+  const strategy = auth.configRoot?.strategy;
+  const root = connectorRootExpression(profile);
+  io.stdout(`Connector auth environment: ${safeLine(profile.id)}`);
+  io.stdout(`provider: ${safeLine(profile.provider || "unknown")}`);
+  io.stdout(`repo_id: ${safeLine(repoProfileId())}`);
+  io.stdout("config_root: computed outside repository");
+  if (strategy === "env") {
+    const envName = auth.configRoot.env;
+    io.stdout(`strategy: env`);
+    io.stdout(`env: ${safeLine(envName)}`);
+    io.stdout("shell[1]:");
+    io.stdout(`  ${toonString(`export ${envName}="${root}"`)}`);
+    io.stdout("provider commands must inherit this environment.");
+    return 0;
+  }
+  if (strategy === "flag") {
+    const executable = auth.configRoot.executable || profile.provider;
+    const flag = auth.configRoot.flag;
+    io.stdout(`strategy: flag`);
+    io.stdout(`flag: ${safeLine(flag)}`);
+    io.stdout(`executable: ${safeLine(executable)}`);
+    io.stdout(`command_hint: ${toonString(`${executable} ${flag} "${root}" <command>`)}`);
+    return 0;
+  }
+  io.stderr("blocker: connector profile does not support repository-scoped config roots");
+  return 1;
+}
+
 export async function runConnections(argv, io) {
   const [subcommand = "help", ...rest] = argv;
   if (subcommand === "help") {
@@ -357,6 +601,8 @@ export async function runConnections(argv, io) {
     return plan(io);
   }
   if (subcommand === "doctor") return doctor(rest, io);
+  if (subcommand === "auth-plan") return authPlan(rest, io);
+  if (subcommand === "env") return envPlan(rest, io);
   renderUsageError(io, {
     code: "unknown-connections-command",
     command: "connections",

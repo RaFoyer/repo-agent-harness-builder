@@ -47,6 +47,8 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `secrets` | Provide value-safe secret posture commands |
 | `connections` | Validate external-authority connection metadata, connector profiles, and setup plans |
 | `connections doctor` | Check a named connector profile without printing secret values |
+| `connections auth-plan` | Print a read-only browser/CLI authentication isolation plan for a profile |
+| `connections env` | Print value-safe provider config-root environment or flag guidance |
 | `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |
 | `lavish` | Check optional Lavish posture, run Lavish review lifecycle commands, check/apply Lavish updates, and draft tracker captures |
@@ -79,6 +81,8 @@ Run:
 ./{{CLI_NAME}} qa status
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections plan
+./{{CLI_NAME}} connections auth-plan --profile example-gcloud
+./{{CLI_NAME}} connections env --profile example-gcloud
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status
 ./{{CLI_NAME}} lavish status

@@ -26,6 +26,7 @@ export const CONFIG = {
     "SOURCE-OF-TRUTH.md",
     "PRIVILEGED-DOCUMENTS.md",
     "EXTERNAL-SYSTEMS.md",
+    "CONNECTOR-AUTH-PROFILES.md",
     "NO-MISTAKES-GATE.md",
     "SESSION-PREFLIGHT.md",
     "PRE-COMMIT.md"

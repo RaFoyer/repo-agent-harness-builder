@@ -39,6 +39,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | No-mistakes PR gate | inactive | `ops/protocols/NO-MISTAKES-GATE.md`, `.no-mistakes.yaml`, `./{{CLI_NAME}} no-mistakes status`; strongly recommended before feature PRs |
 | Lavish review surface | inactive | `ops/protocols/LAVISH-REVIEW.md`, `./{{CLI_NAME}} lavish status`; optional visual review and tracker-decision capture |
 | External system registry | inactive | `ops/connections.json`, `./{{CLI_NAME}} connections status` |
+| Connector auth profiles | inactive | `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, `./{{CLI_NAME}} connections auth-plan --profile <profile-id>` |
 
 ## Optional Modules
 
@@ -60,7 +61,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Multi-agent workflow | inactive | Add fanout/review protocol when parallel agents are expected |
 | Data/database | inactive | Add schema/access protocol when SQLite/Postgres/app data is used |
 | Provider setup | inactive | Add dry-run-first setup protocol when cloud, database, or SaaS providers are configured |
-| MCP/connectors | inactive | `./{{CLI_NAME}} connections plan`; inspect repo-owned connector profiles before generic install |
+| MCP/connectors | inactive | `./{{CLI_NAME}} connections plan`; inspect repo-owned connector profiles and auth isolation before generic install |
 | QA/release handoff | inactive | Add QA/release checklist when user-facing changes ship |
 
 ## Activation Requirements

@@ -33,7 +33,7 @@ Use this package to help a human install or scaffold the right harness for a rep
 8. Before scaffolding or installing, show the target path, expected file count, exact command, and whether existing files will be merged or overwritten. Wait for an explicit yes.
 9. Run the appropriate scaffold script.
 10. Run generated CLI help, ergonomics status, no-mistakes status for repositories, lavish status, preflight, and safe first checks.
-11. If connector setup is in scope, run the repo-local `connections plan` before requesting any generic plugin or MCP install.
+11. If connector setup or login is in scope, run the repo-local `connections plan` and `connections auth-plan --profile <profile-id>` before requesting any generic plugin, MCP install, or provider authentication.
 12. Report results and one useful next action.
 
 ## Scaffold Commands
@@ -94,7 +94,7 @@ cd "$HOME/Documents/Home Harness"
 - GitHub account and tool setup: `references/GITHUB-ACCOUNT-AND-TOOLS.md`
 - Personal folder stewardship: `references/PERSONAL-FOLDER-HARNESS.md`
 - Document taxonomy and lifecycle: `references/DOCUMENT-TAXONOMY-AND-LIFECYCLE.md`
-- External authority, permanent Google/Microsoft/email/document/database connections, and role boundaries: `references/EXTERNAL-AUTHORITY-AND-CONNECTIONS.md`
+- External authority, permanent Google/Microsoft/email/document/database connections, repo-scoped auth profiles, and role boundaries: `references/EXTERNAL-AUTHORITY-AND-CONNECTIONS.md`
 - Agent clients and skill installation: `references/AGENT-CLIENTS-AND-SKILL-INSTALL.md`
 - Automations, heartbeats, goals, loops, noninteractive runs, and scheduled tasks across agent clients: `references/AUTOMATIONS-AND-HEARTBEATS.md`
 - CLI extension and maintenance: `references/CLI-MAINTENANCE.md`

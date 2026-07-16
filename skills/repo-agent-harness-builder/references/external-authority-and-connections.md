@@ -29,6 +29,47 @@ For every connection, collect:
 
 Store this in `ops/connections.json` or an equivalent registry. Do not store credential values.
 
+## Repository-Scoped Auth Profiles
+
+When a provider CLI or connector has browser login, device-code login,
+copied-code login, named accounts, active projects, or mutable local sessions,
+make the repository profile explicit before authentication.
+
+Global CLI packages are acceptable. Global mutable auth state is not the
+default. Put profile selection inside the repository CLI facade or wrapper, and
+avoid exporting provider auth variables from shell startup files.
+
+Good profile-isolation patterns:
+
+- Google Cloud CLI: set a repository-specific `CLOUDSDK_CONFIG` for each
+  invocation.
+- Neon CLI: pass a repository-specific `--config-dir` for each invocation.
+- Other provider CLIs: use the documented config-root environment variable,
+  config-directory flag, or an explicit unsupported status when only one global
+  mutable session exists.
+
+Use dry-run-first commands before any real login:
+
+```bash
+./{{CLI_NAME}} connections auth-plan --profile <profile-id>
+./{{CLI_NAME}} connections env --profile <profile-id>
+```
+
+These commands must not start auth, open a browser, create credential
+directories, write provider config, or inspect token files. They may show
+value-safe metadata: repo id, provider, profile id, config-root strategy, env
+var or flag name, flow type names, expected account label presence, and identity
+check presence.
+
+Browser-flow rules:
+
+- A browser explicitly named by the user is binding when it supports the flow.
+- Do not silently fall back to another browser.
+- Never print auth URLs, callback state, device codes, copied codes, tokens,
+  cookies, or browser storage.
+- Verify completion with the originating process exit status and read-only
+  identity checks for the selected repository profile.
+
 ## Connector Discovery Pattern
 
 Before using a plugin search flow, connector marketplace, generic MCP installer,
@@ -38,6 +79,7 @@ or global client configuration, inspect the repo-owned connector registry first:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+./{{CLI_NAME}} connections auth-plan --profile <profile-id>
 ```
 
 Connector profiles may record provider names, server names, scope names,

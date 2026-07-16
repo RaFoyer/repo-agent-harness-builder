@@ -72,12 +72,25 @@ or global client configuration:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections doctor --profile <profile-id> --mode remote
+./{{CLI_NAME}} connections auth-plan --profile <profile-id>
 ```
 
 Use `connections doctor --account <email>` or `--email <email>` only when
 checking an expected account-domain boundary. Use `--credential-root <path>` only
 for local connector mode; the command should report path safety without printing
 the path.
+
+When provider CLI login or browser authentication is needed, keep mutable auth
+state repository-scoped by default. Global packages are fine; global active
+accounts and provider config roots are not the default. Use the repo CLI to
+render value-safe config-root guidance before login:
+
+```bash
+./{{CLI_NAME}} connections env --profile <profile-id>
+```
+
+Do not print authorization URLs, copied codes, device codes, callback state,
+tokens, cookies, browser storage, or local credential paths.
 
 Use a generic connector only when the repo-owned profile is missing,
 inaccessible, unsupported by the current client, or blocked by the linked work
