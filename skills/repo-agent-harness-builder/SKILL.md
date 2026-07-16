@@ -49,8 +49,8 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
-- `assets/templates/goal-chain/`: implementation goal-chain, goal-start prompt, and handoff templates.
-- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap/repo-operator skill templates and agent-client install guidance.
+- `assets/templates/goal-chain/`: implementation goal-chain/graph, orchestration ledger, orchestrator/subgoal prompts, goal-start prompt, and handoff templates.
+- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, and goal-chain-loop skill templates plus agent-client install guidance.
 
 Use placeholders consistently:
 

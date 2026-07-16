@@ -97,6 +97,7 @@ cd "$HOME/Documents/Home Harness"
 - External authority, permanent Google/Microsoft/email/document/database connections, repo-scoped auth profiles, and role boundaries: `references/EXTERNAL-AUTHORITY-AND-CONNECTIONS.md`
 - Agent clients and skill installation: `references/AGENT-CLIENTS-AND-SKILL-INSTALL.md`
 - Automations, heartbeats, goals, loops, noninteractive runs, and scheduled tasks across agent clients: `references/AUTOMATIONS-AND-HEARTBEATS.md`
+- Bundled implementation graph/orchestration skill: `skills/goal-chain-loop/SKILL.md`
 - CLI extension and maintenance: `references/CLI-MAINTENANCE.md`
 - Archive safety: `references/ARCHIVE-INSPECTION.md`
 - Secrets and privacy boundaries: `references/SECRETS-AND-PRIVACY.md`

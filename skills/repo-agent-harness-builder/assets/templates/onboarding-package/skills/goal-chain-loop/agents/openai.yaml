@@ -1,0 +1,4 @@
+interface:
+  display_name: "Goal Implementation Graph"
+  short_description: "Orchestrate parallel goal threads"
+  default_prompt: "Use $goal-chain-loop to turn these issues into an orchestrated implementation goal graph."

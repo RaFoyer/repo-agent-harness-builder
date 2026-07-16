@@ -20,6 +20,7 @@ This package is based on generalized patterns from mature repo-agent harnesses:
 - permanent connection registries that store metadata and credential references without storing secret values
 - baseline and optional module checklist patterns with active, inactive, and not-applicable states
 - recurring work patterns for heartbeats, scheduled checks, goals, hooks, and noninteractive command loops
+- goal-chain-loop skill patterns for implementation graphs, orchestration ledgers, subgoal threads, and PR/merge handoffs
 
 Public reference surfaces consulted:
 

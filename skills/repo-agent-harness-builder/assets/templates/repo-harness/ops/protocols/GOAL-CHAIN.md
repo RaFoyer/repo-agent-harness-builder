@@ -18,24 +18,25 @@ related_protocols:
 
 ## Purpose
 
-Run product and engineering work through ticket-backed goals that each start from the current integration branch, land one coherent unit of work, record evidence, merge, and queue the next goal from shared repository state.
+Run product and engineering work through ticket-backed goals that each start from the current integration branch, land one coherent unit of work, record evidence, merge, and queue dependent work from shared repository state.
 
 ## When To Use
 
-Use a goal chain when work depends on prior decisions or merged code, multiple tickets are safer as a sequence, and done means merged PR plus recorded local evidence. Do not use this protocol for one-off changes, exploratory work without durable tracker state, or projects without an integration branch and verification gates.
+Use a goal chain when work depends on prior decisions or merged code, multiple tickets are safer as a sequence, and done means merged PR plus recorded local evidence. Use a goal graph when some goals can safely run in parallel with disjoint write boundaries, stable dependency contracts, independent verification, and explicit fan-in order. Do not use this protocol for one-off changes, exploratory work without durable tracker state, or projects without an integration branch and verification gates.
 
 ## Source Of Truth
 
 The canonical tracker owns problem statements, scope, acceptance criteria, and issue/PR links. The repository goal-chain document owns sequencing and handoff rules. Suggested locations:
 
 - `docs/reference/implementation-goal-chain.md`
+- `docs/reference/implementation-goal-graph.md`
 - `docs/engineering/goal-chain.md`
 - `docs/reference/goal-chain.md`
 
 ## Required Sequence
 
 1. Confirm the canonical tracker, integration branch, and verification commands.
-2. Cluster related tickets only when they share a system boundary or acceptance evidence.
+2. Build a dependency graph before creating a linear queue. Cluster related tickets only when they share a system boundary or acceptance evidence.
 3. Start each goal from the current integration branch, not an old feature branch.
 4. If decisions were made in a Lavish artifact, capture them in the tracker with `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` before implementation starts. Add `--decisions <file>` when decisions are recorded separately.
 5. Create one ticket-backed branch for the goal.
@@ -46,7 +47,18 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 10. When no-mistakes is initialized for the repository, run the PR gate before merge.
 11. Merge the PR into the integration branch.
 12. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
-13. Start the next goal only after the merge or squash integration commit is visible from the integration branch unless the goal chain explicitly allows parallel work.
+13. Start dependent work only after prerequisite merge or squash integration commits are visible from the integration branch unless the goal chain or graph explicitly allows speculative work.
+
+## Graph And Orchestration Templates
+
+Use the bundled goal-chain assets when a task needs orchestration beyond a simple sequential chain:
+
+- `docs/templates/goal-chain/implementation-goal-graph.md`: durable graph shape with dependencies and fan-in.
+- `docs/templates/goal-chain/orchestration-ledger-template.md`: node, thread, base, model/effort, PR, merge, and verification ledger.
+- `docs/templates/goal-chain/orchestrator-thread-prompt.txt`: starter prompt for the orchestration thread.
+- `docs/templates/goal-chain/subgoal-thread-prompt.txt`: starter prompt for one graph node.
+
+The portable onboarding package also includes `skills/goal-chain-loop/SKILL.md` for graph creation, subgoal orchestration, and fan-out/fan-in planning.
 
 ## Guardrails
 
@@ -81,6 +93,7 @@ A goal is complete only when:
 - linked issue/PR evidence exists
 - local verification evidence is recorded
 - residual risks are named or explicitly absent
+- dependent nodes are unlocked, blocked, or superseded from current integration branch state
 - next goal is queued from the current integration branch as `Goal N: Title` or an issue link, or the goal is explicitly marked as final with `Next goal: none`
 
 ## Update Rules

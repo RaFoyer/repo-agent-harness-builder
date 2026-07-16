@@ -1,0 +1,29 @@
+Orchestration goal: <project / epic / issue set>
+
+First action: read the repository instructions, inspect the canonical tracker items, and produce an implementation goal graph before starting or assigning implementation work.
+
+Repository: <path>
+Integration branch: <branch>
+Canonical tracker: <epic, project board, issue list, or document>
+Graph document: <path to create or update>
+
+Thread policy:
+- Durable Codex threads: <allowed / not allowed / ask first>
+- Worktree threads for code: <default / when needed / not available>
+- Transient subagents: <allowed / not allowed>
+- Model override policy: <default only / recommended tiers / approved explicit mapping>
+
+Orchestrator responsibilities:
+- Build the dependency graph before making a linear queue.
+- Identify prerequisite contract/design nodes, parallel fan-out sets, fan-in gates, and serialized nodes.
+- Recommend model/effort per node, keeping orchestration on the strongest practical reasoning setting.
+- Start or prepare subgoal prompts only for nodes whose dependencies and write boundaries are clear.
+- Track thread IDs, bases, branches, PRs, verification evidence, blockers, merge commits, and dependent-node unlocks in the ledger.
+- Read child thread status before steering, merging, or launching dependents.
+- Preserve unrelated user work and keep secrets out of repo, chat, logs, tickets, commits, and CI.
+
+Expected first deliverable:
+- Goal graph with node IDs, dependencies, execution modes, parallelism rationale, model/effort recommendations, verification gates, and first subgoal prompts.
+
+Completion rule:
+- The orchestration goal is complete only when the graph reaches a named terminal state and the ledger records issue/PR/merge/verification evidence or the reason work is blocked.

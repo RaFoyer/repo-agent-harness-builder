@@ -65,7 +65,7 @@ Scaffold as inactive when plausible:
 - secrets handling
 - Drive/email/SharePoint/document/database connections
 - automations and heartbeats
-- goal-chain workflows
+- goal-chain workflows, including bundled `skills/goal-chain-loop/SKILL.md` for graph orchestration
 - project tracker
 - no-mistakes setup, if the repository cannot use the default generated flow
 - CI, branch promotion, deploy readiness

@@ -129,6 +129,9 @@ state. Useful read-only commands are `./<cli> goals status`,
 The start-prompt command should stay bounded by default and expose `--full` only
 when the complete objective is needed.
 
+For dependency graphs, parallel subgoal threads, orchestration ledgers, or
+fan-out/fan-in planning, use the bundled `skills/goal-chain-loop/SKILL.md`.
+
 If loops become an active module, add deterministic local commands such as
 `./<cli> loops list`, `./<cli> loops validate`, and
 `./<cli> loops run --dry-run <id>`. Do not activate loop commands until they

@@ -157,6 +157,9 @@ Loop commands must be covered by tests before the checklist can mark the module
 
 Scaffold `goals` as a read-only helper when the harness includes
 `GOAL-CHAIN.md`, even while the goal-chain workflow itself remains inactive.
+For graph orchestration, pair the read-only CLI with the bundled
+`goal-chain-loop` skill and the goal-chain assets under
+`assets/templates/goal-chain/`.
 Minimum behavior:
 
 - `goals status`: show configured goals from the goal-chain document, or report

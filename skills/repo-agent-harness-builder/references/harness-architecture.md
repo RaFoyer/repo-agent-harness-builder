@@ -27,6 +27,9 @@ A repo-agent harness gives future agents a reliable operating environment inside
 - Protocols have stable IDs, review dates, related protocols, and verification sections.
 - The CLI has a content-first no-args home view, structured usage errors, and `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, optional `lavish`, and `precommit` before domain-specific commands.
 - Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `CONNECTOR-AUTH-PROFILES.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
+- Repos with ticket-backed implementation graphs can carry `GOAL-CHAIN.md`,
+  the read-only `goals` CLI, and bundled `goal-chain-loop` skill templates for
+  orchestrator/subgoal handoffs.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.
 

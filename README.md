@@ -24,6 +24,7 @@ The durable contract lives in ordinary files in the target repo or folder:
 - value-safe secrets, external-authority, and connector boundaries
 - repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
+- bundled goal-chain-loop skill templates for implementation graphs and subgoal orchestration
 - portable onboarding material for nontechnical recipients
 
 Codex, Claude Code, Gemini CLI, Kimi, Cursor, and future coding agents are
@@ -164,6 +165,8 @@ The skill can help with:
   optional local agent pinning, skill/self checks, and goal-chain helpers
 - loops, goal chains, and recurring work definitions with bounded verification
   and stop rules
+- bundled goal-chain-loop skill assets for orchestration threads, subgoal
+  prompts, ledgers, graph templates, and handoff records
 
 ## Build The Portable Package
 
