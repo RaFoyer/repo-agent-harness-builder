@@ -261,9 +261,14 @@ function taskBindingBlockers(registry, node, parent) {
   else if (binding.workContractHash !== workContractHash) blockers.push(`${label}: taskBinding.workContractHash must match the immutable materialized work contract`);
   if (binding.nodeId !== node.id) blockers.push(`${label}: taskBinding.nodeId must match node identity`);
   if (binding.taskId !== node.taskId) blockers.push(`${label}: taskBinding.taskId must match taskId`);
-  if ((binding.parentNodeId ?? null) !== (node.parentId ?? null)) blockers.push(`${label}: taskBinding.parentNodeId must match immutable parent node identity`);
-  if ((binding.parentTaskId ?? null) !== (node.role === "boss" ? null : node.parentTaskId ?? null)) {
-    blockers.push(`${label}: taskBinding.parentTaskId must match immutable parent task identity`);
+  if (node.role === "boss") {
+    if ((binding.parentNodeId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentNodeId must be null`);
+    if ((binding.parentTaskId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentTaskId must be null`);
+  } else {
+    if ((binding.parentNodeId ?? null) !== (node.parentId ?? null)) blockers.push(`${label}: taskBinding.parentNodeId must match immutable parent node identity`);
+    if ((binding.parentTaskId ?? null) !== (node.parentTaskId ?? null)) {
+      blockers.push(`${label}: taskBinding.parentTaskId must match immutable parent task identity`);
+    }
   }
   if (!Number.isSafeInteger(binding.boundRevision) || binding.boundRevision < 0 || binding.boundRevision > registry.revision) {
     blockers.push(`${label}: taskBinding.boundRevision must be a registry revision at or before the current revision`);
@@ -515,6 +520,9 @@ function validateRegistry(registry) {
     if (!Array.isArray(node.dependencies) || !node.dependencies.every(isNonEmptyString)) blockers.push(`${label}: dependencies must be an array of node ids`);
     const parent = node.parentId ? nodesById.get(node.parentId) : null;
     if (node.role === "boss" && node.parentId !== null) blockers.push(`${label}: Boss parentId must be null`);
+    if (node.role === "boss" && node.parentTaskId !== undefined && node.parentTaskId !== null) {
+      blockers.push(`${label}: Boss parentTaskId must be null`);
+    }
     if (node.role !== "boss" && !isNonEmptyString(node.parentId)) blockers.push(`${label}: non-Boss nodes require parentId`);
     if (node.role !== "boss" && isNonEmptyString(node.parentId) && !parent) blockers.push(`${label}: parent ${node.parentId} does not exist`);
     if (node.role === "manager" && parent?.role !== "boss") blockers.push(`${label}: Manager parent must be the Boss`);

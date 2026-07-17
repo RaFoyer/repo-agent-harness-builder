@@ -45,7 +45,7 @@ Every node should declare:
 - trust level and promotion evidence when above the default
 - authority envelope
 - completion profile and required evidence
-- task ID only after the client materializes the graph node as a task, plus immutable `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and an immutable `parentTaskId` for every task-backed non-Boss node
+- task ID only after the client materializes the graph node as a task, plus immutable `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and an immutable `parentTaskId` for every task-backed non-Boss node; Boss nodes have no bound `parentTaskId` and null binding parent metadata
 
 Queued and eligible nodes are graph state, not fake tasks. Working, waiting, blocked, ready-for-parent, and terminal nodes are task-backed. Terminal nodes record a disposition and every exact evidence identifier required by their completion profile.
 

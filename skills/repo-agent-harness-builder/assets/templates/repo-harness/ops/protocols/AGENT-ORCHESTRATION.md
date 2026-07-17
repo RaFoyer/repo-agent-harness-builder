@@ -84,7 +84,7 @@ Worker:
 - `<PREFIX> - Worker for Manager <PARENT-WORK-REF> - <WORK-REF> <bounded responsibility>`
 - `<PREFIX> - Worker for Worker <PARENT-WORK-REF> - <WORK-REF> <bounded responsibility>`
 
-Every task-backed node records immutable `taskBinding` metadata in `ops/orchestration.json`: its contract-derived `launchKey`, canonical `workContractHash`, node and task IDs, original parent node and task IDs, and bind revision/time. Every task-backed non-Boss node also records `parentTaskId`; it must equal its immediate parent's current task ID and its binding's original parent task ID. Titles make the hierarchy visible; binding metadata makes the external contract and parentage durable. Do not replace a parent task while any bound child remains unreconciled, and supersede/replan rather than mutating a bound contract in place.
+Every task-backed node records immutable `taskBinding` metadata in `ops/orchestration.json`: its contract-derived `launchKey`, canonical `workContractHash`, node and task IDs, original parent node and task IDs, and bind revision/time. Every task-backed non-Boss node also records `parentTaskId`; it must equal its immediate parent's current task ID and its binding's original parent task ID. A Boss has no bound `parentTaskId`, and its binding's `parentNodeId` and `parentTaskId` are both `null`. Titles make the hierarchy visible; binding metadata makes the external contract and parentage durable. Do not replace a parent task while any bound child remains unreconciled, and supersede/replan rather than mutating a bound contract in place.
 
 ## Trust Ladder
 

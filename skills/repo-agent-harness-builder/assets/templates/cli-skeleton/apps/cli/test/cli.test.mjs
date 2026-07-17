@@ -2497,6 +2497,35 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   assert.match(missing.out.join("\n"), /node boss: task-backed node requires immutable taskBinding metadata/);
 });
 
+fixtureTest("orchestration rejects Boss parent-task metadata in working and terminal states", async () => {
+  for (const state of ["working", "terminal"]) {
+    const registry = validOrchestrationRegistry();
+    const boss = registry.nodes.find((node) => node.id === "boss");
+    boss.state = state;
+    if (state === "terminal") {
+      boss.terminalDisposition = "completed";
+      boss.completionEvidence = ["Boss completion evidence"];
+    }
+    boss.parentTaskId = "task-unrelated-parent";
+    writeOrchestrationRegistry(registry);
+
+    const parentTask = capture();
+    assert.equal(await main(["orchestration", "validate"], parentTask.io), 1, state);
+    assert.match(parentTask.out.join("\n"), /node boss: Boss parentTaskId must be null/);
+  }
+
+  for (const field of ["parentNodeId", "parentTaskId"]) {
+    const registry = validOrchestrationRegistry();
+    const boss = registry.nodes.find((node) => node.id === "boss");
+    boss.taskBinding[field] = "task-unrelated-parent";
+    writeOrchestrationRegistry(registry);
+
+    const binding = capture();
+    assert.equal(await main(["orchestration", "validate"], binding.io), 1, field);
+    assert.match(binding.out.join("\n"), new RegExp(`node boss: Boss taskBinding\\.${field} must be null`));
+  }
+});
+
 fixtureTest("orchestration requires current parent scope inheritance and immutable parent task identity", async () => {
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
