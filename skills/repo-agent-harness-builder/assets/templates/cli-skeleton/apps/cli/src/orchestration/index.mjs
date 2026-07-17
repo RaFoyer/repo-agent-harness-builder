@@ -173,7 +173,9 @@ function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, r
       id: node.id,
       state: node.state,
       taskId: node.taskId,
-      launchReservationKey: reservation.key
+      launchReservationKey: reservation.key,
+      trustLevel: node.trustLevel,
+      authority: node.authority
     },
     expectedParent: parentSnapshot(parent),
     capacity: reservationCapacity(nodes, parent, maxActiveNodes)
@@ -932,7 +934,9 @@ function runLaunchSpec(nodeId, io) {
             id: node.id,
             state: node.state,
             taskId: null,
-            launchReservationKey: launchKey
+            launchReservationKey: launchKey,
+            trustLevel: node.trustLevel,
+            authority: node.authority
           },
           ...(parent ? {
             parentId: parent.id,

@@ -184,7 +184,7 @@ branches, pull requests, or software delivery. Minimum behavior:
   and full authority envelope including approval gates, and capacity
   preconditions. An adapter must atomically reserve the node and advance the
   revision before task creation, then compare the complete reserved-state
-  contract immediately before the external call and again when binding the
+  contract—including target and parent trust plus full authority envelopes—immediately before the external call and again when binding the
   returned task ID. A stale or duplicate reservation must fail before side
   effects. The launch key is the durable task-API idempotency and reconciliation
   key: after an ambiguous create, crash, timeout, or bind failure, keep the

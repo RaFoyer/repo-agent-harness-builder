@@ -108,7 +108,9 @@ function selfConsistentReservationValidity(registry, node, parent) {
       id: node.id,
       state: node.state,
       taskId: node.taskId,
-      launchReservationKey: node.launchReservation.key
+      launchReservationKey: node.launchReservation.key,
+      trustLevel: node.trustLevel,
+      authority: node.authority
     },
     expectedParent: parent ? {
       id: parent.id,
@@ -2176,8 +2178,11 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   assert.equal(validity.expectedRegistryRevision, registry.revision);
   assert.equal(validity.expectedRegistryStatus, "active");
   assert.equal(validity.expectedNode.launchReservationKey, refreshedSpec.reservation.launchKey);
+  assert.equal(validity.expectedNode.trustLevel, "T1");
+  assert.deepEqual(validity.expectedNode.authority, manager.authority);
   assert.equal(validity.expectedParent.trustLevel, "T3");
   assert.equal(validity.expectedParent.authority.canDelegate, true);
+  assert.deepEqual(refreshedSpec.callback.preCreate.expectedNode, validity.expectedNode);
   assert.deepEqual(refreshedSpec.callback.preCreate.expectedParent, validity.expectedParent);
   assert.deepEqual(refreshedSpec.callback.bind.capacity, validity.capacity);
   assert.equal(refreshedSpec.externalTask.idempotencyKey, refreshedSpec.reservation.launchKey);
@@ -2258,6 +2263,7 @@ fixtureTest("orchestration reservation protocol requires durable launch-key reco
   assert.match(protocol, /On a timeout, crash, ambiguous response, or failed bind, retain the reservation/);
   assert.match(protocol, /do not clear or retry creation until absence is proven/);
   assert.match(protocol, /unrelated valid registry mutation advanced the revision before bind/);
+  assert.match(protocol, /target task-identity\/trust\/entire authority envelope including approval gates/);
   assert.match(protocol, /reconciliation never creates a second task/);
 });
 
@@ -2283,6 +2289,8 @@ fixtureTest("orchestration reconciles an existing task after an unrelated revisi
   assert.equal(registry.revision, 2);
   assert.equal(spec.callback.reconcile.readLatestRegistryRevision, true);
   assert.equal(spec.callback.reconcile.requiredCurrentEligibility.completedDependencies, true);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.node.trustLevel, "T1");
+  assert.deepEqual(spec.callback.reconcile.requiredCurrentEligibility.node.authority, manager.authority);
   assert.equal(spec.callback.reconcile.requiredCurrentEligibility.parentDelegationAuthorityRequired, true);
   assert.equal(spec.callback.reconcile.requiredCurrentEligibility.capacityRequired, true);
   assert.equal(spec.callback.reconcile.externalTask.requireExistingTask, true);
@@ -2295,6 +2303,9 @@ fixtureTest("orchestration invalidates reservations after status, authority, cap
     ["status", (registry) => { registry.status = "inactive"; }],
     ["trust", (registry) => { registry.nodes.find((node) => node.id === "boss").trustLevel = "T4"; }],
     ["approval gates", (registry) => { registry.nodes.find((node) => node.id === "boss").authority.approvalGates.push("human-review"); }],
+    ["target trust", (registry) => { registry.nodes.find((node) => node.id === "manager-docs").trustLevel = "T0"; }],
+    ["target authority", (registry) => { registry.nodes.find((node) => node.id === "manager-docs").authority.allowedReads = []; }],
+    ["target approval gates", (registry) => { registry.nodes.find((node) => node.id === "manager-docs").authority.approvalGates.push("human-review"); }],
     ["capacity", (registry) => { registry.trustPolicy.limits.maxActiveNodes = 5; }],
     ["task identity", (registry) => { registry.nodes.find((node) => node.id === "boss").taskId = "task-boss-replaced"; }]
   ]) {
