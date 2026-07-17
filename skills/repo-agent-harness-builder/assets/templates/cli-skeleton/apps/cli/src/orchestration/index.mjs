@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
@@ -26,6 +26,9 @@ const COMPLETION_TYPES = new Set(["repository-merge", "artifact", "external-oper
 const SCOPE_KINDS = new Set(["repository", "project", "program", "personal-folder", "custom"]);
 const CORE_GOVERNING_PROTOCOL = "AGENT-ORCHESTRATION";
 const AUTHORITY_ARRAY_FIELDS = ["allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "stopConditions"];
+const BINDING_ATTESTATION_ALGORITHM = "ed25519";
+const BINDING_PUBLIC_KEY_ENV = "ORCHESTRATION_BINDING_PUBLIC_KEY";
+const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
 
 function registryPath() {
   return path.join(CONFIG.repoRoot, REGISTRY_REL_PATH);
@@ -161,6 +164,84 @@ function canonicalAuthority(authority) {
   };
 }
 
+function bindingAttestationConfigError(registry) {
+  const config = registry.bindingAttestation;
+  if (!isObject(config)
+    || config.algorithm !== BINDING_ATTESTATION_ALGORITHM
+    || !isNonEmptyString(config.keyId)) {
+    return "bindingAttestation must declare algorithm ed25519 and a non-empty keyId";
+  }
+  if (process.env[BINDING_KEY_ID_ENV] !== config.keyId) {
+    return `bindingAttestation.keyId must match ${BINDING_KEY_ID_ENV}`;
+  }
+  const encodedKey = process.env[BINDING_PUBLIC_KEY_ENV];
+  if (!isNonEmptyString(encodedKey)) return `${BINDING_PUBLIC_KEY_ENV} must contain the trusted Ed25519 SPKI public key`;
+  try {
+    const key = createPublicKey({ key: Buffer.from(encodedKey, "base64"), format: "der", type: "spki" });
+    if (key.asymmetricKeyType !== BINDING_ATTESTATION_ALGORITHM) {
+      return `${BINDING_PUBLIC_KEY_ENV} must contain an Ed25519 SPKI public key`;
+    }
+  } catch {
+    return `${BINDING_PUBLIC_KEY_ENV} must contain a valid base64 Ed25519 SPKI public key`;
+  }
+  return "";
+}
+
+function bindingAttestationPayload(registry, binding) {
+  return JSON.stringify(canonicalize({
+    schemaVersion: registry.schemaVersion,
+    scopeId: registry.scope?.id,
+    binding: {
+      launchKey: binding.launchKey,
+      workContractHash: binding.workContractHash,
+      nodeId: binding.nodeId,
+      taskId: binding.taskId,
+      parentNodeId: binding.parentNodeId ?? null,
+      parentTaskId: binding.parentTaskId ?? null,
+      boundRevision: binding.boundRevision,
+      boundAt: binding.boundAt,
+      attestation: {
+        algorithm: binding.attestation?.algorithm,
+        keyId: binding.attestation?.keyId
+      }
+    }
+  }));
+}
+
+export function taskBindingAttestationPayload(registry, binding) {
+  return bindingAttestationPayload(registry, binding);
+}
+
+function taskBindingAttestationBlockers(registry, node, binding) {
+  const blockers = [];
+  const label = `node ${node.id || "<missing-id>"}`;
+  const configError = bindingAttestationConfigError(registry);
+  if (configError) {
+    blockers.push(`${label}: trusted binding attestor is unavailable: ${configError}`);
+    return blockers;
+  }
+  if (!isObject(binding.attestation)
+    || binding.attestation.algorithm !== BINDING_ATTESTATION_ALGORITHM
+    || binding.attestation.keyId !== registry.bindingAttestation.keyId
+    || !isNonEmptyString(binding.attestation.signature)) {
+    blockers.push(`${label}: taskBinding.attestation must contain an Ed25519 signature from the configured binding attestor`);
+    return blockers;
+  }
+  try {
+    const key = createPublicKey({ key: Buffer.from(process.env[BINDING_PUBLIC_KEY_ENV], "base64"), format: "der", type: "spki" });
+    const valid = verifySignature(
+      null,
+      Buffer.from(bindingAttestationPayload(registry, binding)),
+      key,
+      Buffer.from(binding.attestation.signature, "base64")
+    );
+    if (!valid) blockers.push(`${label}: taskBinding.attestation signature does not match the trusted immutable binding record`);
+  } catch {
+    blockers.push(`${label}: taskBinding.attestation signature is invalid`);
+  }
+  return blockers;
+}
+
 function materializedWorkContract(registry, node, parent) {
   return canonicalize({
     scope: registry.scope,
@@ -274,10 +355,11 @@ function taskBindingBlockers(registry, node, parent) {
     blockers.push(`${label}: taskBinding.boundRevision must be a registry revision at or before the current revision`);
   }
   if (!isUtcRfc3339Timestamp(binding.boundAt)) blockers.push(`${label}: taskBinding.boundAt must be a UTC RFC3339 timestamp`);
+  blockers.push(...taskBindingAttestationBlockers(registry, node, binding));
   return blockers;
 }
 
-function taskBindingUpdate({ launchKey, workContractHash, node, parent, boundRevision }) {
+function taskBindingUpdate({ registry, launchKey, workContractHash, node, parent, boundRevision }) {
   return {
     launchKey,
     workContractHash,
@@ -286,7 +368,12 @@ function taskBindingUpdate({ launchKey, workContractHash, node, parent, boundRev
     parentNodeId: node.parentId ?? null,
     parentTaskId: parent?.taskId ?? null,
     boundRevision,
-    boundAt: "UTC RFC3339 timestamp of the atomic bind"
+    boundAt: "UTC RFC3339 timestamp of the atomic bind",
+    attestation: {
+      algorithm: BINDING_ATTESTATION_ALGORITHM,
+      keyId: registry.bindingAttestation?.keyId || "configured binding attestor key ID",
+      signature: "base64 Ed25519 signature from the trusted external binding attestor"
+    }
   };
 }
 
@@ -358,6 +445,10 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   if (mode === "reservation" && !hasReservation) {
     block("reservation", "launch eligibility requires a pending launch reservation");
   }
+  const attestorError = bindingAttestationConfigError(registry);
+  if (attestorError) {
+    block("binding-attestation", `launch eligibility requires a trusted binding attestor: ${attestorError}`);
+  }
 
   if (node.role !== "boss") {
     if (!isTaskBackedNode(parent)) {
@@ -411,6 +502,8 @@ function launchSpecFailure(node, parent, blocker) {
       return `Node ${node.id} cannot launch because parent ${parent?.id || node.parentId} has exhausted its active-child budget.`;
     case "project-capacity":
       return `Node ${node.id} cannot launch because the project active-node budget is exhausted.`;
+    case "binding-attestation":
+      return `Node ${node.id} cannot launch without a trusted external binding attestor.`;
     default:
       return blocker.message;
   }
@@ -471,6 +564,13 @@ function validateRegistry(registry) {
   if (!SCOPE_KINDS.has(registry.scope?.kind)) blockers.push("scope.kind must be repository, project, program, personal-folder, or custom");
   if (!isNonEmptyString(registry.scope?.rootRef)) blockers.push("scope.rootRef must be a non-empty single-line reference");
   if (!isNonEmptyString(registry.scope?.objective)) blockers.push("scope.objective must be a non-empty single-line string");
+  if (registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) {
+    if (!isObject(registry.bindingAttestation)
+      || registry.bindingAttestation.algorithm !== BINDING_ATTESTATION_ALGORITHM
+      || !isNonEmptyString(registry.bindingAttestation.keyId)) {
+      blockers.push("bindingAttestation must declare algorithm ed25519 and a non-empty keyId when configured");
+    }
+  }
   if (!isObject(registry.trustPolicy)) blockers.push("trustPolicy is required");
   const defaultLevel = registry.trustPolicy?.defaultLevel;
   const maxLevel = registry.trustPolicy?.maxLevel;
@@ -837,30 +937,8 @@ function roleResponsibilities(role) {
   ];
 }
 
-function syntheticBoss(registry) {
-  return {
-    id: "boss",
-    role: "boss",
-    workRef: "portfolio",
-    workKind: "governance",
-    governingProtocols: [CORE_GOVERNING_PROTOCOL],
-    label: "Project control plane",
-    title: `${registry.prefix} - Boss`,
-    taskId: null,
-    parentId: null,
-    state: "eligible",
-    trustLevel: registry.trustPolicy.defaultLevel,
-    authority: { allowedReads: ["project"], allowedWrites: [], allowedExternalActions: [], approvalGates: ["activation"], canDelegate: false, maxActiveChildren: 0, stopConditions: ["authority-gap"] },
-    objective: "Establish the project control plane before activating child work.",
-    dependencies: []
-  };
-}
-
 function resolvePromptNode(nodeId, loaded, findings) {
-  const configured = findings.nodesById.get(nodeId);
-  if (configured) return configured;
-  if (nodeId.toLowerCase() === "boss" && loaded.registry.status === "inactive" && findings.nodes.length === 0) return syntheticBoss(loaded.registry);
-  return null;
+  return findings.nodesById.get(nodeId) || null;
 }
 
 function buildPromptLines(node, parent) {
@@ -1015,6 +1093,7 @@ function runLaunchSpec(nodeId, io) {
     authority: canonicalAuthority(node.authority),
     workContract: { algorithm: "sha256", hash: workContractHash },
     taskBinding: taskBindingUpdate({
+      registry: loaded.registry,
       launchKey,
       workContractHash,
       node,
@@ -1055,12 +1134,13 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
-          "taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
+          "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
           "nextAction",
           "clear launchReservation"
         ],
         taskBinding: taskBindingUpdate({
+          registry: loaded.registry,
           launchKey,
           workContractHash,
           node,
@@ -1118,7 +1198,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId from reconciled external task",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
-          "taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
+          "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
           "nextAction",
           "clear launchReservation"
@@ -1126,6 +1206,7 @@ function runLaunchSpec(nodeId, io) {
         mustAdvanceRegistryRevision: true,
         onFailure: "Keep the reservation quarantined for explicit cancel or replan; do not create another task.",
         taskBinding: taskBindingUpdate({
+          registry: loaded.registry,
           launchKey,
           workContractHash,
           node,

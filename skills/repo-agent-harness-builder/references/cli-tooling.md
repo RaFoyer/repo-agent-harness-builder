@@ -189,8 +189,9 @@ branches, pull requests, or software delivery. Minimum behavior:
   effects. The launch key is the durable task-API idempotency and reconciliation
   key: after an ambiguous create, crash, timeout, or bind failure, keep the
   reservation and reconcile by that key rather than creating again. Its callback
-  distinguishes inserting a bootstrapped Boss from updating a configured node,
-  and activates the registry in every Boss bootstrap reservation.
+  requires a configured Boss rather than inserting a placeholder, requires an
+  externally attested immutable task binding, and activates the registry in
+  every Boss bootstrap reservation.
 
 All commands are read-only. A Codex, Claude Code, Gemini CLI, Cursor, or other
 adapter may use a launch spec only when current authority allows task creation,

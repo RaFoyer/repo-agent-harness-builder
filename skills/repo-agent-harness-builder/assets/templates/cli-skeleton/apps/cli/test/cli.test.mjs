@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { generateKeyPairSync, sign as signPayload } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
-import { materializedWorkContractHash } from "../src/orchestration/index.mjs";
+import { materializedWorkContractHash, taskBindingAttestationPayload } from "../src/orchestration/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -18,6 +19,9 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const sourceRoot = path.resolve(testDir, "../../..");
 let repoRoot = sourceRoot;
 let fixtureMergeCounter = 0;
+const bindingAttestor = generateKeyPairSync("ed25519");
+const BINDING_ATTESTOR_KEY_ID = "fixture-binding-attestor";
+const BINDING_ATTESTOR_PUBLIC_KEY = bindingAttestor.publicKey.export({ type: "spki", format: "der" }).toString("base64");
 
 function copyFixture(source, destination) {
   fs.cpSync(source, destination, {
@@ -34,8 +38,12 @@ async function withFixture(fn, options = {}) {
   copyFixture(sourceRoot, fixtureRoot);
   const previousRoot = repoRoot;
   const previousEnv = process.env.NODE_ENV;
+  const previousBindingKey = process.env.ORCHESTRATION_BINDING_PUBLIC_KEY;
+  const previousBindingKeyId = process.env.ORCHESTRATION_BINDING_KEY_ID;
   repoRoot = fixtureRoot;
   process.env.NODE_ENV = "test";
+  process.env.ORCHESTRATION_BINDING_PUBLIC_KEY = BINDING_ATTESTOR_PUBLIC_KEY;
+  process.env.ORCHESTRATION_BINDING_KEY_ID = BINDING_ATTESTOR_KEY_ID;
   setRepoRootForTests(fixtureRoot);
   try {
     if (options.git !== false) {
@@ -48,6 +56,10 @@ async function withFixture(fn, options = {}) {
     setRepoRootForTests(previousRoot);
     if (previousEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousEnv;
+    if (previousBindingKey === undefined) delete process.env.ORCHESTRATION_BINDING_PUBLIC_KEY;
+    else process.env.ORCHESTRATION_BINDING_PUBLIC_KEY = previousBindingKey;
+    if (previousBindingKeyId === undefined) delete process.env.ORCHESTRATION_BINDING_KEY_ID;
+    else process.env.ORCHESTRATION_BINDING_KEY_ID = previousBindingKeyId;
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
@@ -110,7 +122,7 @@ function canonicalAuthorityForTest(authority) {
 function taskBindingForTest(registry, node, { boundRevision = registry.revision, boundAt = "2026-07-16T12:00:00Z" } = {}) {
   const parent = node.parentId ? registry.nodes.find((candidate) => candidate.id === node.parentId) : null;
   const workContractHash = materializedWorkContractHash(registry, node, parent);
-  return {
+  const binding = {
     launchKey: `orchestration:${registry.scope.id}:${node.id}:${workContractHash}`,
     workContractHash,
     nodeId: node.id,
@@ -118,7 +130,18 @@ function taskBindingForTest(registry, node, { boundRevision = registry.revision,
     parentNodeId: node.parentId,
     parentTaskId: parent?.taskId || null,
     boundRevision,
-    boundAt
+    boundAt,
+    attestation: {
+      algorithm: "ed25519",
+      keyId: BINDING_ATTESTOR_KEY_ID
+    }
+  };
+  return {
+    ...binding,
+    attestation: {
+      ...binding.attestation,
+      signature: signPayload(null, Buffer.from(taskBindingAttestationPayload(registry, binding)), bindingAttestor.privateKey).toString("base64")
+    }
   };
 }
 
@@ -173,6 +196,10 @@ function validOrchestrationRegistry() {
       kind: "project",
       rootRef: "repository-root",
       objective: "Refresh project knowledge and record a research decision."
+    },
+    bindingAttestation: {
+      algorithm: "ed25519",
+      keyId: BINDING_ATTESTOR_KEY_ID
     },
     trustPolicy: {
       defaultLevel: "T1",
@@ -1545,7 +1572,7 @@ fixtureTest("no-mistakes setup keeps post-check false for non-git success output
   assert.match(text, /post_check: fail/);
 });
 
-fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss launch contract", async () => {
+fixtureTest("orchestration inactive scaffold requires an explicitly configured Boss before bootstrap", async () => {
   const validation = capture();
   const validationCode = await main(["orchestration", "validate"], validation.io);
   assert.equal(validationCode, 0, validation.err.join("\n"));
@@ -1559,74 +1586,15 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   assert.match(trust.out.join("\n"), /T5.*Govern/);
   assert.match(trust.out.join("\n"), /role never grants authority/i);
 
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "boss"], prompt.io);
+  assert.equal(promptCode, 1);
+  assert.match(prompt.err.join("\n"), /Orchestration node not found: boss/);
+
   const launch = capture();
   const launchCode = await main(["orchestration", "launch-spec", "boss"], launch.io);
-  assert.equal(launchCode, 0, launch.err.join("\n"));
-  const spec = JSON.parse(launch.out.join("\n"));
-  assert.equal(spec.schemaVersion, 2);
-  assert.equal(spec.operation, "create-task");
-  assert.equal(spec.role, "boss");
-  assert.equal(spec.parentTaskId, null);
-  assert.deepEqual(spec.authority.allowedWrites, []);
-  assert.equal(spec.callback.mode, "insert-node");
-  assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "status=active", "taskId", "taskBinding", "state=working", "nextAction"]);
-  assert.equal(spec.reservation.expectedRegistryRevision, 0);
-  assert.match(spec.reservation.launchKey, /^orchestration:project:boss:[a-f0-9]{64}$/);
-  assert.equal(spec.callback.reserve.onSuccess.registryRevision, 1);
-  assert.equal(spec.callback.reserve.onSuccess.status, "active");
-  assert.equal(spec.callback.reserve.onSuccess.launchReservation.key, spec.reservation.launchKey);
-  assert.equal(spec.callback.reserve.onSuccess.launchReservation.baseRevision, 0);
-  assert.equal(spec.callback.bind.requiredReservationKey, spec.reservation.launchKey);
-  assert.equal(spec.workContract.algorithm, "sha256");
-  assert.match(spec.workContract.hash, /^[a-f0-9]{64}$/);
-  assert.equal(spec.externalTask.idempotencyKey, spec.reservation.launchKey);
-  assert.equal(spec.externalTask.reconciliationKey, spec.reservation.launchKey);
-  assert.match(spec.externalTask.indeterminateCreateBehavior, /Keep the reservation and reconcile/);
-  assert.equal(spec.callback.preCreate.requiredReservationKey, spec.reservation.launchKey);
-  assert.equal(spec.callback.preCreate.expectedRegistryRevision, 1);
-  assert.equal(spec.callback.preCreate.expectedRegistryStatus, "active");
-  assert.deepEqual(spec.callback.bind.expectedNode, spec.callback.preCreate.expectedNode);
-  assert.deepEqual(spec.callback.bind.capacity, spec.callback.preCreate.capacity);
-  assert.deepEqual(Object.keys(spec.callback.registryNode).sort(), [
-    "authority",
-    "dependencies",
-    "governingProtocols",
-    "id",
-    "label",
-    "objective",
-    "parentId",
-    "role",
-    "state",
-    "taskId",
-    "title",
-    "trustLevel",
-    "workKind",
-    "workRef"
-  ]);
-  assert.equal(spec.callback.registryNode.state, "eligible");
-  assert.equal(spec.callback.registryNode.taskId, null);
-  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
-  registry.nodes.push({
-    ...spec.callback.registryNode,
-    launchReservation: spec.callback.reserve.onSuccess.launchReservation
-  });
-  registry.status = "active";
-  registry.revision = spec.callback.reserve.onSuccess.registryRevision;
-  writeOrchestrationRegistry(registry);
-  const reservationValidation = capture();
-  const reservationValidationCode = await main(["orchestration", "validate"], reservationValidation.io);
-  assert.equal(reservationValidationCode, 0, reservationValidation.out.concat(reservationValidation.err).join("\n"));
-  delete registry.nodes[0].launchReservation;
-  registry.nodes[0].taskId = "task-created-boss";
-  registry.nodes[0].state = "working";
-  registry.nodes[0].nextAction = "Establish the project control plane.";
-  registry.revision += 1;
-  registry.nodes[0].taskBinding = taskBindingForTest(registry, registry.nodes[0]);
-  writeOrchestrationRegistry(registry);
-  const callbackValidation = capture();
-  const callbackValidationCode = await main(["orchestration", "validate"], callbackValidation.io);
-  assert.equal(callbackValidationCode, 0, callbackValidation.out.concat(callbackValidation.err).join("\n"));
-  assert.match(spec.prompt, /Role does not expand the authority envelope/);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration node not found: boss/);
 });
 
 fixtureTest("orchestration supports non-ticket artifact and decision work through one hierarchy", async () => {
@@ -2486,7 +2454,9 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   assert.equal(spec.taskBinding.nodeId, "manager-docs");
   assert.equal(spec.taskBinding.parentNodeId, "boss");
   assert.equal(spec.taskBinding.parentTaskId, "task-boss");
-  assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("taskBinding with immutable launch key")));
+  assert.equal(spec.taskBinding.attestation.algorithm, "ed25519");
+  assert.equal(spec.taskBinding.attestation.keyId, BINDING_ATTESTOR_KEY_ID);
+  assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("Ed25519-attested taskBinding")));
   assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
 
@@ -2495,6 +2465,30 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   const missing = capture();
   assert.equal(await main(["orchestration", "validate"], missing.io), 1);
   assert.match(missing.out.join("\n"), /node boss: task-backed node requires immutable taskBinding metadata/);
+});
+
+fixtureTest("orchestration requires an external attestation for immutable task bindings", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.objective = "A rewritten contract that retains the old task binding signature.";
+  const rewrittenHash = materializedWorkContractHash(registry, boss, null);
+  boss.taskBinding = {
+    ...boss.taskBinding,
+    launchKey: `orchestration:${registry.scope.id}:boss:${rewrittenHash}`,
+    workContractHash: rewrittenHash
+  };
+  writeOrchestrationRegistry(registry);
+
+  const rewritten = capture();
+  assert.equal(await main(["orchestration", "validate"], rewritten.io), 1);
+  assert.match(rewritten.out.join("\n"), /node boss: taskBinding\.attestation signature does not match the trusted immutable binding record/);
+
+  const missingAttestor = validOrchestrationRegistry();
+  delete missingAttestor.bindingAttestation;
+  writeOrchestrationRegistry(missingAttestor);
+  const unavailable = capture();
+  assert.equal(await main(["orchestration", "validate"], unavailable.io), 1);
+  assert.match(unavailable.out.join("\n"), /node boss: trusted binding attestor is unavailable/);
 });
 
 fixtureTest("orchestration rejects Boss parent-task metadata in working and terminal states", async () => {
