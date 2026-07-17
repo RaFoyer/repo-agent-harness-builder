@@ -97,7 +97,7 @@ The repo CLI remains read-only and agent-agnostic:
 2. List dependency-eligible nodes.
 3. Generate a prompt for inspection or a JSON launch spec for task creation.
 4. Let the active client verify current authority and call its native task API.
-5. Follow the callback mode: insert the configured Boss when bootstrapping an empty registry, or update the existing node; record the returned task ID, working state, and next action.
+5. Follow the callback mode: insert the explicit `registryNode` payload when bootstrapping an empty registry, or update the existing node; record the returned task ID, working state, and next action.
 6. Require the child to report to its immediate parent and the parent to reconcile evidence.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.

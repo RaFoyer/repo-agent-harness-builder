@@ -17,6 +17,7 @@ const ROLES = new Set(["boss", "manager", "worker"]);
 const STATES = new Set(["queued", "eligible", "working", "waiting", "blocked", "ready-for-parent", "terminal"]);
 const TASK_STATES = new Set(["working", "waiting", "blocked", "ready-for-parent", "terminal"]);
 const ACTIVE_STATES = new Set(["working", "waiting", "blocked", "ready-for-parent"]);
+const MANAGING_STATES = new Set(["working", "waiting", "blocked"]);
 const TERMINAL_DISPOSITIONS = new Set(["completed", "cancelled", "superseded"]);
 const COMPLETION_TYPES = new Set(["repository-merge", "artifact", "external-operation", "human-decision", "custom"]);
 const SCOPE_KINDS = new Set(["repository", "project", "program", "personal-folder", "custom"]);
@@ -49,6 +50,10 @@ function isStringArray(value, { nonEmpty = false } = {}) {
   return Array.isArray(value) && (!nonEmpty || value.length > 0) && value.every(isNonEmptyString);
 }
 
+function arrayOrEmpty(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function trustRank(level) {
   return TRUST_RANK.has(level) ? TRUST_RANK.get(level) : -1;
 }
@@ -77,7 +82,7 @@ function graphHasCycle(nodes, edgesForNode) {
     if (visiting.has(id)) return true;
     if (visited.has(id) || !byId.has(id)) return false;
     visiting.add(id);
-    for (const next of edgesForNode(byId.get(id))) {
+    for (const next of arrayOrEmpty(edgesForNode(byId.get(id)))) {
       if (visit(next)) return true;
     }
     visiting.delete(id);
@@ -101,7 +106,7 @@ function isAncestor(ancestorId, node, nodesById) {
 function missingCompletionEvidence(node) {
   const requiredEvidence = node.completionProfile?.requiredEvidence;
   if (!isStringArray(requiredEvidence, { nonEmpty: true })) return [];
-  const completionEvidence = new Set(Array.isArray(node.completionEvidence) ? node.completionEvidence : []);
+  const completionEvidence = new Set(arrayOrEmpty(node.completionEvidence));
   return requiredEvidence.filter((evidence) => !completionEvidence.has(evidence));
 }
 
@@ -142,19 +147,19 @@ function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
     blockers.push(`${label}: authority.maxActiveChildren must be a non-negative integer`);
   }
   if (trustRank(node.trustLevel) <= trustRank("T1")) {
-    if (node.authority.allowedWrites?.length) blockers.push(`${label}: ${node.trustLevel} may not allow writes`);
-    if (node.authority.allowedExternalActions?.length) blockers.push(`${label}: ${node.trustLevel} may not allow external actions`);
+    if (arrayOrEmpty(node.authority.allowedWrites).length) blockers.push(`${label}: ${node.trustLevel} may not allow writes`);
+    if (arrayOrEmpty(node.authority.allowedExternalActions).length) blockers.push(`${label}: ${node.trustLevel} may not allow external actions`);
   }
   if (trustRank(node.trustLevel) <= trustRank("T2") && node.authority.canDelegate) {
     blockers.push(`${label}: delegation requires T3 or higher`);
   }
-  if (trustRank(node.trustLevel) <= trustRank("T2") && node.authority.allowedExternalActions?.length) {
+  if (trustRank(node.trustLevel) <= trustRank("T2") && arrayOrEmpty(node.authority.allowedExternalActions).length) {
     blockers.push(`${label}: external actions require T3 or higher`);
   }
   if (parent && isObject(parent.authority)) {
     for (const field of ["allowedReads", "allowedWrites", "allowedExternalActions"]) {
-      const parentValues = new Set(parent.authority[field] || []);
-      for (const value of node.authority[field] || []) {
+      const parentValues = new Set(arrayOrEmpty(parent.authority[field]));
+      for (const value of arrayOrEmpty(node.authority[field])) {
         if (!parentValues.has(value)) blockers.push(`${label}: authority.${field} entry ${value} exceeds parent scope`);
       }
     }
@@ -214,6 +219,7 @@ function validateRegistry(registry) {
 
   for (const node of nodes) {
     const label = `node ${node.id}`;
+    const dependencies = arrayOrEmpty(node.dependencies);
     if (!ROLES.has(node.role)) blockers.push(`${label}: role must be boss, manager, or worker`);
     if (!STATES.has(node.state)) blockers.push(`${label}: invalid state ${node.state || "<missing>"}`);
     if (!isNonEmptyString(node.workRef)) blockers.push(`${label}: workRef is required`);
@@ -253,6 +259,9 @@ function validateRegistry(registry) {
     if (node.state === "eligible" && !dependenciesSatisfied(node, nodesById)) {
       blockers.push(`${label}: eligible state requires completed dependencies`);
     }
+    if (ACTIVE_STATES.has(node.state) && !dependenciesSatisfied(node, nodesById)) {
+      blockers.push(`${label}: active state requires completed dependencies`);
+    }
     if (node.role !== "boss") {
       if (!isObject(node.completionProfile) || !COMPLETION_TYPES.has(node.completionProfile.type)) {
         blockers.push(`${label}: completionProfile.type must name a supported profile`);
@@ -266,19 +275,19 @@ function validateRegistry(registry) {
       const missingEvidence = missingCompletionEvidence(node);
       if (missingEvidence.length) blockers.push(`${label}: completionEvidence is missing required evidence: ${missingEvidence.join(", ")}`);
     }
-    for (const dependency of node.dependencies || []) {
+    for (const dependency of dependencies) {
       if (!nodesById.has(dependency)) blockers.push(`${label}: dependency ${dependency} does not exist`);
       if (dependency === node.id) blockers.push(`${label}: node may not depend on itself`);
     }
     if (TRUST_RANK.has(defaultLevel) && TRUST_RANK.has(maxLevel)) validateAuthority(node, parent, defaultLevel, maxLevel, blockers);
   }
   if (graphHasCycle(nodes, (node) => (node.parentId ? [node.parentId] : []))) blockers.push("parent graph contains a cycle");
-  if (graphHasCycle(nodes, (node) => node.dependencies || [])) blockers.push("dependency graph contains a cycle");
-  if (graphHasCycle(nodes, (node) => [...(node.parentId ? [node.parentId] : []), ...(node.dependencies || [])])) {
+  if (graphHasCycle(nodes, (node) => arrayOrEmpty(node.dependencies))) blockers.push("dependency graph contains a cycle");
+  if (graphHasCycle(nodes, (node) => [...(node.parentId ? [node.parentId] : []), ...arrayOrEmpty(node.dependencies)])) {
     blockers.push("orchestration graph contains a parent/dependency cycle");
   }
   for (const node of nodes) {
-    for (const dependencyId of node.dependencies || []) {
+    for (const dependencyId of arrayOrEmpty(node.dependencies)) {
       const dependency = nodesById.get(dependencyId);
       if (!dependency) continue;
       if (isAncestor(dependencyId, node, nodesById) || isAncestor(node.id, dependency, nodesById)) {
@@ -418,7 +427,7 @@ function runValidate(io) {
 
 function dependenciesSatisfied(node, nodesById) {
   if (!Array.isArray(node.dependencies)) return false;
-  return node.dependencies.every((dependency) => {
+  return arrayOrEmpty(node.dependencies).every((dependency) => {
     const prerequisite = nodesById.get(dependency);
     return prerequisite?.state === "terminal" && prerequisite.terminalDisposition === "completed";
   });
@@ -582,6 +591,10 @@ function runLaunchSpec(nodeId, io) {
     io.stderr(`Node ${node.id} cannot launch before parent ${parent.id} has a taskId.`);
     return 1;
   }
+  if (parent && !MANAGING_STATES.has(parent.state)) {
+    io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} is not in an active managing state.`);
+    return 1;
+  }
   if (!dependenciesSatisfied(node, findings.nodesById)) {
     io.stderr(`Node ${node.id} cannot launch before all dependencies are completed.`);
     return 1;
@@ -620,9 +633,10 @@ function runLaunchSpec(nodeId, io) {
     callback: {
       registry: REGISTRY_REL_PATH,
       mode: configured ? "update-node" : "insert-node",
+      registryNode: configured ? undefined : node,
       requiredUpdates: configured
         ? ["taskId", "state=working", "nextAction"]
-        : ["insert configured node", "taskId", "state=working", "nextAction"]
+        : ["insert registryNode", "taskId", "state=working", "nextAction"]
     }
   }, null, 2));
   return 0;

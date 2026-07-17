@@ -1488,7 +1488,36 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   assert.equal(spec.parentTaskId, null);
   assert.deepEqual(spec.authority.allowedWrites, []);
   assert.equal(spec.callback.mode, "insert-node");
-  assert.deepEqual(spec.callback.requiredUpdates, ["insert configured node", "taskId", "state=working", "nextAction"]);
+  assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "taskId", "state=working", "nextAction"]);
+  assert.deepEqual(Object.keys(spec.callback.registryNode).sort(), [
+    "authority",
+    "dependencies",
+    "governingProtocols",
+    "id",
+    "label",
+    "objective",
+    "parentId",
+    "role",
+    "state",
+    "taskId",
+    "title",
+    "trustLevel",
+    "workKind",
+    "workRef"
+  ]);
+  assert.equal(spec.callback.registryNode.state, "eligible");
+  assert.equal(spec.callback.registryNode.taskId, null);
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
+  registry.nodes.push({
+    ...spec.callback.registryNode,
+    taskId: "task-created-boss",
+    state: "working",
+    nextAction: "Establish the project control plane."
+  });
+  writeOrchestrationRegistry(registry);
+  const callbackValidation = capture();
+  const callbackValidationCode = await main(["orchestration", "validate"], callbackValidation.io);
+  assert.equal(callbackValidationCode, 0, callbackValidation.out.concat(callbackValidation.err).join("\n"));
   assert.match(spec.prompt, /Role does not expand the authority envelope/);
 });
 
@@ -1644,17 +1673,42 @@ fixtureTest("orchestration rejects eligible work until every dependency is compl
   assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
 });
 
-fixtureTest("orchestration reports malformed eligible dependencies without crashing", async () => {
+fixtureTest("orchestration rejects every active task state until dependencies are completed", async () => {
+  for (const [state, stateFields] of [
+    ["working", { nextAction: "Prepare the research decision." }],
+    ["waiting", { waitingOn: "manager-docs evidence review" }],
+    ["blocked", { blocker: "Missing source material.", unblockAction: "Obtain the source material." }],
+    ["ready-for-parent", { handoffEvidence: ["draft research decision"] }]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    const worker = registry.nodes.find((node) => node.id === "worker-research");
+    worker.state = state;
+    worker.taskId = `task-worker-${state}`;
+    Object.assign(worker, stateFields);
+    writeOrchestrationRegistry(registry);
+
+    const { io, out } = capture();
+    const code = await main(["orchestration", "validate"], io);
+    assert.equal(code, 1, state);
+    assert.match(out.join("\n"), /node worker-research: active state requires completed dependencies/);
+  }
+});
+
+fixtureTest("orchestration reports malformed array-shaped fields without crashing", async () => {
   const registry = validOrchestrationRegistry();
   const worker = registry.nodes.find((node) => node.id === "worker-research");
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
   worker.state = "eligible";
-  worker.dependencies = "manager-docs";
+  worker.dependencies = { manager: "manager-docs" };
+  manager.authority.allowedReads = { project: true };
   writeOrchestrationRegistry(registry);
 
   const { io, out } = capture();
   const code = await main(["orchestration", "validate"], io);
   assert.equal(code, 1);
-  assert.match(out.join("\n"), /node worker-research: dependencies must be an array of node ids/);
+  const text = out.join("\n");
+  assert.match(text, /node worker-research: dependencies must be an array of node ids/);
+  assert.match(text, /node manager-docs: authority\.allowedReads must be an array of single-line strings/);
 });
 
 fixtureTest("orchestration requires every declared completion evidence item before terminal work validates", async () => {
@@ -1880,6 +1934,31 @@ fixtureTest("orchestration launch contracts enforce delegation and capacity at m
   const portfolioCode = await main(["orchestration", "launch-spec", "worker-research"], portfolio.io);
   assert.equal(portfolioCode, 1);
   assert.match(portfolio.err.join("\n"), /project active-node budget is exhausted/);
+});
+
+fixtureTest("orchestration refuses child launches from ready-for-parent nodes", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  manager.state = "ready-for-parent";
+  manager.taskId = "task-manager-docs";
+  manager.handoffEvidence = ["approved documentation artifact"];
+  manager.trustLevel = "T3";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded workstream delegation approval"]
+  };
+  manager.authority = orchestrationAuthority({ canDelegate: true, maxActiveChildren: 1 });
+  worker.parentId = manager.id;
+  worker.dependencies = [];
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  writeOrchestrationRegistry(registry);
+
+  const { io, err } = capture();
+  const code = await main(["orchestration", "launch-spec", "worker-research"], io);
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /parent manager-docs is not in an active managing state/);
 });
 
 fixtureTest("goals status reports configured implementation goals", async () => {

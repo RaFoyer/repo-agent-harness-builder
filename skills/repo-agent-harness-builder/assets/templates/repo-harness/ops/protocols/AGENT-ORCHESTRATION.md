@@ -110,6 +110,7 @@ Trust only limits maximum authority. Each node also needs an authority envelope 
 - `terminal`: the node has a recorded `completed`, `cancelled`, or `superseded` disposition, evidence is reconciled, and the node has no remaining responsibility.
 
 Only `working`, `waiting`, `blocked`, `ready-for-parent`, and `terminal` are task-backed states. The first four are active. `queued` and `eligible` are graph states and must not pretend a task exists. Archive is metadata on a terminal node, not a substitute for disposition and evidence.
+An `eligible` or active node is valid only when every declared dependency is terminal with a `completed` disposition.
 
 ## Completion Profiles
 
@@ -170,6 +171,7 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - A child may not exceed its parent trust level, authority scope, or delegated budget.
 - Do not fan out overlapping write sets or unstable contracts.
 - Do not create a task from a launch spec whose parent task is missing or whose dependencies are unsatisfied.
+- Create child tasks only while the parent is `working`, `waiting`, or `blocked`; a `ready-for-parent` node must not acquire new unfinished responsibility.
 - Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
 - Do not let Managers silently become Workers.
