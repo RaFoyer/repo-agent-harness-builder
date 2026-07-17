@@ -9,6 +9,7 @@ import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
+import { materializedWorkContractHash } from "../src/orchestration/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -96,6 +97,31 @@ function orchestrationAuthority({
   };
 }
 
+function canonicalAuthorityForTest(authority) {
+  return {
+    ...authority,
+    ...Object.fromEntries(["allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "stopConditions"].map((field) => [
+      field,
+      [...new Set(authority[field] || [])].sort()
+    ]))
+  };
+}
+
+function taskBindingForTest(registry, node, { boundRevision = registry.revision, boundAt = "2026-07-16T12:00:00Z" } = {}) {
+  const parent = node.parentId ? registry.nodes.find((candidate) => candidate.id === node.parentId) : null;
+  const workContractHash = materializedWorkContractHash(registry, node, parent);
+  return {
+    launchKey: `orchestration:${registry.scope.id}:${node.id}:${workContractHash}`,
+    workContractHash,
+    nodeId: node.id,
+    taskId: node.taskId,
+    parentNodeId: node.parentId,
+    parentTaskId: parent?.taskId || null,
+    boundRevision,
+    boundAt
+  };
+}
+
 function selfConsistentReservationValidity(registry, node, parent) {
   const activeStates = new Set(["working", "waiting", "blocked", "ready-for-parent"]);
   const hasReservation = (candidate) => Boolean(candidate.launchReservation && typeof candidate.launchReservation === "object" && !Array.isArray(candidate.launchReservation));
@@ -109,15 +135,17 @@ function selfConsistentReservationValidity(registry, node, parent) {
       state: node.state,
       taskId: node.taskId,
       launchReservationKey: node.launchReservation.key,
+      parentTaskId: node.parentTaskId ?? null,
       trustLevel: node.trustLevel,
-      authority: node.authority
+      authority: canonicalAuthorityForTest(node.authority),
+      materializedWorkContractHash: materializedWorkContractHash(registry, node, parent)
     },
     expectedParent: parent ? {
       id: parent.id,
       state: parent.state,
       taskId: parent.taskId,
       trustLevel: parent.trustLevel,
-      authority: parent.authority
+      authority: canonicalAuthorityForTest(parent.authority)
     } : null,
     capacity: {
       activeNodeCount,
@@ -135,7 +163,7 @@ function selfConsistentReservationValidity(registry, node, parent) {
 }
 
 function validOrchestrationRegistry() {
-  return {
+  const registry = {
     schemaVersion: 2,
     revision: 0,
     status: "active",
@@ -223,6 +251,9 @@ function validOrchestrationRegistry() {
       }
     ]
   };
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  return registry;
 }
 
 function createFixtureCommit(message = "fixture commit", branch = "{{DEFAULT_BRANCH}}") {
@@ -1538,7 +1569,7 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   assert.equal(spec.parentTaskId, null);
   assert.deepEqual(spec.authority.allowedWrites, []);
   assert.equal(spec.callback.mode, "insert-node");
-  assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]);
+  assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "status=active", "taskId", "taskBinding", "state=working", "nextAction"]);
   assert.equal(spec.reservation.expectedRegistryRevision, 0);
   assert.match(spec.reservation.launchKey, /^orchestration:project:boss:[a-f0-9]{64}$/);
   assert.equal(spec.callback.reserve.onSuccess.registryRevision, 1);
@@ -1590,6 +1621,7 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   registry.nodes[0].state = "working";
   registry.nodes[0].nextAction = "Establish the project control plane.";
   registry.revision += 1;
+  registry.nodes[0].taskBinding = taskBindingForTest(registry, registry.nodes[0]);
   writeOrchestrationRegistry(registry);
   const callbackValidation = capture();
   const callbackValidationCode = await main(["orchestration", "validate"], callbackValidation.io);
@@ -1638,6 +1670,7 @@ fixtureTest("orchestration activates configured Boss callbacks", async () => {
   registry.status = "inactive";
   boss.state = "eligible";
   boss.taskId = null;
+  delete boss.taskBinding;
   delete boss.nextAction;
   writeOrchestrationRegistry(registry);
 
@@ -1646,13 +1679,14 @@ fixtureTest("orchestration activates configured Boss callbacks", async () => {
   assert.equal(launchCode, 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
   assert.equal(spec.callback.mode, "update-node");
-  assert.deepEqual(spec.callback.requiredUpdates, ["status=active", "taskId", "state=working", "nextAction"]);
+  assert.deepEqual(spec.callback.requiredUpdates, ["status=active", "taskId", "taskBinding", "state=working", "nextAction"]);
   assert.equal(spec.callback.reserve.onSuccess.status, "active");
 
   registry.status = "active";
   boss.taskId = "task-configured-boss";
   boss.state = "working";
   boss.nextAction = "Review eligible project work.";
+  boss.taskBinding = taskBindingForTest(registry, boss);
   writeOrchestrationRegistry(registry);
 
   const next = capture();
@@ -1746,6 +1780,7 @@ fixtureTest("orchestration requires children to retain every parent approval gat
 
   manager.authority.approvalGates = ["activation", "merge"];
   worker.authority.approvalGates = ["activation", "merge"];
+  boss.taskBinding = taskBindingForTest(registry, boss);
   writeOrchestrationRegistry(registry);
   const retainedGate = capture();
   const retainedGateCode = await main(["orchestration", "validate"], retainedGate.io);
@@ -1771,6 +1806,7 @@ fixtureTest("orchestration unlocks queued work only from terminal dependency evi
   manager.parentTaskId = "task-boss";
   manager.terminalDisposition = "completed";
   manager.completionEvidence = ["approved documentation artifact"];
+  manager.taskBinding = taskBindingForTest(registry, manager);
   writeOrchestrationRegistry(registry);
 
   const next = capture();
@@ -1895,6 +1931,7 @@ fixtureTest("orchestration keeps dependents blocked for cancelled or superseded 
     manager.parentTaskId = "task-boss";
     manager.terminalDisposition = terminalDisposition;
     manager.completionEvidence = ["approved documentation artifact"];
+    manager.taskBinding = taskBindingForTest(registry, manager);
     writeOrchestrationRegistry(registry);
 
     const next = capture();
@@ -2076,7 +2113,9 @@ fixtureTest("orchestration validator rejects graph cycles and project budget ove
 
 fixtureTest("orchestration launch contracts enforce delegation and capacity at materialization time", async () => {
   const noDelegation = validOrchestrationRegistry();
-  noDelegation.nodes.find((node) => node.id === "boss").authority.canDelegate = false;
+  const noDelegationBoss = noDelegation.nodes.find((node) => node.id === "boss");
+  noDelegationBoss.authority.canDelegate = false;
+  noDelegationBoss.taskBinding = taskBindingForTest(noDelegation, noDelegationBoss);
   writeOrchestrationRegistry(noDelegation);
   const authority = capture();
   const authorityCode = await main(["orchestration", "launch-spec", "manager-docs"], authority.io);
@@ -2092,6 +2131,8 @@ fixtureTest("orchestration launch contracts enforce delegation and capacity at m
   activeManager.taskId = "task-manager-docs";
   activeManager.parentTaskId = "task-boss";
   activeManager.nextAction = "Draft the bounded artifact.";
+  childBudgetBoss.taskBinding = taskBindingForTest(childBudget, childBudgetBoss);
+  activeManager.taskBinding = taskBindingForTest(childBudget, activeManager);
   queuedWorker.dependencies = [];
   writeOrchestrationRegistry(childBudget);
   const capacity = capture();
@@ -2108,6 +2149,9 @@ fixtureTest("orchestration launch contracts enforce delegation and capacity at m
   projectManager.parentTaskId = "task-boss";
   projectManager.nextAction = "Draft the bounded artifact.";
   projectWorker.dependencies = [];
+  const projectBoss = projectBudget.nodes.find((node) => node.id === "boss");
+  projectBoss.taskBinding = taskBindingForTest(projectBudget, projectBoss);
+  projectManager.taskBinding = taskBindingForTest(projectBudget, projectManager);
   writeOrchestrationRegistry(projectBudget);
   const portfolio = capture();
   const portfolioCode = await main(["orchestration", "launch-spec", "worker-research"], portfolio.io);
@@ -2152,6 +2196,7 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   const worker = registry.nodes.find((node) => node.id === "worker-research");
   registry.trustPolicy.limits.maxActiveNodes = 2;
   worker.dependencies = [];
+  registry.nodes.find((node) => node.id === "boss").taskBinding = taskBindingForTest(registry, registry.nodes.find((node) => node.id === "boss"));
   writeOrchestrationRegistry(registry);
 
   const firstLaunch = capture();
@@ -2383,6 +2428,75 @@ fixtureTest("orchestration hashes canonical work contracts and quarantines stale
   assert.match(stalePayload.out.join("\n"), /launchReservation validity no longer matches registry status, work contract, authority, capacity, or task identity/);
 });
 
+fixtureTest("orchestration preserves immutable task bindings across authority normalization and replanning", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedReads = ["project", "project"];
+  boss.authority.approvalGates = ["activation", "activation"];
+  boss.authority.stopConditions = ["scope-unclear", "authority-gap", "scope-unclear"];
+  writeOrchestrationRegistry(registry);
+
+  const normalized = capture();
+  assert.equal(await main(["orchestration", "validate"], normalized.io), 0, normalized.out.concat(normalized.err).join("\n"));
+
+  boss.objective = "Change the already-bound project contract.";
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const mutated = capture();
+  assert.equal(await main(["orchestration", "validate"], mutated.io), 1);
+  assert.match(mutated.out.join("\n"), /node boss: taskBinding\.(launchKey|workContractHash) must match the immutable materialized work contract/);
+
+  boss.objective = "Keep the project scope controlled and evidence-backed.";
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "superseded";
+  manager.completionEvidence = ["approved documentation artifact"];
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  registry.nodes.push({
+    ...manager,
+    id: "manager-docs-successor",
+    workRef: "DOCS-5",
+    label: "Documentation refresh successor",
+    title: `${CONFIG.projectName} - Manager - DOCS-5 Documentation refresh successor`,
+    taskId: null,
+    parentTaskId: null,
+    taskBinding: undefined,
+    state: "eligible",
+    terminalDisposition: undefined,
+    completionEvidence: undefined
+  });
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+
+  const replanned = capture();
+  assert.equal(await main(["orchestration", "validate"], replanned.io), 0, replanned.out.concat(replanned.err).join("\n"));
+});
+
+fixtureTest("orchestration launch contracts require immutable task binding metadata", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.taskBinding.launchKey, spec.reservation.launchKey);
+  assert.equal(spec.taskBinding.workContractHash, spec.workContract.hash);
+  assert.equal(spec.taskBinding.nodeId, "manager-docs");
+  assert.equal(spec.taskBinding.parentNodeId, "boss");
+  assert.equal(spec.taskBinding.parentTaskId, "task-boss");
+  assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("taskBinding with immutable launch key")));
+  assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
+  assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
+
+  delete registry.nodes.find((node) => node.id === "boss").taskBinding;
+  writeOrchestrationRegistry(registry);
+  const missing = capture();
+  assert.equal(await main(["orchestration", "validate"], missing.io), 1);
+  assert.match(missing.out.join("\n"), /node boss: task-backed node requires immutable taskBinding metadata/);
+});
+
 fixtureTest("orchestration requires current parent scope inheritance and immutable parent task identity", async () => {
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
@@ -2398,6 +2512,7 @@ fixtureTest("orchestration requires current parent scope inheritance and immutab
   manager.taskId = "task-manager-docs";
   manager.parentTaskId = "task-boss";
   manager.nextAction = "Review the documentation scope.";
+  manager.taskBinding = taskBindingForTest(registry, manager);
   writeOrchestrationRegistry(registry);
   const valid = capture();
   assert.equal(await main(["orchestration", "validate"], valid.io), 0, valid.out.concat(valid.err).join("\n"));

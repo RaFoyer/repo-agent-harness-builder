@@ -77,6 +77,12 @@ function isApprovalTimestamp(value) {
   return hour === undefined || (hour <= 23 && minute <= 59 && second <= 59);
 }
 
+function isUtcRfc3339Timestamp(value) {
+  return isNonEmptyString(value)
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)
+    && isApprovalTimestamp(value);
+}
+
 function titleForNode(node, nodesById, prefix) {
   const label = node.label || "<label>";
   const workRef = node.workRef || "<WORK-REF>";
@@ -143,15 +149,15 @@ function canonicalize(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
 }
 
-function sortedValues(value) {
-  return arrayOrEmpty(value).slice().sort();
+function canonicalValues(value) {
+  return [...new Set(arrayOrEmpty(value))].sort();
 }
 
 function canonicalAuthority(authority) {
   if (!isObject(authority)) return authority;
   return {
     ...authority,
-    ...Object.fromEntries(AUTHORITY_ARRAY_FIELDS.map((field) => [field, sortedValues(authority[field])]))
+    ...Object.fromEntries(AUTHORITY_ARRAY_FIELDS.map((field) => [field, canonicalValues(authority[field])]))
   };
 }
 
@@ -165,15 +171,15 @@ function materializedWorkContract(registry, node, parent) {
       parentId: node.parentId,
       workRef: node.workRef,
       workKind: node.workKind,
-      governingProtocols: sortedValues(node.governingProtocols),
+      governingProtocols: canonicalValues(node.governingProtocols),
       label: node.label,
       title: node.title,
       objective: node.objective,
-      dependencies: sortedValues(node.dependencies),
+      dependencies: canonicalValues(node.dependencies),
       trustLevel: node.trustLevel,
       authority: canonicalAuthority(node.authority),
       completionProfile: isObject(node.completionProfile)
-        ? { ...node.completionProfile, requiredEvidence: sortedValues(node.completionProfile.requiredEvidence) }
+        ? { ...node.completionProfile, requiredEvidence: canonicalValues(node.completionProfile.requiredEvidence) }
         : node.completionProfile
     },
     parent: parent ? {
@@ -185,7 +191,7 @@ function materializedWorkContract(registry, node, parent) {
   });
 }
 
-function materializedWorkContractHash(registry, node, parent) {
+export function materializedWorkContractHash(registry, node, parent) {
   return createHash("sha256").update(JSON.stringify(materializedWorkContract(registry, node, parent))).digest("hex");
 }
 
@@ -196,7 +202,7 @@ function parentSnapshot(parent) {
     state: parent.state,
     taskId: parent.taskId,
     trustLevel: parent.trustLevel,
-    authority: parent.authority
+    authority: canonicalAuthority(parent.authority)
   };
 }
 
@@ -230,12 +236,52 @@ function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, r
       launchReservationKey: reservation.key,
       parentTaskId: node.parentTaskId ?? null,
       trustLevel: node.trustLevel,
-      authority: node.authority,
+      authority: canonicalAuthority(node.authority),
       materializedWorkContractHash: workContractHash
     },
     expectedParent: parentSnapshot(parent),
     capacity: reservationCapacity(nodes, parent, maxActiveNodes),
     materializedWorkContractHash: workContractHash
+  };
+}
+
+function taskBindingBlockers(registry, node, parent) {
+  const blockers = [];
+  const label = `node ${node.id || "<missing-id>"}`;
+  const binding = node.taskBinding;
+  if (!isObject(binding)) {
+    blockers.push(`${label}: task-backed node requires immutable taskBinding metadata`);
+    return blockers;
+  }
+  const workContractHash = materializedWorkContractHash(registry, node, parent);
+  const expectedLaunchKey = isNonEmptyString(registry.scope?.id) ? launchKeyFor(registry, node, parent) : null;
+  if (!isNonEmptyString(binding.launchKey)) blockers.push(`${label}: taskBinding.launchKey must be a non-empty single-line string`);
+  else if (expectedLaunchKey && binding.launchKey !== expectedLaunchKey) blockers.push(`${label}: taskBinding.launchKey must match the immutable materialized work contract`);
+  if (typeof binding.workContractHash !== "string" || !/^[a-f0-9]{64}$/.test(binding.workContractHash)) blockers.push(`${label}: taskBinding.workContractHash must be a SHA-256 hex digest`);
+  else if (binding.workContractHash !== workContractHash) blockers.push(`${label}: taskBinding.workContractHash must match the immutable materialized work contract`);
+  if (binding.nodeId !== node.id) blockers.push(`${label}: taskBinding.nodeId must match node identity`);
+  if (binding.taskId !== node.taskId) blockers.push(`${label}: taskBinding.taskId must match taskId`);
+  if ((binding.parentNodeId ?? null) !== (node.parentId ?? null)) blockers.push(`${label}: taskBinding.parentNodeId must match immutable parent node identity`);
+  if ((binding.parentTaskId ?? null) !== (node.role === "boss" ? null : node.parentTaskId ?? null)) {
+    blockers.push(`${label}: taskBinding.parentTaskId must match immutable parent task identity`);
+  }
+  if (!Number.isSafeInteger(binding.boundRevision) || binding.boundRevision < 0 || binding.boundRevision > registry.revision) {
+    blockers.push(`${label}: taskBinding.boundRevision must be a registry revision at or before the current revision`);
+  }
+  if (!isUtcRfc3339Timestamp(binding.boundAt)) blockers.push(`${label}: taskBinding.boundAt must be a UTC RFC3339 timestamp`);
+  return blockers;
+}
+
+function taskBindingUpdate({ launchKey, workContractHash, node, parent, boundRevision }) {
+  return {
+    launchKey,
+    workContractHash,
+    nodeId: node.id,
+    taskId: "external task ID returned by the adapter",
+    parentNodeId: node.parentId ?? null,
+    parentTaskId: parent?.taskId ?? null,
+    boundRevision,
+    boundAt: "UTC RFC3339 timestamp of the atomic bind"
   };
 }
 
@@ -532,6 +578,11 @@ function validateRegistry(registry) {
       }
     } else if (node.role !== "boss" && node.parentTaskId !== undefined && node.parentTaskId !== null) {
       blockers.push(`${label}: unmaterialized non-Boss node must not claim parentTaskId`);
+    }
+    if (isTaskBackedNode(node)) {
+      blockers.push(...taskBindingBlockers(registry, node, parent));
+    } else if (node.taskBinding !== undefined && node.taskBinding !== null) {
+      blockers.push(`${label}: unmaterialized node must not claim taskBinding metadata`);
     }
     if (node.role !== "boss" && ACTIVE_STATES.has(node.state) && parent) {
       if (!MANAGING_STATES.has(parent.state)) {
@@ -913,7 +964,9 @@ function runLaunchSpec(nodeId, io) {
       state: node.state,
       taskId: null,
       parentTaskId: null,
-      launchReservation: null
+      launchReservation: null,
+      trustLevel: node.trustLevel,
+      authority: canonicalAuthority(node.authority)
     },
     expectedParent: parentSnapshot(parent),
     capacity: reservationCapacity(findings.nodes, parent, loaded.registry.trustPolicy.limits.maxActiveNodes)
@@ -951,8 +1004,15 @@ function runLaunchSpec(nodeId, io) {
     title: node.title,
     parentTaskId: parent?.taskId || null,
     trustLevel: node.trustLevel,
-    authority: node.authority,
+    authority: canonicalAuthority(node.authority),
     workContract: { algorithm: "sha256", hash: workContractHash },
+    taskBinding: taskBindingUpdate({
+      launchKey,
+      workContractHash,
+      node,
+      parent,
+      boundRevision: reservationValidity.expectedRegistryRevision + 1
+    }),
     externalTask: {
       idempotencyKey: launchKey,
       reconciliationKey: launchKey,
@@ -987,10 +1047,18 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
+          "taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
           "nextAction",
           "clear launchReservation"
         ],
+        taskBinding: taskBindingUpdate({
+          launchKey,
+          workContractHash,
+          node,
+          parent,
+          boundRevision: reservationValidity.expectedRegistryRevision + 1
+        }),
         mustAdvanceRegistryRevision: true,
         onFailure: "Keep the reservation and reconcile the external task by launchKey; do not create another task."
       },
@@ -1017,7 +1085,7 @@ function runLaunchSpec(nodeId, io) {
             parentTaskId: null,
             launchReservationKey: launchKey,
             trustLevel: node.trustLevel,
-            authority: node.authority,
+            authority: canonicalAuthority(node.authority),
             materializedWorkContractHash: workContractHash
           },
           ...(parent ? {
@@ -1025,7 +1093,7 @@ function runLaunchSpec(nodeId, io) {
             parentTaskRequired: true,
             parentManagingStateRequired: true,
             parentDelegationAuthorityRequired: true,
-            parentApprovalGatesRequired: arrayOrEmpty(parent.authority?.approvalGates),
+            parentApprovalGatesRequired: canonicalValues(parent.authority?.approvalGates),
             parentAuthorityInheritance: {
               requireCurrentParentToChildValidation: true,
               childTrustMayNotExceedParent: true,
@@ -1042,12 +1110,20 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId from reconciled external task",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
+          "taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
           "nextAction",
           "clear launchReservation"
         ],
         mustAdvanceRegistryRevision: true,
         onFailure: "Keep the reservation quarantined for explicit cancel or replan; do not create another task.",
+        taskBinding: taskBindingUpdate({
+          launchKey,
+          workContractHash,
+          node,
+          parent,
+          boundRevision: "latest registry revision plus one"
+        }),
         onSuccess: "Bind the reconciled task against the latest registry revision without another external create."
       },
       requiredUpdates: configured
@@ -1055,10 +1131,11 @@ function runLaunchSpec(nodeId, io) {
           ...(node.role === "boss" ? ["status=active"] : []),
           "taskId",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
+          "taskBinding",
           "state=working",
           "nextAction"
         ]
-        : ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]
+        : ["insert registryNode", "status=active", "taskId", "taskBinding", "state=working", "nextAction"]
     }
   }, null, 2));
   return 0;

@@ -29,6 +29,16 @@
       "label": "Project control plane",
       "title": "EXAMPLE - Boss",
       "taskId": "task-boss",
+      "taskBinding": {
+        "launchKey": "orchestration:documentation-refresh:boss:9ef76ce77ebd35c2fd04da412c6ab560bc6b41bd35ca2632667fb1cb255cbe8c",
+        "workContractHash": "9ef76ce77ebd35c2fd04da412c6ab560bc6b41bd35ca2632667fb1cb255cbe8c",
+        "nodeId": "boss",
+        "taskId": "task-boss",
+        "parentNodeId": null,
+        "parentTaskId": null,
+        "boundRevision": 0,
+        "boundAt": "2026-01-01T00:00:00Z"
+      },
       "parentId": null,
       "dependencies": [],
       "state": "working",
