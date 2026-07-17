@@ -4,6 +4,7 @@ import { listProtocols } from "../commands/protocols.mjs";
 import { CONFIG } from "../config.mjs";
 import { runConnections } from "../connections/index.mjs";
 import { runGoals } from "../goals/index.mjs";
+import { runOrchestration } from "../orchestration/index.mjs";
 import { runErgonomics } from "../ergonomics/index.mjs";
 import { runNoMistakes } from "../no-mistakes/index.mjs";
 import { runLavish } from "../lavish/index.mjs";
@@ -19,6 +20,7 @@ const VERIFY_STEPS = [
   { name: "checklist", run: (io) => runChecklist([], io) },
   { name: "protocols", run: (io) => listProtocols([], io) },
   { name: "connections status", run: (io) => runConnections(["status"], io) },
+  { name: "orchestration status", run: (io) => runOrchestration(["status"], io) },
   { name: "goals status", run: (io) => runGoals(["status"], io) },
   { name: "ergonomics status", run: (io) => runErgonomics(["status"], io) },
   { name: "no-mistakes status", run: (io) => runNoMistakes(["status"], io) },

@@ -1,0 +1,632 @@
+import fs from "node:fs";
+import path from "node:path";
+import { CONFIG } from "../config.mjs";
+import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
+
+const REGISTRY_REL_PATH = "ops/orchestration.json";
+const TRUST_LEVELS = [
+  { id: "T0", name: "Observe", authority: "approved reads and reporting only" },
+  { id: "T1", name: "Propose", authority: "plans, graphs, drafts, and prompts without project-state mutation" },
+  { id: "T2", name: "Execute", authority: "bounded reversible local writes and approved verification" },
+  { id: "T3", name: "Integrate", authority: "approved branches, PRs, tracker transitions, and child-task delegation" },
+  { id: "T4", name: "Operate", authority: "allowlisted external writes, deployments, or schedules with rollback evidence" },
+  { id: "T5", name: "Govern", authority: "bounded portfolio control loops and delegation within explicit budgets" }
+];
+const TRUST_RANK = new Map(TRUST_LEVELS.map((level, index) => [level.id, index]));
+const ROLES = new Set(["boss", "manager", "worker"]);
+const STATES = new Set(["queued", "eligible", "working", "waiting", "blocked", "ready-for-parent", "terminal"]);
+const TASK_STATES = new Set(["working", "waiting", "blocked", "ready-for-parent", "terminal"]);
+const ACTIVE_STATES = new Set(["working", "waiting", "blocked", "ready-for-parent"]);
+const TERMINAL_DISPOSITIONS = new Set(["completed", "cancelled", "superseded"]);
+const COMPLETION_TYPES = new Set(["repository-merge", "artifact", "external-operation", "human-decision", "custom"]);
+const SCOPE_KINDS = new Set(["repository", "project", "program", "personal-folder", "custom"]);
+const AUTHORITY_ARRAY_FIELDS = ["allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "stopConditions"];
+
+function registryPath() {
+  return path.join(CONFIG.repoRoot, REGISTRY_REL_PATH);
+}
+
+function loadRegistry() {
+  const fullPath = registryPath();
+  if (!fs.existsSync(fullPath)) return { exists: false, registry: null, error: "" };
+  try {
+    return { exists: true, registry: JSON.parse(fs.readFileSync(fullPath, "utf-8")), error: "" };
+  } catch (error) {
+    return { exists: true, registry: null, error: error.message || "invalid JSON" };
+  }
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && Boolean(value.trim()) && !/[\r\n]/.test(value);
+}
+
+function isStringArray(value, { nonEmpty = false } = {}) {
+  return Array.isArray(value) && (!nonEmpty || value.length > 0) && value.every(isNonEmptyString);
+}
+
+function trustRank(level) {
+  return TRUST_RANK.has(level) ? TRUST_RANK.get(level) : -1;
+}
+
+function isApprovalTimestamp(value) {
+  return isNonEmptyString(value) && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)?$/.test(value);
+}
+
+function titleForNode(node, nodesById, prefix) {
+  const label = node.label || "<label>";
+  const workRef = node.workRef || "<WORK-REF>";
+  if (node.role === "boss") return `${prefix} - Boss`;
+  if (node.role === "manager") return `${prefix} - Manager - ${workRef} ${label}`;
+  const parent = nodesById.get(node.parentId);
+  if (!parent) return "";
+  if (parent.role === "boss") return `${prefix} - Worker for Boss - ${workRef} ${label}`;
+  const parentRole = parent.role === "manager" ? "Manager" : "Worker";
+  return `${prefix} - Worker for ${parentRole} ${parent.workRef} - ${workRef} ${label}`;
+}
+
+function graphHasCycle(nodes, edgesForNode) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const visiting = new Set();
+  const visited = new Set();
+  function visit(id) {
+    if (visiting.has(id)) return true;
+    if (visited.has(id) || !byId.has(id)) return false;
+    visiting.add(id);
+    for (const next of edgesForNode(byId.get(id))) {
+      if (visit(next)) return true;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  }
+  return nodes.some((node) => visit(node.id));
+}
+
+function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
+  const label = `node ${node.id || "<missing-id>"}`;
+  if (!TRUST_RANK.has(node.trustLevel)) {
+    blockers.push(`${label}: trustLevel must be T0-T5`);
+    return;
+  }
+  if (trustRank(node.trustLevel) > trustRank(maxLevel)) {
+    blockers.push(`${label}: trustLevel ${node.trustLevel} exceeds project maxLevel ${maxLevel}`);
+  }
+  if (parent && trustRank(node.trustLevel) > trustRank(parent.trustLevel)) {
+    blockers.push(`${label}: trustLevel ${node.trustLevel} exceeds parent ${parent.id} trustLevel ${parent.trustLevel}`);
+  }
+  if (trustRank(node.trustLevel) > trustRank(defaultLevel)) {
+    if (!isObject(node.trustApproval)) {
+      blockers.push(`${label}: trust promotion above ${defaultLevel} requires structured trustApproval`);
+    } else {
+      if (!isNonEmptyString(node.trustApproval.approvedBy)) blockers.push(`${label}: trustApproval.approvedBy is required`);
+      if (!isApprovalTimestamp(node.trustApproval.approvedAt)) blockers.push(`${label}: trustApproval.approvedAt must be YYYY-MM-DD or UTC RFC3339 seconds`);
+      if (!isStringArray(node.trustApproval.evidence, { nonEmpty: true })) blockers.push(`${label}: trustApproval.evidence must be non-empty`);
+    }
+  }
+  if (!isObject(node.authority)) {
+    blockers.push(`${label}: authority envelope is required`);
+    return;
+  }
+  for (const field of AUTHORITY_ARRAY_FIELDS) {
+    if (!isStringArray(node.authority[field])) blockers.push(`${label}: authority.${field} must be an array of single-line strings`);
+  }
+  if (typeof node.authority.canDelegate !== "boolean") blockers.push(`${label}: authority.canDelegate must be boolean`);
+  if (!Number.isInteger(node.authority.maxActiveChildren) || node.authority.maxActiveChildren < 0) {
+    blockers.push(`${label}: authority.maxActiveChildren must be a non-negative integer`);
+  }
+  if (trustRank(node.trustLevel) <= trustRank("T1")) {
+    if (node.authority.allowedWrites?.length) blockers.push(`${label}: ${node.trustLevel} may not allow writes`);
+    if (node.authority.allowedExternalActions?.length) blockers.push(`${label}: ${node.trustLevel} may not allow external actions`);
+  }
+  if (trustRank(node.trustLevel) <= trustRank("T2") && node.authority.canDelegate) {
+    blockers.push(`${label}: delegation requires T3 or higher`);
+  }
+  if (trustRank(node.trustLevel) <= trustRank("T2") && node.authority.allowedExternalActions?.length) {
+    blockers.push(`${label}: external actions require T3 or higher`);
+  }
+  if (parent && isObject(parent.authority)) {
+    for (const field of ["allowedReads", "allowedWrites", "allowedExternalActions"]) {
+      const parentValues = new Set(parent.authority[field] || []);
+      for (const value of node.authority[field] || []) {
+        if (!parentValues.has(value)) blockers.push(`${label}: authority.${field} entry ${value} exceeds parent scope`);
+      }
+    }
+    if (node.authority.canDelegate && !parent.authority.canDelegate) blockers.push(`${label}: delegation exceeds parent authority`);
+    if (Number.isInteger(parent.authority.maxActiveChildren) && node.authority.maxActiveChildren > parent.authority.maxActiveChildren) {
+      blockers.push(`${label}: maxActiveChildren ${node.authority.maxActiveChildren} exceeds parent budget ${parent.authority.maxActiveChildren}`);
+    }
+  }
+}
+
+function validateRegistry(registry) {
+  const blockers = [];
+  const warnings = [];
+  if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
+  if (registry.schemaVersion !== 1) blockers.push("schemaVersion must be 1");
+  if (!["inactive", "active"].includes(registry.status)) blockers.push("status must be inactive or active");
+  if (!isNonEmptyString(registry.prefix)) blockers.push("prefix must be a non-empty single-line string");
+  if (!isObject(registry.scope)) blockers.push("scope is required");
+  if (!isNonEmptyString(registry.scope?.id)) blockers.push("scope.id must be a non-empty single-line string");
+  if (!SCOPE_KINDS.has(registry.scope?.kind)) blockers.push("scope.kind must be repository, project, program, personal-folder, or custom");
+  if (!isNonEmptyString(registry.scope?.rootRef)) blockers.push("scope.rootRef must be a non-empty single-line reference");
+  if (!isNonEmptyString(registry.scope?.objective)) blockers.push("scope.objective must be a non-empty single-line string");
+  if (!isObject(registry.trustPolicy)) blockers.push("trustPolicy is required");
+  const defaultLevel = registry.trustPolicy?.defaultLevel;
+  const maxLevel = registry.trustPolicy?.maxLevel;
+  if (!TRUST_RANK.has(defaultLevel)) blockers.push("trustPolicy.defaultLevel must be T0-T5");
+  if (!TRUST_RANK.has(maxLevel)) blockers.push("trustPolicy.maxLevel must be T0-T5");
+  if (TRUST_RANK.has(defaultLevel) && TRUST_RANK.has(maxLevel) && trustRank(defaultLevel) > trustRank(maxLevel)) {
+    blockers.push("trustPolicy.defaultLevel may not exceed maxLevel");
+  }
+  if (registry.trustPolicy?.promotionRequiresHumanApproval !== true) {
+    blockers.push("trustPolicy.promotionRequiresHumanApproval must be true");
+  }
+  if (registry.trustPolicy?.childMayExceedParent !== false) blockers.push("trustPolicy.childMayExceedParent must be false");
+  if (!isObject(registry.trustPolicy?.limits)) blockers.push("trustPolicy.limits is required");
+  const maxActiveNodes = registry.trustPolicy?.limits?.maxActiveNodes;
+  const maxDelegationDepth = registry.trustPolicy?.limits?.maxDelegationDepth;
+  if (!Number.isInteger(maxActiveNodes) || maxActiveNodes < 1) blockers.push("trustPolicy.limits.maxActiveNodes must be a positive integer");
+  if (!Number.isInteger(maxDelegationDepth) || maxDelegationDepth < 0) blockers.push("trustPolicy.limits.maxDelegationDepth must be a non-negative integer");
+  if (!Array.isArray(registry.nodes)) blockers.push("nodes must be an array");
+  const nodes = Array.isArray(registry.nodes) ? registry.nodes.filter(isObject) : [];
+  if (Array.isArray(registry.nodes) && nodes.length !== registry.nodes.length) blockers.push("every node must be a JSON object");
+  const nodesById = new Map();
+  for (const node of nodes) {
+    if (!isNonEmptyString(node.id)) {
+      blockers.push("every node requires a single-line id");
+      continue;
+    }
+    if (nodesById.has(node.id)) blockers.push(`duplicate node id: ${node.id}`);
+    nodesById.set(node.id, node);
+  }
+  const bosses = nodes.filter((node) => node.role === "boss");
+  if (bosses.length > 1) blockers.push("only one Boss is allowed");
+  if (registry.status === "active" && bosses.length !== 1) blockers.push("active orchestration requires exactly one Boss");
+  if (registry.status === "inactive" && nodes.length === 0) warnings.push("orchestration is scaffolded but inactive; configure a Boss and nodes before activation");
+
+  for (const node of nodes) {
+    const label = `node ${node.id}`;
+    if (!ROLES.has(node.role)) blockers.push(`${label}: role must be boss, manager, or worker`);
+    if (!STATES.has(node.state)) blockers.push(`${label}: invalid state ${node.state || "<missing>"}`);
+    if (!isNonEmptyString(node.workRef)) blockers.push(`${label}: workRef is required`);
+    if (!isNonEmptyString(node.workKind) || !/^[a-z][a-z0-9-]*$/.test(node.workKind)) blockers.push(`${label}: workKind must be a lowercase slug`);
+    if (!isStringArray(node.governingProtocols, { nonEmpty: true })) blockers.push(`${label}: governingProtocols must be a non-empty string array`);
+    if (!isNonEmptyString(node.label)) blockers.push(`${label}: label is required`);
+    if (!isNonEmptyString(node.objective)) blockers.push(`${label}: objective is required`);
+    if (!Array.isArray(node.dependencies) || !node.dependencies.every(isNonEmptyString)) blockers.push(`${label}: dependencies must be an array of node ids`);
+    const parent = node.parentId ? nodesById.get(node.parentId) : null;
+    if (node.role === "boss" && node.parentId !== null) blockers.push(`${label}: Boss parentId must be null`);
+    if (node.role !== "boss" && !isNonEmptyString(node.parentId)) blockers.push(`${label}: non-Boss nodes require parentId`);
+    if (node.role !== "boss" && isNonEmptyString(node.parentId) && !parent) blockers.push(`${label}: parent ${node.parentId} does not exist`);
+    if (node.role === "manager" && parent?.role !== "boss") blockers.push(`${label}: Manager parent must be the Boss`);
+    const expectedTitle = titleForNode(node, nodesById, registry.prefix || "<PREFIX>");
+    if (!isNonEmptyString(node.title) || (expectedTitle && node.title !== expectedTitle)) {
+      blockers.push(`${label}: title must equal ${expectedTitle || "the registry-derived title"}`);
+    }
+    if (TASK_STATES.has(node.state) && !isNonEmptyString(node.taskId)) blockers.push(`${label}: task-backed state ${node.state} requires taskId`);
+    if (["queued", "eligible"].includes(node.state) && node.taskId) blockers.push(`${label}: graph state ${node.state} must not claim a live taskId`);
+    if (node.state === "working" && !isNonEmptyString(node.nextAction)) blockers.push(`${label}: working state requires nextAction`);
+    if (node.state === "waiting" && !isNonEmptyString(node.waitingOn)) blockers.push(`${label}: waiting state requires waitingOn`);
+    if (node.state === "blocked" && (!isNonEmptyString(node.blocker) || !isNonEmptyString(node.unblockAction))) {
+      blockers.push(`${label}: blocked state requires blocker and unblockAction`);
+    }
+    if (node.state === "ready-for-parent" && !isStringArray(node.handoffEvidence, { nonEmpty: true })) {
+      blockers.push(`${label}: ready-for-parent state requires handoffEvidence`);
+    }
+    if (node.role !== "boss") {
+      if (!isObject(node.completionProfile) || !COMPLETION_TYPES.has(node.completionProfile.type)) {
+        blockers.push(`${label}: completionProfile.type must name a supported profile`);
+      } else if (!isStringArray(node.completionProfile.requiredEvidence, { nonEmpty: true })) {
+        blockers.push(`${label}: completionProfile.requiredEvidence must be non-empty`);
+      }
+    }
+    if (node.state === "terminal") {
+      if (!TERMINAL_DISPOSITIONS.has(node.terminalDisposition)) blockers.push(`${label}: terminal state requires completed, cancelled, or superseded terminalDisposition`);
+      if (!isStringArray(node.completionEvidence, { nonEmpty: true })) blockers.push(`${label}: terminal state requires completionEvidence`);
+    }
+    for (const dependency of node.dependencies || []) {
+      if (!nodesById.has(dependency)) blockers.push(`${label}: dependency ${dependency} does not exist`);
+      if (dependency === node.id) blockers.push(`${label}: node may not depend on itself`);
+    }
+    if (TRUST_RANK.has(defaultLevel) && TRUST_RANK.has(maxLevel)) validateAuthority(node, parent, defaultLevel, maxLevel, blockers);
+  }
+  if (graphHasCycle(nodes, (node) => (node.parentId ? [node.parentId] : []))) blockers.push("parent graph contains a cycle");
+  if (graphHasCycle(nodes, (node) => node.dependencies || [])) blockers.push("dependency graph contains a cycle");
+  if (Number.isInteger(maxDelegationDepth)) {
+    for (const node of nodes) {
+      let depth = 0;
+      let current = node;
+      const seen = new Set();
+      while (current?.parentId && !seen.has(current.id)) {
+        seen.add(current.id);
+        depth += 1;
+        current = nodesById.get(current.parentId);
+      }
+      if (depth > maxDelegationDepth) blockers.push(`node ${node.id}: delegation depth ${depth} exceeds project limit ${maxDelegationDepth}`);
+    }
+  }
+  if (Number.isInteger(maxActiveNodes)) {
+    const activeNodes = nodes.filter((node) => ACTIVE_STATES.has(node.state)).length;
+    if (activeNodes > maxActiveNodes) blockers.push(`${activeNodes} active nodes exceed project limit ${maxActiveNodes}`);
+  }
+  for (const parent of nodes) {
+    if (!isObject(parent.authority) || !Number.isInteger(parent.authority.maxActiveChildren)) continue;
+    const children = nodes.filter((node) => node.parentId === parent.id);
+    const activeChildren = children.filter((node) => ACTIVE_STATES.has(node.state)).length;
+    if (activeChildren > parent.authority.maxActiveChildren) {
+      blockers.push(`node ${parent.id}: ${activeChildren} active children exceed maxActiveChildren ${parent.authority.maxActiveChildren}`);
+    }
+    if (parent.state === "terminal" && children.some((node) => node.state !== "terminal")) {
+      blockers.push(`node ${parent.id}: terminal parent has non-terminal children`);
+    }
+  }
+  return { blockers, warnings, nodes, nodesById };
+}
+
+function printHelp(io) {
+  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [node-id]");
+  io.stdout("");
+  io.stdout("Commands:");
+  io.stdout("  status             Summarize configured project orchestration");
+  io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
+  io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
+  io.stdout("  validate           Validate registry structure, state, trust, and authority");
+  io.stdout("  next               List dependency-eligible nodes");
+  io.stdout("  prompt boss        Print a bounded Boss prompt");
+  io.stdout("  prompt <node-id>   Print a bounded prompt for a configured node");
+  io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
+  io.stdout("");
+  io.stdout("All commands are read-only and never create tasks or mutate external systems.");
+}
+
+function printFindings(io, findings) {
+  io.stdout(`blockers[${findings.blockers.length}]:`);
+  for (const blocker of findings.blockers) io.stdout(`  ${toonString(blocker)}`);
+  io.stdout(`warnings[${findings.warnings.length}]:`);
+  for (const warning of findings.warnings) io.stdout(`  ${toonString(warning)}`);
+}
+
+function runStatus(io) {
+  const loaded = loadRegistry();
+  if (!loaded.exists) {
+    io.stdout('state: "unconfigured"');
+    io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+    io.stdout(renderHelpBlock([`Add ${REGISTRY_REL_PATH} from the scaffold template`, `Run ./${CONFIG.cliName} orchestration hierarchy`]));
+    return 0;
+  }
+  if (loaded.error) {
+    io.stdout('state: "invalid"');
+    io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+    io.stdout(`error: ${toonString(loaded.error)}`);
+    return 1;
+  }
+  const findings = validateRegistry(loaded.registry);
+  const counts = Object.fromEntries([...STATES].map((state) => [state, findings.nodes.filter((node) => node.state === state).length]));
+  io.stdout(`state: ${toonString(loaded.registry.status)}`);
+  io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+  io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
+  io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
+  io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
+  io.stdout(`nodes: ${findings.nodes.length}`);
+  io.stdout(`bosses: ${findings.nodes.filter((node) => node.role === "boss").length}`);
+  io.stdout(`managers: ${findings.nodes.filter((node) => node.role === "manager").length}`);
+  io.stdout(`workers: ${findings.nodes.filter((node) => node.role === "worker").length}`);
+  io.stdout("states:");
+  for (const [state, count] of Object.entries(counts)) io.stdout(`  ${state}: ${count}`);
+  printFindings(io, findings);
+  io.stdout(renderHelpBlock([`Run ./${CONFIG.cliName} orchestration validate`, `Run ./${CONFIG.cliName} orchestration next`]));
+  return findings.blockers.length ? 1 : 0;
+}
+
+function runHierarchy(io) {
+  io.stdout("roles[3]{role,work_shape,title_pattern}:");
+  io.stdout('  "Boss","portfolio","<PREFIX> - Boss"');
+  io.stdout('  "Manager","workstream","<PREFIX> - Manager - <WORK-REF> <area>"');
+  io.stdout('  "Worker","work unit","<PREFIX> - Worker for <PARENT-ROLE> <PARENT-WORK-REF> - <WORK-REF> <responsibility>"');
+  io.stdout("rules[4]:");
+  io.stdout('  "One logical Boss per project"');
+  io.stdout('  "Every live non-Boss task records its immediate parent task ID"');
+  io.stdout('  "Role defines responsibility; trust and authority define permission"');
+  io.stdout('  "Goal chains, research, operations, and artifacts are completion profiles, not separate hierarchies"');
+  return 0;
+}
+
+function runTrust(io) {
+  io.stdout(`levels[${TRUST_LEVELS.length}]{level,name,maximum_default_authority}:`);
+  for (const level of TRUST_LEVELS) io.stdout(`  ${toonString(level.id)},${toonString(level.name)},${toonString(level.authority)}`);
+  io.stdout("rules[4]:");
+  io.stdout('  "A role never grants authority"');
+  io.stdout('  "Children may not exceed parent trust, authority scope, or delegation budget"');
+  io.stdout('  "Promotion requires recorded evidence and configured human approval"');
+  io.stdout('  "Demotion or revocation may be immediate"');
+  return 0;
+}
+
+function runValidate(io) {
+  const loaded = loadRegistry();
+  if (!loaded.exists) {
+    io.stdout('valid: false');
+    io.stdout(`blockers[1]: ${toonString(`missing ${REGISTRY_REL_PATH}`)}`);
+    return 1;
+  }
+  if (loaded.error) {
+    io.stdout('valid: false');
+    io.stdout(`blockers[1]: ${toonString(`invalid JSON: ${loaded.error}`)}`);
+    return 1;
+  }
+  const findings = validateRegistry(loaded.registry);
+  io.stdout(`valid: ${findings.blockers.length === 0}`);
+  io.stdout(`state: ${toonString(loaded.registry.status)}`);
+  io.stdout(`nodes: ${findings.nodes.length}`);
+  printFindings(io, findings);
+  return findings.blockers.length ? 1 : 0;
+}
+
+function dependenciesSatisfied(node, nodesById) {
+  return (node.dependencies || []).every((dependency) => nodesById.get(dependency)?.state === "terminal");
+}
+
+function runNext(io) {
+  const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stdout("eligible: 0");
+    io.stdout(`reason: ${toonString(!loaded.exists ? `missing ${REGISTRY_REL_PATH}` : `invalid JSON: ${loaded.error}`)}`);
+    return 1;
+  }
+  const findings = validateRegistry(loaded.registry);
+  if (findings.blockers.length) {
+    io.stdout("eligible: 0");
+    printFindings(io, findings);
+    return 1;
+  }
+  if (loaded.registry.status !== "active") {
+    io.stdout("eligible: 0");
+    io.stdout('reason: "orchestration is inactive"');
+    return 0;
+  }
+  const eligible = findings.nodes.filter((node) => node.role !== "boss" && ["queued", "eligible"].includes(node.state) && dependenciesSatisfied(node, findings.nodesById));
+  io.stdout(`eligible: ${eligible.length}`);
+  io.stdout(`nodes[${eligible.length}]{id,role,work_ref,work_kind,state,title}:`);
+  for (const node of eligible) {
+    io.stdout(`  ${toonString(node.id)},${toonString(node.role)},${toonString(node.workRef)},${toonString(node.workKind)},${toonString(node.state)},${toonString(node.title)}`);
+  }
+  if (!eligible.length) io.stdout('message: "No dependency-eligible nodes"');
+  return 0;
+}
+
+function roleResponsibilities(role) {
+  if (role === "boss") return [
+    "Own portfolio health, dependency graph, Manager boundaries, escalation, and fan-in order.",
+    "Create or activate Managers only within the configured trust and delegation envelope."
+  ];
+  if (role === "manager") return [
+    "Own this bounded workstream, its child graph, evidence review, and parent handoff.",
+    "Create or activate Workers only when delegation is authorized and work is independently scoped."
+  ];
+  return [
+    "Own one bounded, independently verifiable outcome.",
+    "Report progress, risks, evidence, and handoff to the immediate parent."
+  ];
+}
+
+function syntheticBoss(registry) {
+  return {
+    id: "boss",
+    role: "boss",
+    workRef: "portfolio",
+    workKind: "governance",
+    governingProtocols: ["AGENT-ORCHESTRATION"],
+    label: "Project control plane",
+    title: `${registry.prefix} - Boss`,
+    taskId: null,
+    parentId: null,
+    state: "eligible",
+    trustLevel: registry.trustPolicy.defaultLevel,
+    authority: { allowedReads: ["project"], allowedWrites: [], allowedExternalActions: [], approvalGates: ["activation"], canDelegate: false, maxActiveChildren: 0, stopConditions: ["authority-gap"] },
+    objective: "Establish the project control plane before activating child work.",
+    dependencies: []
+  };
+}
+
+function resolvePromptNode(nodeId, loaded, findings) {
+  const configured = findings.nodesById.get(nodeId);
+  if (configured) return configured;
+  if (nodeId.toLowerCase() === "boss" && loaded.registry.status === "inactive" && findings.nodes.length === 0) return syntheticBoss(loaded.registry);
+  return null;
+}
+
+function buildPromptLines(node, parent) {
+  const lines = [];
+  lines.push(`Title: ${node.title}`);
+  lines.push(`Node ID: ${node.id}`);
+  lines.push(`Work reference: ${node.workRef}`);
+  lines.push(`Work kind: ${node.workKind}`);
+  lines.push(`Governing protocols: ${node.governingProtocols.join(", ")}`);
+  lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
+  lines.push(`State: ${node.state}`);
+  lines.push(`Trust level: ${node.trustLevel}`);
+  if (node.trustApproval) lines.push(`Trust approval: ${node.trustApproval.approvedBy} at ${node.trustApproval.approvedAt}`);
+  lines.push(`Completion profile: ${node.completionProfile?.type || "portfolio-control"}`);
+  lines.push("");
+  lines.push("Authority envelope:");
+  lines.push(`- Allowed reads: ${(node.authority.allowedReads || []).join(", ") || "none"}`);
+  lines.push(`- Allowed writes: ${(node.authority.allowedWrites || []).join(", ") || "none"}`);
+  lines.push(`- Allowed external actions: ${(node.authority.allowedExternalActions || []).join(", ") || "none"}`);
+  lines.push(`- Approval gates: ${(node.authority.approvalGates || []).join(", ") || "none"}`);
+  lines.push(`- Delegation: ${node.authority.canDelegate ? `allowed, max ${node.authority.maxActiveChildren} active children` : "not allowed"}`);
+  lines.push(`- Stop conditions: ${(node.authority.stopConditions || []).join(", ") || "none"}`);
+  lines.push("");
+  lines.push("Objective:");
+  lines.push(node.objective);
+  lines.push("");
+  lines.push("Role:");
+  for (const responsibility of roleResponsibilities(node.role)) lines.push(`- ${responsibility}`);
+  lines.push("- Role does not expand the authority envelope.");
+  lines.push("");
+  lines.push("First action:");
+  lines.push("- Read project instructions and governing domain protocols, confirm dependency inputs, then return a concise plan with target surfaces, risks, verification, evidence, and exit criteria before substantial work.");
+  return lines;
+}
+
+function loadPromptTarget(nodeId, io) {
+  if (!nodeId) {
+    renderUsageError(io, {
+      code: "missing-node-id",
+      command: "orchestration prompt",
+      message: "Missing node id",
+      hints: [`Run ./${CONFIG.cliName} orchestration prompt boss`, `Run ./${CONFIG.cliName} orchestration next`]
+    });
+    return { code: 2 };
+  }
+  const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stderr(!loaded.exists ? `Missing ${REGISTRY_REL_PATH}` : `Invalid ${REGISTRY_REL_PATH}: ${loaded.error}`);
+    return { code: 1 };
+  }
+  const findings = validateRegistry(loaded.registry);
+  if (findings.blockers.length) {
+    io.stderr("Orchestration registry has blockers; run orchestration validate.");
+    return { code: 1 };
+  }
+  const node = resolvePromptNode(nodeId, loaded, findings);
+  if (!node) {
+    io.stderr(`Orchestration node not found: ${nodeId}`);
+    return { code: 1 };
+  }
+  if (node.state === "terminal") {
+    io.stderr(`Node ${node.id} is terminal and should not be launched again without a successor node.`);
+    return { code: 1 };
+  }
+  if (node.state === "queued" && !dependenciesSatisfied(node, findings.nodesById)) {
+    io.stderr(`Node ${node.id} is not dependency-eligible.`);
+    return { code: 1 };
+  }
+  const parent = node.parentId ? findings.nodesById.get(node.parentId) : null;
+  return { code: 0, node, parent, findings, loaded };
+}
+
+function runPrompt(nodeId, io) {
+  const target = loadPromptTarget(nodeId, io);
+  if (target.code !== 0) return target.code;
+  for (const line of buildPromptLines(target.node, target.parent)) io.stdout(line);
+  return 0;
+}
+
+function runLaunchSpec(nodeId, io) {
+  const target = loadPromptTarget(nodeId, io);
+  if (target.code !== 0) return target.code;
+  const { node, parent, findings, loaded } = target;
+  if (!["queued", "eligible"].includes(node.state) || node.taskId) {
+    io.stderr(`Node ${node.id} already has task state; launch-spec only materializes queued or eligible nodes without taskId.`);
+    return 1;
+  }
+  if (parent && !parent.taskId) {
+    io.stderr(`Node ${node.id} cannot launch before parent ${parent.id} has a taskId.`);
+    return 1;
+  }
+  if (!dependenciesSatisfied(node, findings.nodesById)) {
+    io.stderr(`Node ${node.id} cannot launch before all dependencies are terminal.`);
+    return 1;
+  }
+  if (loaded.registry.status !== "active" && node.role !== "boss") {
+    io.stderr(`Node ${node.id} cannot launch while project orchestration is inactive.`);
+    return 1;
+  }
+  if (parent && (!parent.authority.canDelegate || trustRank(parent.trustLevel) < trustRank("T3"))) {
+    io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} lacks T3 delegation authority.`);
+    return 1;
+  }
+  if (parent) {
+    const activeSiblings = findings.nodes.filter((candidate) => candidate.parentId === parent.id && ACTIVE_STATES.has(candidate.state)).length;
+    if (activeSiblings >= parent.authority.maxActiveChildren) {
+      io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} has exhausted its active-child budget.`);
+      return 1;
+    }
+  }
+  const activeNodes = findings.nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state)).length;
+  if (activeNodes >= loaded.registry.trustPolicy.limits.maxActiveNodes) {
+    io.stderr(`Node ${node.id} cannot launch because the project active-node budget is exhausted.`);
+    return 1;
+  }
+  const configured = findings.nodesById.has(node.id);
+  io.stdout(JSON.stringify({
+    schemaVersion: 1,
+    operation: "create-task",
+    nodeId: node.id,
+    role: node.role,
+    title: node.title,
+    parentTaskId: parent?.taskId || null,
+    trustLevel: node.trustLevel,
+    authority: node.authority,
+    prompt: buildPromptLines(node, parent).join("\n"),
+    callback: {
+      registry: REGISTRY_REL_PATH,
+      mode: configured ? "update-node" : "insert-node",
+      requiredUpdates: configured
+        ? ["taskId", "state=working", "nextAction"]
+        : ["insert configured node", "taskId", "state=working", "nextAction"]
+    }
+  }, null, 2));
+  return 0;
+}
+
+export async function runOrchestration(argv, io) {
+  const [command = "status", ...rest] = argv;
+  if (argv.includes("--help") || argv.includes("-h") || command === "help") {
+    printHelp(io);
+    return 0;
+  }
+  switch (command) {
+    case "status":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration status", hints: [`Run ./${CONFIG.cliName} orchestration status`] })) return 2;
+      return runStatus(io);
+    case "hierarchy":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration hierarchy", hints: [`Run ./${CONFIG.cliName} orchestration hierarchy`] })) return 2;
+      return runHierarchy(io);
+    case "trust":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration trust", hints: [`Run ./${CONFIG.cliName} orchestration trust`] })) return 2;
+      return runTrust(io);
+    case "validate":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration validate", hints: [`Run ./${CONFIG.cliName} orchestration validate`] })) return 2;
+      return runValidate(io);
+    case "next":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration next", hints: [`Run ./${CONFIG.cliName} orchestration next`] })) return 2;
+      return runNext(io);
+    case "prompt":
+      if (rest.length > 1 || rest[0]?.startsWith("-")) {
+        renderUsageError(io, {
+          code: "invalid-orchestration-prompt-arguments",
+          command: "orchestration prompt",
+          message: "Prompt accepts exactly one node id",
+          details: rest,
+          hints: [`Run ./${CONFIG.cliName} orchestration prompt <node-id>`]
+        });
+        return 2;
+      }
+      return runPrompt(rest[0], io);
+    case "launch-spec":
+      if (rest.length !== 1 || rest[0]?.startsWith("-")) {
+        renderUsageError(io, {
+          code: "invalid-orchestration-launch-spec-arguments",
+          command: "orchestration launch-spec",
+          message: "launch-spec accepts exactly one node id",
+          details: rest,
+          hints: [`Run ./${CONFIG.cliName} orchestration launch-spec <node-id>`]
+        });
+        return 2;
+      }
+      return runLaunchSpec(rest[0], io);
+    default:
+      renderUsageError(io, {
+        code: "unknown-orchestration-command",
+        command: "orchestration",
+        message: `Unknown orchestration command: ${command}`,
+        hints: [`Run ./${CONFIG.cliName} orchestration help`]
+      });
+      return 2;
+  }
+}

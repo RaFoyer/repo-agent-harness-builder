@@ -40,16 +40,18 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - Repository-scoped CLI and connector authentication profiles, browser login boundaries, and config-root isolation: read `references/external-authority-and-connections.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
+- Project-wide Boss/Manager/Worker delegation, progressive autonomy, authority envelopes, budgets, lifecycle, completion profiles, and client launch contracts: read `references/project-orchestration.md`.
 - Ticket-backed implementation goal chains with merge, verification, and handoff evidence: read `references/goal-chain-loop.md`.
 - Hooks, intent authority, generated artifacts, and evidence/provenance maps: read `references/advanced-patterns.md`.
 
 ## Bundled Assets
 
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, protocol templates, no-mistakes repo policy, and setup script.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
-- `assets/templates/goal-chain/`: implementation goal-chain/graph, orchestration ledger, orchestrator/subgoal prompts, goal-start prompt, and handoff templates.
+- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust and authority envelopes.
+- `assets/templates/goal-chain/`: ticket-backed implementation goal-chain/graph, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
 - `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, and goal-chain-loop skill templates plus agent-client install guidance.
 
 Use placeholders consistently:

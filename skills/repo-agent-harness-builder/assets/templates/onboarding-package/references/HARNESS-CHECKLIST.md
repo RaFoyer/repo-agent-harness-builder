@@ -65,7 +65,8 @@ Scaffold as inactive when plausible:
 - secrets handling
 - Drive/email/SharePoint/document/database connections
 - automations and heartbeats
-- goal-chain workflows, including bundled `skills/goal-chain-loop/SKILL.md` for graph orchestration
+- project-wide orchestration with registry-backed roles, lifecycle, trust, authority, budgets, prompts, and client launch contracts
+- goal-chain workflows, including bundled `skills/goal-chain-loop/SKILL.md` for repository-merge graphs and evidence
 - project tracker
 - no-mistakes setup, if the repository cannot use the default generated flow
 - CI, branch promotion, deploy readiness
@@ -74,7 +75,7 @@ Scaffold as inactive when plausible:
 - brand identity
 - evidence and provenance maps
 - hooks and intent authority
-- multi-agent workflow
+- domain-specific multi-agent rules that compose with project orchestration
 - data/database governance
 - repo-agent handoff operations
 - provider setup

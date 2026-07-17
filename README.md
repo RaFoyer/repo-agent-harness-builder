@@ -162,11 +162,14 @@ The skill can help with:
   precommit, verify, doctor, checklist, browser QA, secrets, connection
   commands, connector auth-profile planning, design status, optional Lavish
   review/tracker-capture commands, branch-aware no-mistakes status/setup with
-  optional local agent pinning, skill/self checks, and goal-chain helpers
-- loops, goal chains, and recurring work definitions with bounded verification
-  and stop rules
-- bundled goal-chain-loop skill assets for orchestration threads, subgoal
-  prompts, ledgers, graph templates, and handoff records
+  optional local agent pinning, skill/self checks, project orchestration
+  validation/launch contracts, and goal-chain helpers
+- project-wide Boss/Manager/Worker orchestration with independent lifecycle,
+  trust, authority, budget, and completion-profile controls
+- goal chains and recurring work definitions that compose with the general
+  orchestration layer instead of defining a software-only hierarchy
+- bundled orchestration and goal-chain assets for prompts, registries, ledgers,
+  graph templates, and handoff records
 
 ## Build The Portable Package
 

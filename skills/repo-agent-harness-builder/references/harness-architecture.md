@@ -15,6 +15,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 | CLI facade | `./{{CLI_NAME}}`, `apps/cli/*` | Deterministic repeatable tasks |
 | Agent CLI ergonomics | `AGENT-CLI-ERGONOMICS.md` | Content-first, token-aware CLI output contract |
 | Connection registry | `ops/connections.json` | Value-safe metadata for external authorities and repo-scoped connector auth profiles |
+| Orchestration registry | `ops/orchestration.json` | Optional project-wide hierarchy, lifecycle, trust, authority, and evidence state |
 | Onboarding package | `START-HERE.md`, `AGENT-HANDOFF.md`, `skills/*` | Pre-clone and first-use bridge |
 | Guardrails | preflight, precommit, no-mistakes, CI, secrets, tracker | Safety and consistency checks |
 | Advanced modules | hooks, intent authority, evidence maps | Scale patterns for complex repos |
@@ -27,9 +28,14 @@ A repo-agent harness gives future agents a reliable operating environment inside
 - Protocols have stable IDs, review dates, related protocols, and verification sections.
 - The CLI has a content-first no-args home view, structured usage errors, and `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, optional `lavish`, and `precommit` before domain-specific commands.
 - Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `CONNECTOR-AUTH-PROFILES.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
+- Harnesses that need structured delegation can carry `AGENT-ORCHESTRATION.md`,
+  `ops/orchestration.json`, the read-only `orchestration` CLI, and generic
+  Boss/Manager/Worker prompt and ledger templates. The role hierarchy stays
+  independent from trust, authority, lifecycle, and work domain.
 - Repos with ticket-backed implementation graphs can carry `GOAL-CHAIN.md`,
   the read-only `goals` CLI, and bundled `goal-chain-loop` skill templates for
-  orchestrator/subgoal handoffs.
+  repository-merge handoffs. Goal chains compose with project orchestration;
+  they do not own the universal hierarchy.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.
 

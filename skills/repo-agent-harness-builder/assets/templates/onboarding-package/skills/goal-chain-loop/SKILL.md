@@ -7,12 +7,13 @@ description: Use when a user wants to orchestrate ticket-backed implementation g
 
 ## Overview
 
-Use this skill to turn product or engineering work into a bounded graph of ticket-backed goals. The core invariant is that an orchestration thread owns the graph, fans out only independent subgoals, tracks thread/model/base/evidence state, fans results back in through verified PRs, and starts dependent work only from current shared state.
+Use this skill to turn product or engineering work into a bounded graph of ticket-backed goals. It defines the `repository-merge` execution and evidence profile: fan out only independent work, track base/branch/PR/verification state, fan results back in through verified merges, and start dependent work only from current shared state. When `AGENT-ORCHESTRATION.md` and `ops/orchestration.json` exist, they own Boss/Manager/Worker roles, titles, parentage, lifecycle, trust, authority, and delegation budgets.
 
 ## Route The Request
 
 - **Create or repair a graph:** read the tracker, existing roadmap/status docs, and `references/goal-chain-protocol.md`; then produce or update the durable implementation graph.
-- **Start an orchestration thread:** use `assets/orchestrator-thread-prompt.txt`; the orchestrator owns dependency graphing, thread policy, model recommendations, fan-out/fan-in, and the ledger.
+- **Specialize a Boss task for goal-chain work:** start from the registry launch spec, then add `assets/orchestrator-thread-prompt.txt` for dependency graphing, repository state, fan-out/fan-in, and merge evidence.
+- **Specialize a Manager task for goal-chain work:** start from the registry launch spec, then add `assets/manager-thread-prompt.txt` for one ticket-backed workstream and its Worker graph.
 - **Plan orchestration:** use `assets/orchestration-ledger-template.md` to record graph nodes, dependencies, thread IDs, model/effort recommendations, bases, status, PRs, verification, and blockers.
 - **Start a subgoal thread:** use `assets/subgoal-thread-prompt.txt`; fill it with repository path, base branch or merge commit, issue references, write boundaries, dependency contracts, verification commands, and the expected first plan.
 - **Close or hand off a goal:** use `assets/handoff-template.md`; do not call the goal complete without merged PR/commit evidence, issue links, verification evidence, residual risks, and dependent-node unlocks.
@@ -24,7 +25,8 @@ Use this skill to turn product or engineering work into a bounded graph of ticke
 Preserve these rules unless the scoped project instructions explicitly say otherwise:
 
 - The canonical tracker owns scope, acceptance criteria, and issue/PR evidence.
-- The orchestration thread owns dependency analysis, thread creation prompts, status reads, steering, merge sequencing, and the final graph ledger.
+- When project orchestration is active, the registry owns roles and parentage; this skill adds ticket, branch, merge, and verification requirements without expanding authority.
+- The goal-chain evidence ledger supplements rather than replaces `ops/orchestration.json`.
 - Each subgoal has one objective, explicit ticket references, disjoint or named write boundaries, dependency inputs, verification expectations, and a named exit condition.
 - Parallel nodes must have stable interfaces and low merge conflict risk. Shared contracts, migrations, design decisions, or overlapping files usually become a prerequisite node.
 - A dependent node starts from the current integration branch only after its prerequisite PRs are merged and visible, unless the graph explicitly allows speculative work.
@@ -45,7 +47,7 @@ When creating or repairing a graph:
 
 ## Orchestrate Threads
 
-Use actual Codex thread tools only when the user explicitly wants durable Codex threads created or managed. Otherwise, produce the graph and copy-ready subgoal prompts. For transient helper work inside one turn, prefer available subagent/delegation tools over user-owned Codex threads.
+Use actual Codex thread tools only when the user explicitly wants durable Codex threads created or managed. Otherwise, produce the graph and copy-ready goal-chain prompt specializations. When a repo-local orchestration CLI exists, use its validated launch spec as the base prompt. For transient helper work inside one turn, prefer available subagent/delegation tools over user-owned Codex threads.
 
 When thread tools are available, the orchestrator may create or fork worktree threads, send follow-up prompts, read thread summaries, rename/pin/archive threads, and hand off threads. Record any created thread IDs in the ledger. Keep orchestration on the strongest practical reasoning setting. Recommend model/effort by task risk, but only pass model overrides when the user explicitly requested or approved that policy.
 
@@ -80,7 +82,8 @@ Use `assets/handoff-template.md`. A closing note should be short and concrete: n
 
 - Read `references/goal-chain-protocol.md` when designing, auditing, or materially revising a graph.
 - Copy from `assets/goal-graph-template.md` when creating a durable graph document.
-- Copy from `assets/orchestrator-thread-prompt.txt` when starting the orchestration thread.
+- Copy from `assets/orchestrator-thread-prompt.txt` to specialize a Boss launch spec for repository-merge work.
+- Copy from `assets/manager-thread-prompt.txt` to specialize a Manager launch spec for repository-merge work.
 - Copy from `assets/orchestration-ledger-template.md` when running an orchestration thread.
 - Copy from `assets/subgoal-thread-prompt.txt` when starting a new implementation thread.
 - Copy from `assets/handoff-template.md` when closing a goal or queueing the next one.

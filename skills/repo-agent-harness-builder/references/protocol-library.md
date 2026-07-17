@@ -53,6 +53,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Starting a session | `SESSION-PREFLIGHT.md` |
 | Adding or changing docs | `DOCUMENT-LIFECYCLE.md`, `DOCUMENT-QUALITY.md` |
 | Running repo commands | `CLI-INTERFACE.md` |
+| Structuring project-wide delegation or progressive autonomy | `AGENT-ORCHESTRATION.md` |
 | Changing agent-facing CLI output | `CLI-INTERFACE.md`, `AGENT-CLI-ERGONOMICS.md` |
 | Preparing a commit | `PRE-COMMIT.md` |
 | Preparing a PR or validating a branch through no-mistakes | `NO-MISTAKES-GATE.md` |

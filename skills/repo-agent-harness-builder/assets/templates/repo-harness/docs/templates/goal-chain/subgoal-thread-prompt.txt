@@ -1,10 +1,15 @@
-Goal node <ID>: <Title>
+Goal-chain Worker specialization <ID>: <Title>
+
+Title: <exact title from orchestration launch spec>
+Immediate parent task ID: <from orchestration launch spec>
+Trust and authority: <from orchestration launch spec; this prompt does not expand them>
 
 First action: read the repository instructions, run preflight if available, inspect issue #<id>, and return a concise implementation plan before large edits.
 
 Repository: <path>
 Base: <branch> at <merge commit or current HEAD>
-Orchestration thread: <thread id or description>
+Boss task: <task id or description>
+Manager task: <task id or description>
 Graph document: <path or tracker link>
 
 Issues:
@@ -24,6 +29,8 @@ Work boundaries:
 - Avoid: <non-goals and sibling-owned areas>
 - Do not depend on unmerged sibling PRs unless the orchestrator explicitly says so.
 - Keep secrets out of repo, chat, logs, tickets, commits, and CI.
+- Report progress, risks, test evidence, and handoff packets to the Manager, not directly to the Boss except for material risk.
+- Follow `AGENT-ORCHESTRATION.md` for role, lifecycle, trust, authority, and delegation limits.
 
 Initial protocol:
 1. Read AGENTS.md and any repo instruction index.

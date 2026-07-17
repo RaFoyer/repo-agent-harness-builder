@@ -4,11 +4,15 @@
 
 This document defines the implementation graph, orchestration rules, goal boundaries, verification expectations, and handoff/fan-in policy.
 
-## Orchestration Thread
+## Project Orchestration Composition
 
 Owner:
 
 Thread:
+
+Orchestration registry:
+
+Boss node and task:
 
 Model/effort policy:
 
@@ -17,6 +21,8 @@ Allowed thread policy:
 Integration branch:
 
 Canonical tracker:
+
+When delegation is active, every goal maps to an orchestration node whose launch spec supplies the exact title, immediate parent, trust ceiling, authority envelope, and completion profile.
 
 ## Graph Rules
 
@@ -39,9 +45,10 @@ Parallel nodes must have:
 
 ```mermaid
 flowchart TD
-  O["Orchestration thread"] --> G1["G1: <contract or prerequisite>"]
-  G1 --> G2["G2: <parallel node>"]
-  G1 --> G3["G3: <parallel node>"]
+  O["Boss orchestration node"] --> M["Manager workstream node"]
+  M --> G1["G1: <contract or prerequisite>"]
+  G1 --> G2["G2: <parallel Worker>"]
+  G1 --> G3["G3: <parallel Worker>"]
   G2 --> F["Fan-in reconciliation"]
   G3 --> F
   F --> G4["G4: <dependent validation>"]
@@ -54,6 +61,8 @@ Objective:
 Issues:
 
 Execution mode:
+
+Orchestration node ID:
 
 Recommended model/effort:
 

@@ -48,7 +48,8 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Secrets handling | inactive | `./{{CLI_NAME}} secrets help`; activate when secrets exist |
 | External authority connections | inactive | `ops/protocols/EXTERNAL-SYSTEMS.md`; activate per provider |
 | Automations/heartbeats | inactive | `ops/protocols/AUTOMATIONS.md`; activate with run log and cadence |
-| Goal-chain workflow | inactive | `ops/protocols/GOAL-CHAIN.md`, `docs/templates/goal-chain/`, `./{{CLI_NAME}} goals status`; activate when tracker, integration branch, and verification gates exist |
+| Project orchestration | inactive | `ops/protocols/AGENT-ORCHESTRATION.md`, `ops/orchestration.json`, `docs/templates/orchestration/`, `./{{CLI_NAME}} orchestration status`; activate when scope, owner, trust policy, authority envelopes, budgets, and evidence profiles are configured |
+| Goal-chain workflow | inactive | `ops/protocols/GOAL-CHAIN.md`, `docs/templates/goal-chain/`, `./{{CLI_NAME}} goals status`; compose with project orchestration when using delegated tasks |
 | Project tracker | inactive | Add `PROJECT-TRACKING.md` and CLI wrapper when tracker is canonical |
 | CI/branch/deploy | inactive | Add CI and branch-promotion protocols when environments exist |
 | QA/browser | inactive | `ops/protocols/QA-BROWSER.md`, `./{{CLI_NAME}} qa status`; activate for browser/UI apps |

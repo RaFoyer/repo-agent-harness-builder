@@ -1,4 +1,6 @@
-# Orchestration Ledger
+# Goal Chain Evidence Ledger
+
+`ops/orchestration.json` is authoritative for role, task parentage, lifecycle, trust, authority, dependencies, and delegation budgets. This ledger supplements it with repository-merge evidence.
 
 ## Graph State
 
@@ -9,6 +11,8 @@ Current integration commit:
 Tracker:
 
 Graph doc:
+
+Orchestration registry:
 
 Last reconciled:
 
@@ -22,23 +26,22 @@ Model override policy:
 
 Approval gates:
 
-Status vocabulary:
+Delivery status vocabulary:
 - planned
-- ready
-- running
-- blocked
-- needs-review
+- branch-active
 - pr-open
 - merged
+- verified
+- reconciled
 - superseded
-- validation
-- complete
+
+Lifecycle state remains in `ops/orchestration.json`; do not infer it from delivery status.
 
 ## Nodes
 
-| Node | Goal | Status | Thread | Env | Base | Model/effort | Blocked by | Blocks | Branch | PR | Merge commit | Verification | Last read |
+| Goal | Orchestration node | Delivery status | Task | Env | Base | Model/effort | Blocked by | Blocks | Branch | PR | Merge commit | Verification | Last read |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| G1 | <title> | planned | <thread id> | worktree | <branch@sha> | <recommendation> | none | G2, G3 | <branch> | <pr> | <sha> | <evidence> | <time> |
+| G1 | <node id> | planned | <task id> | worktree | <branch@sha> | <recommendation> | none | G2, G3 | <branch> | <pr> | <sha> | <evidence> | <time> |
 
 ## Fan-Out Sets
 
