@@ -184,6 +184,87 @@ function hasDelegationAuthority(node) {
   return isObject(node?.authority) && node.authority.canDelegate === true && trustRank(node.trustLevel) >= trustRank("T3");
 }
 
+function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, maxActiveNodes, mode }) {
+  const blockers = [];
+  const label = `node ${node.id || "<missing-id>"}`;
+  const hasReservation = hasLaunchReservation(node);
+  const requiresActiveRegistry = mode === "reservation" || node.role !== "boss";
+  const block = (code, message) => blockers.push({ code, message: `${label}: ${message}` });
+
+  if (!isNonEmptyString(node.id)) block("node-id", "launch eligibility requires a single-line node id");
+  if (!Array.isArray(node.dependencies) || !dependenciesSatisfied(node, nodesById)) {
+    block("dependencies", "launch eligibility requires completed dependencies");
+  }
+  if (requiresActiveRegistry && registry.status !== "active") {
+    block("registry-status", "launch eligibility requires active orchestration");
+  }
+  if (!["queued", "eligible"].includes(node.state) || isNonEmptyString(node.taskId)) {
+    block("task-identity", "launch eligibility requires a queued or eligible node without taskId");
+  }
+  if (mode === "launch" && hasReservation) {
+    block("reservation", "launch eligibility requires no pending launch reservation");
+  }
+  if (mode === "reservation" && !hasReservation) {
+    block("reservation", "launch eligibility requires a pending launch reservation");
+  }
+
+  if (node.role !== "boss") {
+    if (!isTaskBackedNode(parent)) {
+      block("parent-task", `launch eligibility requires task-backed parent ${node.parentId || "<missing-parent>"}`);
+    }
+    if (!MANAGING_STATES.has(parent?.state)) {
+      block("parent-state", `launch eligibility requires parent ${node.parentId || "<missing-parent>"} in an active managing state`);
+    }
+    if (!hasDelegationAuthority(parent)) {
+      block("parent-authority", `launch eligibility requires parent ${node.parentId || "<missing-parent>"} with T3 delegation authority`);
+    }
+    for (const gate of arrayOrEmpty(parent?.authority?.approvalGates)) {
+      if (!arrayOrEmpty(node.authority?.approvalGates).includes(gate)) {
+        block("approval-gate", `launch eligibility requires parent approval gate ${gate}`);
+      }
+    }
+    if (Number.isInteger(parent?.authority?.maxActiveChildren)) {
+      const occupiedChildren = nodes.filter((candidate) => candidate.parentId === parent.id && (ACTIVE_STATES.has(candidate.state) || hasLaunchReservation(candidate))).length;
+      const exceedsCapacity = mode === "reservation"
+        ? occupiedChildren > parent.authority.maxActiveChildren
+        : occupiedChildren >= parent.authority.maxActiveChildren;
+      if (exceedsCapacity) block("parent-capacity", `launch eligibility exceeds parent ${parent.id} active-child budget`);
+    }
+  }
+
+  if (Number.isInteger(maxActiveNodes)) {
+    const occupiedNodes = nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state) || hasLaunchReservation(candidate)).length;
+    const exceedsCapacity = mode === "reservation" ? occupiedNodes > maxActiveNodes : occupiedNodes >= maxActiveNodes;
+    if (exceedsCapacity) block("project-capacity", "launch eligibility exceeds project active-node budget");
+  }
+  return blockers;
+}
+
+function launchSpecFailure(node, parent, blocker) {
+  switch (blocker.code) {
+    case "task-identity":
+      return `Node ${node.id} already has task state; launch-spec only materializes queued or eligible nodes without taskId.`;
+    case "parent-task":
+      return `Node ${node.id} cannot launch before parent ${parent?.id || node.parentId} has a taskId.`;
+    case "parent-state":
+      return `Node ${node.id} cannot launch because parent ${parent?.id || node.parentId} is not in an active managing state.`;
+    case "dependencies":
+      return `Node ${node.id} cannot launch before all dependencies are completed.`;
+    case "reservation":
+      return `Node ${node.id} has a pending launch reservation and cannot be materialized again.`;
+    case "registry-status":
+      return `Node ${node.id} cannot launch while project orchestration is inactive.`;
+    case "parent-authority":
+      return `Node ${node.id} cannot launch because parent ${parent?.id || node.parentId} lacks T3 delegation authority.`;
+    case "parent-capacity":
+      return `Node ${node.id} cannot launch because parent ${parent?.id || node.parentId} has exhausted its active-child budget.`;
+    case "project-capacity":
+      return `Node ${node.id} cannot launch because the project active-node budget is exhausted.`;
+    default:
+      return blocker.message;
+  }
+}
+
 function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
   const label = `node ${node.id || "<missing-id>"}`;
   if (!TRUST_RANK.has(node.trustLevel)) {
@@ -350,6 +431,15 @@ function validateRegistry(registry) {
             blockers.push(`${label}: launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity`);
           }
         }
+        blockers.push(...launchEligibilityBlockers({
+          registry,
+          node,
+          parent,
+          nodes,
+          nodesById,
+          maxActiveNodes,
+          mode: "reservation"
+        }).map((blocker) => blocker.message));
       }
     }
     if (node.role !== "boss" && isTaskBackedNode(node) && parent && !isTaskBackedNode(parent)) {
@@ -707,44 +797,17 @@ function runLaunchSpec(nodeId, io) {
   const target = loadPromptTarget(nodeId, io);
   if (target.code !== 0) return target.code;
   const { node, parent, findings, loaded } = target;
-  if (!["queued", "eligible"].includes(node.state) || node.taskId) {
-    io.stderr(`Node ${node.id} already has task state; launch-spec only materializes queued or eligible nodes without taskId.`);
-    return 1;
-  }
-  if (parent && !parent.taskId) {
-    io.stderr(`Node ${node.id} cannot launch before parent ${parent.id} has a taskId.`);
-    return 1;
-  }
-  if (parent && !MANAGING_STATES.has(parent.state)) {
-    io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} is not in an active managing state.`);
-    return 1;
-  }
-  if (!dependenciesSatisfied(node, findings.nodesById)) {
-    io.stderr(`Node ${node.id} cannot launch before all dependencies are completed.`);
-    return 1;
-  }
-  if (hasLaunchReservation(node)) {
-    io.stderr(`Node ${node.id} has a pending launch reservation and cannot be materialized again.`);
-    return 1;
-  }
-  if (loaded.registry.status !== "active" && node.role !== "boss") {
-    io.stderr(`Node ${node.id} cannot launch while project orchestration is inactive.`);
-    return 1;
-  }
-  if (parent && !hasDelegationAuthority(parent)) {
-    io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} lacks T3 delegation authority.`);
-    return 1;
-  }
-  if (parent) {
-    const occupiedSiblings = findings.nodes.filter((candidate) => candidate.parentId === parent.id && (ACTIVE_STATES.has(candidate.state) || hasLaunchReservation(candidate))).length;
-    if (occupiedSiblings >= parent.authority.maxActiveChildren) {
-      io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} has exhausted its active-child budget.`);
-      return 1;
-    }
-  }
-  const occupiedNodes = findings.nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state) || hasLaunchReservation(candidate)).length;
-  if (occupiedNodes >= loaded.registry.trustPolicy.limits.maxActiveNodes) {
-    io.stderr(`Node ${node.id} cannot launch because the project active-node budget is exhausted.`);
+  const eligibilityBlocker = launchEligibilityBlockers({
+    registry: loaded.registry,
+    node,
+    parent,
+    nodes: findings.nodes,
+    nodesById: findings.nodesById,
+    maxActiveNodes: loaded.registry.trustPolicy.limits.maxActiveNodes,
+    mode: "launch"
+  })[0];
+  if (eligibilityBlocker) {
+    io.stderr(launchSpecFailure(node, parent, eligibilityBlocker));
     return 1;
   }
   const configured = findings.nodesById.has(node.id);

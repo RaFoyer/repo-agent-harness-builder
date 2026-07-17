@@ -96,6 +96,42 @@ function orchestrationAuthority({
   };
 }
 
+function selfConsistentReservationValidity(registry, node, parent) {
+  const activeStates = new Set(["working", "waiting", "blocked", "ready-for-parent"]);
+  const hasReservation = (candidate) => Boolean(candidate.launchReservation && typeof candidate.launchReservation === "object" && !Array.isArray(candidate.launchReservation));
+  const activeNodeCount = registry.nodes.filter((candidate) => activeStates.has(candidate.state)).length;
+  const reservedNodeCount = registry.nodes.filter(hasReservation).length;
+  const validity = {
+    expectedRegistryRevision: registry.revision,
+    expectedRegistryStatus: registry.status,
+    expectedNode: {
+      id: node.id,
+      state: node.state,
+      taskId: node.taskId,
+      launchReservationKey: node.launchReservation.key
+    },
+    expectedParent: parent ? {
+      id: parent.id,
+      state: parent.state,
+      taskId: parent.taskId,
+      trustLevel: parent.trustLevel,
+      authority: parent.authority
+    } : null,
+    capacity: {
+      activeNodeCount,
+      reservedNodeCount,
+      maxActiveNodes: registry.trustPolicy.limits.maxActiveNodes
+    }
+  };
+  if (parent) {
+    validity.capacity.parentId = parent.id;
+    validity.capacity.activeChildCount = registry.nodes.filter((candidate) => candidate.parentId === parent.id && activeStates.has(candidate.state)).length;
+    validity.capacity.reservedChildCount = registry.nodes.filter((candidate) => candidate.parentId === parent.id && hasReservation(candidate)).length;
+    validity.capacity.maxActiveChildren = parent.authority.maxActiveChildren;
+  }
+  return validity;
+}
+
 function validOrchestrationRegistry() {
   return {
     schemaVersion: 2,
@@ -2171,6 +2207,40 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   const revocationCode = await main(["orchestration", "validate"], revocation.io);
   assert.equal(revocationCode, 1);
   assert.match(revocation.out.join("\n"), /launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity/);
+});
+
+fixtureTest("orchestration rejects self-consistent reservations that fail launch eligibility", async () => {
+  for (const [name, mutate, expectedBlocker] of [
+    ["dependencies", (registry, node) => { node.dependencies = ["worker-research"]; }, /launch eligibility requires completed dependencies/],
+    ["registry status", (registry) => { registry.status = "inactive"; }, /launch eligibility requires active orchestration/],
+    ["parent task", (registry, node, parent) => { parent.state = "queued"; parent.taskId = null; delete parent.nextAction; }, /launch eligibility requires task-backed parent boss/],
+    ["parent state", (registry, node, parent) => { parent.state = "ready-for-parent"; parent.handoffEvidence = ["portfolio handoff"]; delete parent.nextAction; }, /launch eligibility requires parent boss in an active managing state/],
+    ["delegation authority", (registry, node, parent) => { parent.authority.canDelegate = false; }, /launch eligibility requires parent boss with T3 delegation authority/],
+    ["approval gate", (registry, node, parent) => { parent.authority.approvalGates.push("human-review"); }, /launch eligibility requires parent approval gate human-review/],
+    ["child capacity", (registry, node, parent) => { parent.authority.maxActiveChildren = 0; }, /launch eligibility exceeds parent boss active-child budget/],
+    ["project capacity", (registry) => { registry.trustPolicy.limits.maxActiveNodes = 1; }, /launch eligibility exceeds project active-node budget/],
+    ["task identity", (registry, node) => { node.taskId = "task-manager-docs"; }, /launch eligibility requires a queued or eligible node without taskId/]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    writeOrchestrationRegistry(registry);
+    const launch = capture();
+    const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+    assert.equal(launchCode, 0, `${name}: ${launch.err.join("\n")}`);
+    const spec = JSON.parse(launch.out.join("\n"));
+    const node = registry.nodes.find((candidate) => candidate.id === "manager-docs");
+    const parent = registry.nodes.find((candidate) => candidate.id === "boss");
+    node.launchReservation = spec.callback.reserve.onSuccess.launchReservation;
+    registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+    mutate(registry, node, parent);
+    node.launchReservation.validity = selfConsistentReservationValidity(registry, node, parent);
+    writeOrchestrationRegistry(registry);
+
+    const validation = capture();
+    const validationCode = await main(["orchestration", "validate"], validation.io);
+    assert.equal(validationCode, 1, name);
+    assert.match(validation.out.join("\n"), expectedBlocker);
+    assert.doesNotMatch(validation.out.join("\n"), /launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity/);
+  }
 });
 
 fixtureTest("orchestration reservation protocol requires durable launch-key reconciliation", async () => {
