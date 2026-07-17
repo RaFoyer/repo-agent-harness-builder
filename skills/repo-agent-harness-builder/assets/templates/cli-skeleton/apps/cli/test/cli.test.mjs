@@ -1741,6 +1741,36 @@ fixtureTest("orchestration rejects a terminal parent with unfinished child respo
   assert.match(out.join("\n"), /node manager-docs: terminal parent has non-terminal children/);
 });
 
+fixtureTest("orchestration rejects duplicate task IDs and task-backed children without task-backed parents", async () => {
+  const duplicateTask = validOrchestrationRegistry();
+  const duplicateManager = duplicateTask.nodes.find((node) => node.id === "manager-docs");
+  duplicateManager.state = "working";
+  duplicateManager.taskId = "task-boss";
+  duplicateManager.nextAction = "Review the documentation refresh.";
+  writeOrchestrationRegistry(duplicateTask);
+
+  const duplicate = capture();
+  const duplicateCode = await main(["orchestration", "validate"], duplicate.io);
+  assert.equal(duplicateCode, 1);
+  assert.match(duplicate.out.join("\n"), /node manager-docs: taskId task-boss duplicates node boss/);
+
+  const parentlessTask = validOrchestrationRegistry();
+  const manager = parentlessTask.nodes.find((node) => node.id === "manager-docs");
+  const worker = parentlessTask.nodes.find((node) => node.id === "worker-research");
+  worker.parentId = manager.id;
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  worker.dependencies = [];
+  worker.state = "working";
+  worker.taskId = "task-worker-research";
+  worker.nextAction = "Prepare the research decision.";
+  writeOrchestrationRegistry(parentlessTask);
+
+  const missingParentTask = capture();
+  const missingParentTaskCode = await main(["orchestration", "validate"], missingParentTask.io);
+  assert.equal(missingParentTaskCode, 1);
+  assert.match(missingParentTask.out.join("\n"), /node worker-research: task-backed non-Boss node requires task-backed parent manager-docs/);
+});
+
 fixtureTest("orchestration rejects hierarchical dependency deadlocks and composed graph cycles", async () => {
   const ancestorDependency = validOrchestrationRegistry();
   ancestorDependency.nodes.find((node) => node.id === "worker-research").dependencies = ["boss"];

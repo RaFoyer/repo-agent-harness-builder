@@ -105,6 +105,10 @@ function missingCompletionEvidence(node) {
   return requiredEvidence.filter((evidence) => !completionEvidence.has(evidence));
 }
 
+function isTaskBackedNode(node) {
+  return TASK_STATES.has(node?.state) && isNonEmptyString(node.taskId);
+}
+
 function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
   const label = `node ${node.id || "<missing-id>"}`;
   if (!TRUST_RANK.has(node.trustLevel)) {
@@ -194,6 +198,7 @@ function validateRegistry(registry) {
   const nodes = Array.isArray(registry.nodes) ? registry.nodes.filter(isObject) : [];
   if (Array.isArray(registry.nodes) && nodes.length !== registry.nodes.length) blockers.push("every node must be a JSON object");
   const nodesById = new Map();
+  const nodesByTaskId = new Map();
   for (const node of nodes) {
     if (!isNonEmptyString(node.id)) {
       blockers.push("every node requires a single-line id");
@@ -227,8 +232,16 @@ function validateRegistry(registry) {
     if (!isNonEmptyString(node.title) || (expectedTitle && node.title !== expectedTitle)) {
       blockers.push(`${label}: title must equal ${expectedTitle || "the registry-derived title"}`);
     }
+    if (node.taskId !== null && node.taskId !== undefined) {
+      if (!isNonEmptyString(node.taskId)) blockers.push(`${label}: taskId must be a non-empty single-line string when present`);
+      else if (nodesByTaskId.has(node.taskId)) blockers.push(`${label}: taskId ${node.taskId} duplicates node ${nodesByTaskId.get(node.taskId)}`);
+      else nodesByTaskId.set(node.taskId, node.id);
+    }
     if (TASK_STATES.has(node.state) && !isNonEmptyString(node.taskId)) blockers.push(`${label}: task-backed state ${node.state} requires taskId`);
     if (["queued", "eligible"].includes(node.state) && node.taskId) blockers.push(`${label}: graph state ${node.state} must not claim a live taskId`);
+    if (node.role !== "boss" && isTaskBackedNode(node) && parent && !isTaskBackedNode(parent)) {
+      blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent.id}`);
+    }
     if (node.state === "working" && !isNonEmptyString(node.nextAction)) blockers.push(`${label}: working state requires nextAction`);
     if (node.state === "waiting" && !isNonEmptyString(node.waitingOn)) blockers.push(`${label}: waiting state requires waitingOn`);
     if (node.state === "blocked" && (!isNonEmptyString(node.blocker) || !isNonEmptyString(node.unblockAction))) {

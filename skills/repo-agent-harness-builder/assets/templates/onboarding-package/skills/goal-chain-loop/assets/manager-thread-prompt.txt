@@ -34,4 +34,4 @@ Expected first deliverable:
 
 Workstream close:
 - Mark a Worker ready for fan-in only after its PR and verification evidence are complete.
-- Mark the Manager terminal only after all owned nodes are merged or explicitly blocked, tracker state is reconciled, and the ledger records downstream status.
+- Mark the Manager terminal only after every owned node is terminal; a blocked Worker must first be explicitly reconciled to completed, cancelled, or superseded, then reconcile tracker state and record downstream status in the ledger.
