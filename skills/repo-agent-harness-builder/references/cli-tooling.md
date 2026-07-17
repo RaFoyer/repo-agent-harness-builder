@@ -342,7 +342,6 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} connections env --profile example-gcloud
 ./{{CLI_NAME}} orchestration status
 ./{{CLI_NAME}} orchestration validate
-./{{CLI_NAME}} orchestration launch-spec boss
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} self check
 ```

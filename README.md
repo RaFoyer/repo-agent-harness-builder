@@ -13,7 +13,7 @@ The durable contract lives in ordinary files in the target repo or folder:
 - lifecycle and maintenance docs for protocols
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
   `verify`, `checklist`, `qa`, `secrets`, connection checks, Lavish review
-  posture, and goal-chain inspection
+  posture, project-orchestration inspection, and goal-chain inspection
 - strongly recommended no-mistakes setup and branch-aware status commands for
   branch-to-PR validation, with optional user-local agent pinning
 - AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
@@ -24,7 +24,10 @@ The durable contract lives in ordinary files in the target repo or folder:
 - value-safe secrets, external-authority, and connector boundaries
 - repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
-- bundled goal-chain-loop skill templates for implementation graphs and subgoal orchestration
+- optional Boss/Manager/Worker project orchestration with explicit lifecycle,
+  trust, authority, budgets, and completion evidence
+- bundled orchestration and goal-chain-loop templates for general delegation,
+  implementation graphs, and subgoal orchestration
 - portable onboarding material for nontechnical recipients
 
 Codex, Claude Code, Gemini CLI, Kimi, Cursor, and future coding agents are
@@ -41,6 +44,7 @@ see a read-only readiness result, such as:
 ./harness ergonomics status
 ./harness no-mistakes status
 ./harness lavish status
+./harness orchestration status
 ./harness context
 ./harness preflight
 ```

@@ -85,8 +85,8 @@ Run:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections auth-plan --profile example-gcloud
 ./{{CLI_NAME}} connections env --profile example-gcloud
+./{{CLI_NAME}} orchestration status
 ./{{CLI_NAME}} orchestration validate
-./{{CLI_NAME}} orchestration launch-spec boss
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status
 ./{{CLI_NAME}} lavish status
@@ -94,4 +94,11 @@ Run:
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} precommit hook-status
 node --test apps/cli/test/*.test.mjs
+```
+
+After configuring an eligible node and the required binding attestor, inspect
+its client-adapter contract with:
+
+```bash
+./{{CLI_NAME}} orchestration launch-spec <node-id>
 ```
