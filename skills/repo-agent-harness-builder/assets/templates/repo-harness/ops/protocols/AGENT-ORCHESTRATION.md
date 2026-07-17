@@ -164,8 +164,9 @@ The repository harness is agent-agnostic, so task creation belongs to a thin cli
 5. Immediately before task creation, atomically compare the reserved registry against `preCreate`: its revision, status, target task identity and reservation key, parent state/task ID/trust/entire authority envelope including approval gates, and project/parent capacity must still match. A changed status, authority, approval gate, task identity, capacity, or revision invalidates the reservation before the side effect.
 6. Create the task with the exact title, prompt, and immediate parent from the launch spec, using `externalTask.idempotencyKey` (the `launchKey`) as the task API's durable idempotency key and `externalTask.reconciliationKey` for lookup.
 7. Atomically bind the returned task ID only when the complete `bind` current-state contract still matches the reserved registry. Set `state` to `working`, add `nextAction`, clear the reservation, and advance the registry revision by one. A failed bind must preserve the reservation and trigger reconciliation by `launchKey`, never a second create.
-8. If create fails with a definitive proof that no task exists for `launchKey`, atomically clear only the matching reservation and advance the revision before generating a new spec. On a timeout, crash, ambiguous response, or failed bind, retain the reservation and reconcile the external task by `launchKey`; do not clear or retry creation until absence is proven.
-9. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
+8. If the task was created but an unrelated valid registry mutation advanced the revision before bind, look up the task by `launchKey` and use `reconcile` to atomically rebind it. Prove the reservation key and base revision, re-read the latest revision, then re-run active-registry, dependency, task-identity, parent task/managing-state/T3 delegation/approval-gate, and capacity checks before binding the found task. A revoked authority, invalid prerequisite, identity mismatch, or exhausted capacity fails closed and keeps the reservation quarantined for explicit cancel or replan; reconciliation never creates a second task.
+9. If create fails with a definitive proof that no task exists for `launchKey`, atomically clear only the matching reservation and advance the revision before generating a new spec. On a timeout, crash, ambiguous response, or failed bind, retain the reservation and reconcile the external task by `launchKey`; do not clear or retry creation until absence is proven.
+10. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
 
 `revision` is a non-negative monotonic integer. Every registry mutation advances it exactly once. A pending reservation exists only on a queued or eligible node without a task ID and counts against project and parent active-capacity budgets until it is bound or released.
 
@@ -198,7 +199,7 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Live tasks have task IDs and state-specific control fields.
 - Trust and authority never exceed parent or project policy; promoted nodes have auditable approval records.
 - Active node count, active child count, and delegation depth stay within configured budgets.
-- Registry revisions advance monotonically, pending launch reservations consume capacity until they are bound or definitively released, and each reservation's validity snapshot matches the current registry before create and bind.
+- Registry revisions advance monotonically, pending launch reservations consume capacity until they are bound or definitively released, and each reservation's validity snapshot matches the current registry before create and bind; a post-create unrelated revision advance may use the reconciliation CAS to bind the task already found by `launchKey`.
 - Terminal nodes contain a disposition and evidence required by their completion profile; terminal parents have no non-terminal children.
 
 ## Update Rules

@@ -180,6 +180,18 @@ function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, r
   };
 }
 
+function reservationValidityMatchesCurrent(reservation, expectedValidity) {
+  if (!Number.isSafeInteger(reservation.validity?.expectedRegistryRevision)
+    || reservation.validity.expectedRegistryRevision !== reservation.baseRevision + 1) {
+    return false;
+  }
+  const persistedCurrentState = { ...reservation.validity };
+  const expectedCurrentState = { ...expectedValidity };
+  delete persistedCurrentState.expectedRegistryRevision;
+  delete expectedCurrentState.expectedRegistryRevision;
+  return isDeepStrictEqual(persistedCurrentState, expectedCurrentState);
+}
+
 function hasDelegationAuthority(node) {
   return isObject(node?.authority) && node.authority.canDelegate === true && trustRank(node.trustLevel) >= trustRank("T3");
 }
@@ -427,8 +439,8 @@ function validateRegistry(registry) {
           blockers.push(`${label}: launchReservation.validity is required`);
         } else {
           const expectedValidity = reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation);
-          if (!isDeepStrictEqual(reservation.validity, expectedValidity)) {
-            blockers.push(`${label}: launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity`);
+          if (!reservationValidityMatchesCurrent(reservation, expectedValidity)) {
+            blockers.push(`${label}: launchReservation validity no longer matches registry status, authority, capacity, or task identity`);
           }
         }
         blockers.push(...launchEligibilityBlockers({
@@ -899,6 +911,47 @@ function runLaunchSpec(nodeId, io) {
         ],
         mustAdvanceRegistryRevision: true,
         onFailure: "Keep the reservation and reconcile the external task by launchKey; do not create another task."
+      },
+      reconcile: {
+        operation: "compare-and-set-reconcile-bind",
+        externalTask: {
+          reconciliationKey: launchKey,
+          idempotencyKey: launchKey,
+          requireExistingTask: true,
+          createAllowed: false
+        },
+        requiredReservation: {
+          key: launchKey,
+          baseRevision: loaded.registry.revision
+        },
+        readLatestRegistryRevision: true,
+        requiredCurrentEligibility: {
+          registryStatus: "active",
+          completedDependencies: true,
+          node: {
+            id: node.id,
+            state: node.state,
+            taskId: null,
+            launchReservationKey: launchKey
+          },
+          ...(parent ? {
+            parentId: parent.id,
+            parentTaskRequired: true,
+            parentManagingStateRequired: true,
+            parentDelegationAuthorityRequired: true,
+            parentApprovalGatesRequired: arrayOrEmpty(parent.authority?.approvalGates)
+          } : {}),
+          capacityRequired: true
+        },
+        requiredUpdates: [
+          "taskId from reconciled external task",
+          "state=working",
+          "nextAction",
+          "clear launchReservation"
+        ],
+        mustAdvanceRegistryRevision: true,
+        onFailure: "Keep the reservation quarantined for explicit cancel or replan; do not create another task.",
+        onSuccess: "Bind the reconciled task against the latest registry revision without another external create."
       },
       requiredUpdates: configured
         ? [

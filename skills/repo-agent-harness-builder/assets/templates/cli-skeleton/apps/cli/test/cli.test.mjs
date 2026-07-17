@@ -2182,6 +2182,13 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   assert.deepEqual(refreshedSpec.callback.bind.capacity, validity.capacity);
   assert.equal(refreshedSpec.externalTask.idempotencyKey, refreshedSpec.reservation.launchKey);
   assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation and reconcile/);
+  assert.equal(refreshedSpec.callback.reconcile.operation, "compare-and-set-reconcile-bind");
+  assert.deepEqual(refreshedSpec.callback.reconcile.requiredReservation, {
+    key: refreshedSpec.reservation.launchKey,
+    baseRevision: refreshedSpec.reservation.expectedRegistryRevision
+  });
+  assert.equal(refreshedSpec.callback.reconcile.externalTask.reconciliationKey, refreshedSpec.reservation.launchKey);
+  assert.equal(refreshedSpec.callback.reconcile.externalTask.createAllowed, false);
 
   const next = capture();
   const nextCode = await main(["orchestration", "next"], next.io);
@@ -2206,7 +2213,7 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   const revocation = capture();
   const revocationCode = await main(["orchestration", "validate"], revocation.io);
   assert.equal(revocationCode, 1);
-  assert.match(revocation.out.join("\n"), /launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity/);
+  assert.match(revocation.out.join("\n"), /launchReservation validity no longer matches registry status, authority, capacity, or task identity/);
 });
 
 fixtureTest("orchestration rejects self-consistent reservations that fail launch eligibility", async () => {
@@ -2250,6 +2257,37 @@ fixtureTest("orchestration reservation protocol requires durable launch-key reco
   assert.match(protocol, /externalTask\.idempotencyKey/);
   assert.match(protocol, /On a timeout, crash, ambiguous response, or failed bind, retain the reservation/);
   assert.match(protocol, /do not clear or retry creation until absence is proven/);
+  assert.match(protocol, /unrelated valid registry mutation advanced the revision before bind/);
+  assert.match(protocol, /reconciliation never creates a second task/);
+});
+
+fixtureTest("orchestration reconciles an existing task after an unrelated revision advance", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+  assert.equal(launchCode, 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  manager.launchReservation = spec.callback.reserve.onSuccess.launchReservation;
+  registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+  boss.nextAction = "Review a separate portfolio handoff.";
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 0, validation.out.concat(validation.err).join("\n"));
+  assert.equal(spec.callback.bind.expectedRegistryRevision, 1);
+  assert.equal(registry.revision, 2);
+  assert.equal(spec.callback.reconcile.readLatestRegistryRevision, true);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.completedDependencies, true);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.parentDelegationAuthorityRequired, true);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.capacityRequired, true);
+  assert.equal(spec.callback.reconcile.externalTask.requireExistingTask, true);
+  assert.equal(spec.callback.reconcile.externalTask.createAllowed, false);
+  assert.match(spec.callback.reconcile.onSuccess, /without another external create/);
 });
 
 fixtureTest("orchestration invalidates reservations after status, authority, capacity, or task changes", async () => {
@@ -2276,7 +2314,7 @@ fixtureTest("orchestration invalidates reservations after status, authority, cap
     const validation = capture();
     const validationCode = await main(["orchestration", "validate"], validation.io);
     assert.equal(validationCode, 1, name);
-    assert.match(validation.out.join("\n"), /node manager-docs: launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity/);
+    assert.match(validation.out.join("\n"), /node manager-docs: launchReservation validity no longer matches registry status, authority, capacity, or task identity/);
   }
 });
 
