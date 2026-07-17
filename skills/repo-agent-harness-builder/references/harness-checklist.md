@@ -45,6 +45,7 @@ Use for software repositories and durable team/project folders:
 | CLI tests | focused tests for help, dispatch, redaction, and key safety checks |
 | Source of truth | repo-visible docs vs role-restricted external authority |
 | Connection registry | `ops/connections.json` with value-safe metadata |
+| Orchestration registry | `ops/orchestration.json` when structured delegation is activated |
 | Precommit gates | secrets, local paths, protocol front matter, doc drift |
 | No-mistakes PR gate | `.no-mistakes.yaml`, `NO-MISTAKES-GATE.md`, setup script, and value-safe setup/status commands |
 | Skills/onboarding | bootstrap and operator skills when cross-machine handoff matters |
@@ -72,6 +73,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | External authority | `EXTERNAL-SYSTEMS.md`, `PRIVILEGED-DOCUMENTS.md`, `ops/connections.json` | Drive/email/SharePoint/database context matters |
 | Connector auth profiles | `CONNECTOR-AUTH-PROFILES.md`, auth profile metadata, `connections auth-plan`, `connections env` | Browser login or provider CLIs can mutate account/session state |
 | Automations/heartbeats | `AUTOMATIONS.md`, run log, scheduler notes | recurring checks or reminders are useful |
+| Project orchestration | `AGENT-ORCHESTRATION.md`, `ops/orchestration.json`, `orchestration` CLI, prompts and ledger | any project needs structured Boss/Manager/Worker delegation with progressive autonomy |
 | Goal-chain workflow | `GOAL-CHAIN.md`, `goals` CLI, goal-chain templates | sequential tracker-backed implementation needs merge and handoff evidence |
 | Project tracker | tracker protocol and CLI wrapper | GitHub Issues, Linear, Jira, or similar is canonical |
 | No-mistakes customization | `.no-mistakes.yaml`, `NO-MISTAKES-GATE.md`, setup script, `no-mistakes` CLI | the repo needs a concrete agent, command set, or fork URL beyond the generated default |
@@ -81,7 +83,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Brand identity | brand protocol, approved assets pointer, usage rules | external-facing comms or visual identity matters |
 | Evidence/provenance | evidence map, artifact pointers, provenance rules | audits, reports, or generated artifacts matter |
 | Hooks/intent authority | hook protocol, allowed hook list, failure behavior | agent lifecycle enforcement is useful |
-| Multi-agent workflows | task fanout protocol, review handoff rules | parallel work or specialist agents are expected |
+| Multi-agent workflows | use project orchestration; add domain-specific fanout and review rules only as a composing protocol | parallel work or specialist agents are expected |
 | Data/database | schema pointer, access protocol, migration rules | structured data or SQLite/Postgres is used |
 | QA/browser | browser QA protocol, `qa` CLI, artifact/no-masking checks | browser, Playwright, Storybook, or UI evidence matters |
 | Repo-agent operations | bootstrap/operator skills, skill drift checks, handoff archive | cross-machine or cross-agent handoff matters |

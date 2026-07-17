@@ -24,6 +24,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `connections` | recommended | Validate permanent external-authority connection metadata, connector profiles, auth plans, and config-root guidance |
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
+| `orchestration` | recommended | Inspect project-wide hierarchy, lifecycle, autonomy, authority, budgets, eligibility, prompts, and adapter launch contracts |
 | `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `design` | optional | Report design-system governance status and, when activated, inspect safe design-system source pointers |
 | `lavish` | optional | Check optional Lavish review-surface posture, update lavish-axi deliberately, run review sessions, and draft tracker captures |
@@ -57,6 +58,7 @@ apps/cli/src/no-mistakes/index.mjs
 apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
+apps/cli/src/orchestration/index.mjs
 apps/cli/src/goals/index.mjs
 apps/cli/src/design/index.mjs
 apps/cli/src/lavish/index.mjs
@@ -152,6 +154,52 @@ Only add `loops` when the automations/loops module is active. Minimum behavior:
 
 Loop commands must be covered by tests before the checklist can mark the module
 `active`.
+
+## Project Orchestration Command Contract
+
+Scaffold `orchestration` as the project-wide structured-delegation helper even
+while `AGENT-ORCHESTRATION.md` remains inactive. It must not assume tickets,
+branches, pull requests, or software delivery. Minimum behavior:
+
+- `orchestration status`: summarize the explicit registry scope, roles, states,
+  and validation findings; an inactive valid registry exits successfully.
+- `orchestration hierarchy`: explain portfolio/workstream/work-unit
+  responsibility and exact title grammar without implying authority.
+- `orchestration trust`: show the T0-T5 autonomy ceiling and inheritance rules.
+- `orchestration validate`: reject invalid parent/dependency graphs, duplicate
+  Bosses, title drift, invalid lifecycle evidence, trust promotion without
+  evidence, child authority or budget exceeding the parent, and active-node,
+  active-child, or depth budget overruns.
+- `orchestration next`: list dependency-eligible graph nodes without creating
+  tasks.
+- `orchestration prompt <node-id>`: print the node's role, work kind, governing
+  protocols, immediate parent, trust level, exact authority envelope,
+  completion profile, objective, and first action.
+- `orchestration launch-spec <node-id>`: print a JSON task-creation contract for
+  a thin client adapter. Reject terminal or already materialized nodes,
+  unsatisfied dependencies, inactive child orchestration, parents without T3
+  delegation authority or task IDs, and exhausted child or project capacity.
+  The contract includes the monotonic registry revision, deterministic launch
+  key, expected registry/node/parent states and task identities, parent trust
+  and full authority envelope including approval gates, and capacity
+  preconditions. An adapter must atomically reserve the node and advance the
+  revision before task creation, then compare the complete reserved-state
+  contract—including target and parent trust plus full authority envelopes—immediately before the external call and again when binding the
+  returned task ID. A stale or duplicate reservation must fail before side
+  effects. The launch key is the durable task-API idempotency and reconciliation
+  key: after an ambiguous create, crash, timeout, or bind failure, keep the
+  reservation and reconcile by that key rather than creating again. Its callback
+  requires a configured Boss rather than inserting a placeholder, requires an
+  externally attested immutable task binding, and activates the registry in
+  every Boss bootstrap reservation.
+
+All commands are read-only. A Codex, Claude Code, Gemini CLI, Cursor, or other
+adapter may use a launch spec only when current authority allows task creation,
+then must reserve the node by compare-and-set, validate the current reservation
+contract immediately before external task creation, use the launch key as the
+task API idempotency key, and write the returned task ID and working state back
+only with the matching current reservation contract.
+This separates a portable repository contract from client-specific task APIs.
 
 ## Goal Chain Command Contract
 
@@ -292,6 +340,8 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections auth-plan --profile example-gcloud
 ./{{CLI_NAME}} connections env --profile example-gcloud
+./{{CLI_NAME}} orchestration status
+./{{CLI_NAME}} orchestration validate
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} self check
 ```

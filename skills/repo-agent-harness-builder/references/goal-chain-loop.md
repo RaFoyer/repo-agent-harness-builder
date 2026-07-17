@@ -38,17 +38,20 @@ lacks a tracker, integration branch, or verification gate.
    approved decision record with `./{{CLI_NAME}} lavish tracker capture --issue
    <id> --artifact <html-file>` before starting the implementation goal. Add
    `--decisions <file>` when decisions are in a separate file.
-7. For an orchestration thread, seed it with
-   `assets/templates/goal-chain/ORCHESTRATOR-THREAD-PROMPT.txt` and track state
-   with `assets/templates/goal-chain/ORCHESTRATION-LEDGER.md`.
-8. For subgoal threads, use
-   `assets/templates/goal-chain/SUBGOAL-THREAD-PROMPT.txt`. Require the first
+7. When project orchestration is active, define nodes in
+   `ops/orchestration.json`, validate with `orchestration validate`, and use
+   `orchestration launch-spec <node-id>` as the authority-bounded base prompt.
+8. Add `assets/templates/goal-chain/ORCHESTRATOR-THREAD-PROMPT.txt`,
+   `MANAGER-THREAD-PROMPT.txt`, or `SUBGOAL-THREAD-PROMPT.txt` only as the
+   repository-merge specialization for that launch spec. Track goal-specific
+   merge evidence with `assets/templates/goal-chain/ORCHESTRATION-LEDGER.md`.
+   Require the first
    deliverable to be a concise implementation plan naming files, integration
    points, verification commands, risks, and PR exit criteria.
 9. Use `./{{CLI_NAME}} goals status` to inspect the chain and
-   `./{{CLI_NAME}} goals start-prompt <goal-id>` to create a bounded thread
-   prompt. If the objective is truncated, rerun with `--full` only when the
-   complete objective is needed.
+   `goals start-prompt <goal-id>` for a bounded goal-specific prompt. If the
+   objective is truncated, rerun with `--full` only when the complete objective
+   is needed.
 10. Fetch or pull the integration branch if the PR was just merged remotely,
    then use `./{{CLI_NAME}} goals verify <goal-id>` before closing a goal.
    The generated verifier inspects local git evidence and recorded text; it does
@@ -82,6 +85,12 @@ Completed goals should additionally include:
 - dependent-node unlocks, blockers, or superseded nodes when using a graph
 
 ## Safety Rules
+
+- `AGENT-ORCHESTRATION.md` owns roles, title grammar, immediate-parent links,
+  lifecycle, trust, authority, and delegation budgets. This workflow must not
+  redefine or expand them.
+- The goal-chain ledger supplements the orchestration registry with delivery
+  evidence; it does not replace it.
 
 - Do not start the next goal from an unmerged feature branch unless the chain
   explicitly allows parallel work.

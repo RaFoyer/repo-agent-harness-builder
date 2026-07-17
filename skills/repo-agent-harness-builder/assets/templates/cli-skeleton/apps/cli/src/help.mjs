@@ -9,6 +9,7 @@ const HOME_COMMANDS = [
   ["ergonomics status", "Audit agent-facing CLI ergonomics"],
   ["no-mistakes status", "Check branch-to-PR validation gate setup"],
   ["lavish status", "Check optional Lavish review-surface posture"],
+  ["orchestration status", "Inspect structured project delegation posture"],
   ["verify --dry-run", "Preview the verification sequence"],
   ["help", "Show the concise command reference"]
 ];
@@ -65,6 +66,17 @@ Core commands:
   connections auth-plan
                        Show read-only browser/CLI auth isolation plan
   connections env      Print value-safe config-root env or flag guidance
+  orchestration status Summarize project-wide structured delegation
+  orchestration validate
+                       Validate hierarchy, lifecycle, trust, and authority
+  orchestration next   List dependency-eligible work across the project
+  orchestration prompt <node-id>
+                       Print an adapter-ready prompt for a configured node
+  orchestration launch-spec <node-id>
+                       Print a JSON task-creation contract for a client adapter
+  orchestration hierarchy
+                       Show the Boss/Manager/Worker responsibility model
+  orchestration trust  Show the T0-T5 autonomy ladder
   goals status         List implementation goal-chain goals
   goals verify <id>    Check closeout evidence for one goal
   goals start-prompt <id>
@@ -84,6 +96,7 @@ Safety posture:
   - no-mistakes wrappers summarize setup status without printing raw local paths
   - lavish tracker commands are proposal-first and never write to the tracker
   - lavish update defaults to --check; --apply is explicit
+  - orchestration commands inspect local policy and emit launch material; client adapters create tasks
   - write-capable operations should support dry-run first
   - command help, protocol docs, and tests must stay in sync
 `;

@@ -12,6 +12,7 @@ import { runConnections } from "./connections/index.mjs";
 import { runQa } from "./qa/index.mjs";
 import { runVerify } from "./verify/index.mjs";
 import { runGoals } from "./goals/index.mjs";
+import { runOrchestration } from "./orchestration/index.mjs";
 import { runDesign } from "./design/index.mjs";
 import { runErgonomics } from "./ergonomics/index.mjs";
 import { runNoMistakes } from "./no-mistakes/index.mjs";
@@ -63,6 +64,8 @@ export async function main(argv = [], io = defaultIO) {
       return runConnections(rest, io);
     case "goals":
       return runGoals(rest, io);
+    case "orchestration":
+      return runOrchestration(rest, io);
     case "design":
       return runDesign(rest, io);
     case "ergonomics":

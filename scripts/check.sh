@@ -142,6 +142,28 @@ spec.loader.exec_module(public_scan)
 assert ".key" in public_scan.FORBIDDEN_SUFFIXES
 PY
 
+echo "== goal-chain Manager prompt mirrors =="
+python3 - "$SKILL/assets/templates" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+paths = [
+    root / "goal-chain" / "MANAGER-THREAD-PROMPT.txt",
+    root / "onboarding-package" / "skills" / "goal-chain-loop" / "assets" / "manager-thread-prompt.txt",
+    root / "repo-harness" / "docs" / "templates" / "goal-chain" / "manager-thread-prompt.txt",
+]
+prompts = [path.read_text(encoding="utf-8") for path in paths]
+expected_closeout = (
+    "Mark the Manager terminal only after every owned node is terminal; a blocked Worker "
+    "must first be explicitly reconciled to completed, cancelled, or superseded"
+)
+if any(expected_closeout not in prompt for prompt in prompts):
+    raise SystemExit("Manager prompt closeout must require terminal child reconciliation")
+if len(set(prompts)) != 1:
+    raise SystemExit("Manager prompt mirrors have drifted")
+PY
+
 echo "== package build =="
 python3 "$SKILL/scripts/build_reference_package.py" --out-dir "$TMP/out" --allow-missing-provenance >/dev/null
 python3 "$SKILL/scripts/build_reference_package.py" --out-dir "$TMP/out-deterministic-a" --allow-missing-provenance >/dev/null
@@ -288,6 +310,18 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --target "$TMP/generated-repo" \
   --cli-name harness \
   --run-tests
+for required_path in \
+  "ops/protocols/AGENT-ORCHESTRATION.md" \
+  "ops/orchestration.json" \
+  "apps/cli/src/orchestration/index.mjs"; do
+  damaged="$TMP/generated-repo-missing-$(basename "$required_path")"
+  cp -R "$TMP/generated-repo" "$damaged"
+  rm "$damaged/$required_path"
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject missing $required_path" >&2
+    exit 1
+  fi
+done
 mkdir -p "$TMP/fake-no-mistakes-bin"
 cat > "$TMP/fake-no-mistakes-bin/no-mistakes" <<'SH'
 #!/usr/bin/env sh

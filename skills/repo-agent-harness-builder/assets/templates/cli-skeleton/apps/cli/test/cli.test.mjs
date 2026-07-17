@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { generateKeyPairSync, sign as signPayload } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
+import { materializedWorkContractHash, taskBindingAttestationPayload } from "../src/orchestration/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -17,6 +19,9 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const sourceRoot = path.resolve(testDir, "../../..");
 let repoRoot = sourceRoot;
 let fixtureMergeCounter = 0;
+const bindingAttestor = generateKeyPairSync("ed25519");
+const BINDING_ATTESTOR_KEY_ID = "fixture-binding-attestor";
+const BINDING_ATTESTOR_PUBLIC_KEY = bindingAttestor.publicKey.export({ type: "spki", format: "der" }).toString("base64");
 
 function copyFixture(source, destination) {
   fs.cpSync(source, destination, {
@@ -33,8 +38,12 @@ async function withFixture(fn, options = {}) {
   copyFixture(sourceRoot, fixtureRoot);
   const previousRoot = repoRoot;
   const previousEnv = process.env.NODE_ENV;
+  const previousBindingKey = process.env.ORCHESTRATION_BINDING_PUBLIC_KEY;
+  const previousBindingKeyId = process.env.ORCHESTRATION_BINDING_KEY_ID;
   repoRoot = fixtureRoot;
   process.env.NODE_ENV = "test";
+  process.env.ORCHESTRATION_BINDING_PUBLIC_KEY = BINDING_ATTESTOR_PUBLIC_KEY;
+  process.env.ORCHESTRATION_BINDING_KEY_ID = BINDING_ATTESTOR_KEY_ID;
   setRepoRootForTests(fixtureRoot);
   try {
     if (options.git !== false) {
@@ -47,6 +56,10 @@ async function withFixture(fn, options = {}) {
     setRepoRootForTests(previousRoot);
     if (previousEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousEnv;
+    if (previousBindingKey === undefined) delete process.env.ORCHESTRATION_BINDING_PUBLIC_KEY;
+    else process.env.ORCHESTRATION_BINDING_PUBLIC_KEY = previousBindingKey;
+    if (previousBindingKeyId === undefined) delete process.env.ORCHESTRATION_BINDING_KEY_ID;
+    else process.env.ORCHESTRATION_BINDING_KEY_ID = previousBindingKeyId;
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
@@ -70,6 +83,204 @@ function writeGoalChain(content) {
   const goalChainPath = path.join(repoRoot, "docs", "reference", "implementation-goal-chain.md");
   fs.mkdirSync(path.dirname(goalChainPath), { recursive: true });
   fs.writeFileSync(goalChainPath, content, "utf-8");
+}
+
+function writeOrchestrationRegistry(registry) {
+  const registryPath = path.join(repoRoot, "ops", "orchestration.json");
+  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+  fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+}
+
+function orchestrationAuthority({
+  reads = ["project"],
+  writes = [],
+  external = [],
+  canDelegate = false,
+  maxActiveChildren = 0
+} = {}) {
+  return {
+    allowedReads: reads,
+    allowedWrites: writes,
+    allowedExternalActions: external,
+    approvalGates: ["activation"],
+    canDelegate,
+    maxActiveChildren,
+    stopConditions: ["authority-gap", "scope-unclear"]
+  };
+}
+
+function canonicalAuthorityForTest(authority) {
+  return {
+    ...authority,
+    ...Object.fromEntries(["allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "stopConditions"].map((field) => [
+      field,
+      [...new Set(authority[field] || [])].sort()
+    ]))
+  };
+}
+
+function taskBindingForTest(registry, node, { boundRevision = registry.revision, boundAt = "2026-07-16T12:00:00Z" } = {}) {
+  const parent = node.parentId ? registry.nodes.find((candidate) => candidate.id === node.parentId) : null;
+  const workContractHash = materializedWorkContractHash(registry, node, parent);
+  const binding = {
+    launchKey: `orchestration:${registry.scope.id}:${node.id}:${workContractHash}`,
+    workContractHash,
+    nodeId: node.id,
+    taskId: node.taskId,
+    parentNodeId: node.parentId,
+    parentTaskId: parent?.taskId || null,
+    boundRevision,
+    boundAt,
+    attestation: {
+      algorithm: "ed25519",
+      keyId: BINDING_ATTESTOR_KEY_ID
+    }
+  };
+  return {
+    ...binding,
+    attestation: {
+      ...binding.attestation,
+      signature: signPayload(null, Buffer.from(taskBindingAttestationPayload(registry, binding)), bindingAttestor.privateKey).toString("base64")
+    }
+  };
+}
+
+function selfConsistentReservationValidity(registry, node, parent) {
+  const activeStates = new Set(["working", "waiting", "blocked", "ready-for-parent"]);
+  const hasReservation = (candidate) => Boolean(candidate.launchReservation && typeof candidate.launchReservation === "object" && !Array.isArray(candidate.launchReservation));
+  const activeNodeCount = registry.nodes.filter((candidate) => activeStates.has(candidate.state)).length;
+  const reservedNodeCount = registry.nodes.filter(hasReservation).length;
+  const validity = {
+    expectedRegistryRevision: registry.revision,
+    expectedRegistryStatus: registry.status,
+    expectedNode: {
+      id: node.id,
+      state: node.state,
+      taskId: node.taskId,
+      launchReservationKey: node.launchReservation.key,
+      parentTaskId: node.parentTaskId ?? null,
+      trustLevel: node.trustLevel,
+      authority: canonicalAuthorityForTest(node.authority),
+      materializedWorkContractHash: materializedWorkContractHash(registry, node, parent)
+    },
+    expectedParent: parent ? {
+      id: parent.id,
+      state: parent.state,
+      taskId: parent.taskId,
+      trustLevel: parent.trustLevel,
+      authority: canonicalAuthorityForTest(parent.authority)
+    } : null,
+    capacity: {
+      activeNodeCount,
+      reservedNodeCount,
+      maxActiveNodes: registry.trustPolicy.limits.maxActiveNodes
+    }
+  };
+  if (parent) {
+    validity.capacity.parentId = parent.id;
+    validity.capacity.activeChildCount = registry.nodes.filter((candidate) => candidate.parentId === parent.id && activeStates.has(candidate.state)).length;
+    validity.capacity.reservedChildCount = registry.nodes.filter((candidate) => candidate.parentId === parent.id && hasReservation(candidate)).length;
+    validity.capacity.maxActiveChildren = parent.authority.maxActiveChildren;
+  }
+  return validity;
+}
+
+function validOrchestrationRegistry() {
+  const registry = {
+    schemaVersion: 2,
+    revision: 0,
+    status: "active",
+    prefix: CONFIG.projectName,
+    scope: {
+      id: "knowledge-refresh",
+      kind: "project",
+      rootRef: "repository-root",
+      objective: "Refresh project knowledge and record a research decision."
+    },
+    bindingAttestation: {
+      algorithm: "ed25519",
+      keyId: BINDING_ATTESTOR_KEY_ID
+    },
+    trustPolicy: {
+      defaultLevel: "T1",
+      maxLevel: "T4",
+      promotionRequiresHumanApproval: true,
+      childMayExceedParent: false,
+      limits: { maxActiveNodes: 6, maxDelegationDepth: 2 }
+    },
+    nodes: [
+      {
+        id: "boss",
+        role: "boss",
+        workRef: "portfolio",
+        workKind: "governance",
+        governingProtocols: ["AGENT-ORCHESTRATION"],
+        label: "Project control plane",
+        title: `${CONFIG.projectName} - Boss`,
+        taskId: "task-boss",
+        parentId: null,
+        dependencies: [],
+        state: "working",
+        trustLevel: "T3",
+        trustApproval: {
+          approvedBy: "project-owner",
+          approvedAt: "2026-07-16",
+          evidence: ["bounded integration and delegation approval"]
+        },
+        authority: orchestrationAuthority({
+          writes: ["project-files"],
+          external: ["tracker-update"],
+          canDelegate: true,
+          maxActiveChildren: 2
+        }),
+        objective: "Keep the project scope controlled and evidence-backed.",
+        nextAction: "Review eligible project work."
+      },
+      {
+        id: "manager-docs",
+        role: "manager",
+        workRef: "DOCS-4",
+        workKind: "documentation",
+        governingProtocols: ["AGENT-ORCHESTRATION", "DOCUMENT-QUALITY"],
+        label: "Documentation refresh",
+        title: `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`,
+        taskId: null,
+        parentId: "boss",
+        dependencies: [],
+        state: "eligible",
+        trustLevel: "T1",
+        authority: orchestrationAuthority(),
+        objective: "Plan and review a bounded documentation refresh.",
+        completionProfile: {
+          type: "artifact",
+          requiredEvidence: ["approved documentation artifact"]
+        }
+      },
+      {
+        id: "worker-research",
+        role: "worker",
+        workRef: "RES-2",
+        workKind: "research",
+        governingProtocols: ["AGENT-ORCHESTRATION", "DOCUMENT-QUALITY"],
+        label: "Research decision",
+        title: `${CONFIG.projectName} - Worker for Boss - RES-2 Research decision`,
+        taskId: null,
+        parentId: "boss",
+        dependencies: ["manager-docs"],
+        state: "queued",
+        trustLevel: "T1",
+        authority: orchestrationAuthority(),
+        objective: "Produce an evidence-backed decision for parent review.",
+        completionProfile: {
+          type: "human-decision",
+          requiredEvidence: ["recorded human decision", "downstream disposition"]
+        }
+      }
+    ]
+  };
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  return registry;
 }
 
 function createFixtureCommit(message = "fixture commit", branch = "{{DEFAULT_BRANCH}}") {
@@ -243,6 +454,10 @@ test("help lists core commands", () => {
   assert.match(help, /connections/);
   assert.match(help, /connections auth-plan/);
   assert.match(help, /connections env/);
+  assert.match(help, /orchestration status/);
+  assert.match(help, /orchestration validate/);
+  assert.match(help, /orchestration prompt/);
+  assert.match(help, /orchestration launch-spec/);
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
@@ -260,11 +475,12 @@ test("no args renders content-first agent home view", async () => {
   const text = out.join("\n");
   assert.match(text, new RegExp(`bin: "\\./${CONFIG.cliName}"`));
   assert.match(text, /description:/);
-  assert.match(text, /commands\[9\]\{command,purpose\}:/);
+  assert.match(text, /commands\[10\]\{command,purpose\}:/);
   assert.match(text, /"preflight","Run read-only session-start checks"/);
   assert.match(text, /"ergonomics status","Audit agent-facing CLI ergonomics"/);
   assert.match(text, /"no-mistakes status","Check branch-to-PR validation gate setup"/);
   assert.match(text, /"lavish status","Check optional Lavish review-surface posture"/);
+  assert.match(text, /"orchestration status","Inspect structured project delegation posture"/);
   assert.match(text, /help\[3\]:/);
   assert.doesNotMatch(text, /Usage:/);
   const localPathPattern = new RegExp([
@@ -611,6 +827,7 @@ test("command families reject unexpected args before doing work", async () => {
     ["self", "check", "extra"],
     ["secrets", "doctor", "--bogus"],
     ["connections", "status", "--bogus"],
+    ["orchestration", "status", "--bogus"],
     ["goals", "status", "--bogus"],
     ["qa", "status", "--bogus"],
     ["no-mistakes", "status", "--bogus"],
@@ -991,11 +1208,21 @@ test("connections doctor missing profile is a structured usage error on stdout",
 });
 
 test("core command smoke paths run", async () => {
-  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["ergonomics", "status"], ["no-mistakes", "status"], ["lavish", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
+  for (const argv of [["context"], ["doctor"], ["protocols"], ["preflight"], ["orchestration", "status"], ["ergonomics", "status"], ["no-mistakes", "status"], ["lavish", "status"], ["secrets", "help"], ["qa", "status"], ["self", "check"]]) {
     const { io, err } = capture();
     const code = await main(argv, io);
     assert.equal(code, 0, `${argv.join(" ")} failed: ${err.join("\n")}`);
   }
+});
+
+fixtureTest("preflight requires the orchestration protocol required by harness verification", async () => {
+  fs.rmSync(path.join(repoRoot, "ops", "protocols", "AGENT-ORCHESTRATION.md"));
+
+  const { io, err } = capture();
+  const code = await main(["preflight"], io);
+
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Missing protocol: ops\/protocols\/AGENT-ORCHESTRATION\.md/);
 });
 
 test("verify dry-run lists delegated checks", async () => {
@@ -1343,6 +1570,1049 @@ fixtureTest("no-mistakes setup keeps post-check false for non-git success output
   assert.match(text, /status: failed/);
   assert.match(text, /initialized: false/);
   assert.match(text, /post_check: fail/);
+});
+
+fixtureTest("orchestration inactive scaffold requires an explicitly configured Boss before bootstrap", async () => {
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 0, validation.err.join("\n"));
+  assert.match(validation.out.join("\n"), /valid: true/);
+  assert.match(validation.out.join("\n"), /scaffolded but inactive/);
+
+  const trust = capture();
+  const trustCode = await main(["orchestration", "trust"], trust.io);
+  assert.equal(trustCode, 0, trust.err.join("\n"));
+  assert.match(trust.out.join("\n"), /T0.*Observe/);
+  assert.match(trust.out.join("\n"), /T5.*Govern/);
+  assert.match(trust.out.join("\n"), /role never grants authority/i);
+
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "boss"], prompt.io);
+  assert.equal(promptCode, 1);
+  assert.match(prompt.err.join("\n"), /Orchestration node not found: boss/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "boss"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration node not found: boss/);
+});
+
+fixtureTest("orchestration supports non-ticket artifact and decision work through one hierarchy", async () => {
+  writeOrchestrationRegistry(validOrchestrationRegistry());
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 0, validation.out.concat(validation.err).join("\n"));
+  assert.match(validation.out.join("\n"), /valid: true/);
+
+  const next = capture();
+  const nextCode = await main(["orchestration", "next"], next.io);
+  assert.equal(nextCode, 0, next.err.join("\n"));
+  const nextText = next.out.join("\n");
+  assert.match(nextText, /manager-docs.*documentation/);
+  assert.doesNotMatch(nextText, /worker-research/);
+
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "manager-docs"], prompt.io);
+  assert.equal(promptCode, 0, prompt.err.join("\n"));
+  const promptText = prompt.out.join("\n");
+  assert.match(promptText, /Work kind: documentation/);
+  assert.match(promptText, /Governing protocols: AGENT-ORCHESTRATION, DOCUMENT-QUALITY/);
+  assert.match(promptText, /Completion profile: artifact/);
+  assert.match(promptText, /Immediate parent task ID: task-boss/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+  assert.equal(launchCode, 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.parentTaskId, "task-boss");
+  assert.equal(spec.callback.mode, "update-node");
+  assert.equal(spec.title, `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`);
+  assert.ok(spec.callback.bind.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
+  assert.ok(spec.callback.reconcile.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
+});
+
+fixtureTest("orchestration activates configured Boss callbacks", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.status = "inactive";
+  boss.state = "eligible";
+  boss.taskId = null;
+  delete boss.taskBinding;
+  delete boss.nextAction;
+  writeOrchestrationRegistry(registry);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "boss"], launch.io);
+  assert.equal(launchCode, 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.callback.mode, "update-node");
+  assert.deepEqual(spec.callback.requiredUpdates, ["status=active", "taskId", "taskBinding", "state=working", "nextAction"]);
+  assert.equal(spec.callback.reserve.onSuccess.status, "active");
+
+  registry.status = "active";
+  boss.taskId = "task-configured-boss";
+  boss.state = "working";
+  boss.nextAction = "Review eligible project work.";
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const next = capture();
+  const nextCode = await main(["orchestration", "next"], next.io);
+  assert.equal(nextCode, 0, next.err.join("\n"));
+  assert.match(next.out.join("\n"), /manager-docs.*documentation/);
+});
+
+fixtureTest("orchestration requires the core protocol for every node", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.governingProtocols = ["DOCUMENT-QUALITY"];
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /node worker-research: governingProtocols must include AGENT-ORCHESTRATION/);
+
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "worker-research"], prompt.io);
+  assert.equal(promptCode, 1);
+  assert.match(prompt.err.join("\n"), /Orchestration registry has blockers/);
+});
+
+fixtureTest("orchestration refuses role-based authority escalation and delegation-budget expansion", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.trustLevel = "T4";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded promotion review"]
+  };
+  manager.authority = orchestrationAuthority({
+    reads: ["project", "private-system"],
+    writes: ["project-files", "production"],
+    external: ["deploy-production"],
+    canDelegate: true,
+    maxActiveChildren: 5
+  });
+  writeOrchestrationRegistry(registry);
+
+  const { io, out, err } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /trustLevel T4 exceeds parent boss trustLevel T3/);
+  assert.match(text, /authority\.allowedReads entry private-system exceeds parent scope/);
+  assert.match(text, /authority\.allowedWrites entry production exceeds parent scope/);
+  assert.match(text, /authority\.allowedExternalActions entry deploy-production exceeds parent scope/);
+  assert.match(text, /maxActiveChildren 5 exceeds parent budget 2/);
+});
+
+fixtureTest("orchestration trust levels remain ceilings even for the Boss role", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.trustLevel = "T1";
+  boss.authority.allowedWrites = ["project-files"];
+  boss.authority.allowedExternalActions = ["tracker-update"];
+  boss.authority.canDelegate = true;
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  const text = out.join("\n");
+  assert.match(text, /node boss: T1 may not allow writes/);
+  assert.match(text, /node boss: T1 may not allow external actions/);
+  assert.match(text, /node boss: delegation requires T3 or higher/);
+});
+
+fixtureTest("orchestration requires children to retain every parent approval gate", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  boss.authority.approvalGates = ["activation", "merge"];
+  manager.authority.approvalGates = ["activation"];
+  writeOrchestrationRegistry(registry);
+
+  const missingGate = capture();
+  const missingGateCode = await main(["orchestration", "validate"], missingGate.io);
+  assert.equal(missingGateCode, 1);
+  assert.match(missingGate.out.join("\n"), /node manager-docs: authority\.approvalGates is missing parent gate merge/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+
+  manager.authority.approvalGates = ["activation", "merge"];
+  worker.authority.approvalGates = ["activation", "merge"];
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const retainedGate = capture();
+  const retainedGateCode = await main(["orchestration", "validate"], retainedGate.io);
+  assert.equal(retainedGateCode, 0, retainedGate.out.concat(retainedGate.err).join("\n"));
+});
+
+fixtureTest("orchestration trust promotion requires an auditable human approval record", async () => {
+  const registry = validOrchestrationRegistry();
+  delete registry.nodes.find((node) => node.id === "boss").trustApproval;
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /trust promotion above T1 requires structured trustApproval/);
+});
+
+fixtureTest("orchestration unlocks queued work only from terminal dependency evidence", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["approved documentation artifact"];
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+
+  const next = capture();
+  const nextCode = await main(["orchestration", "next"], next.io);
+  assert.equal(nextCode, 0, next.err.join("\n"));
+  assert.match(next.out.join("\n"), /worker-research.*research/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+  assert.equal(launchCode, 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.parentTaskId, "task-boss");
+  assert.match(spec.prompt, /Completion profile: human-decision/);
+});
+
+fixtureTest("orchestration rejects eligible work until every dependency is completed", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.state = "eligible";
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /node worker-research: eligible state requires completed dependencies/);
+
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "worker-research"], prompt.io);
+  assert.equal(promptCode, 1);
+  assert.match(prompt.err.join("\n"), /Orchestration registry has blockers/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+});
+
+fixtureTest("orchestration rejects every active task state until dependencies are completed", async () => {
+  for (const [state, stateFields] of [
+    ["working", { nextAction: "Prepare the research decision." }],
+    ["waiting", { waitingOn: "manager-docs evidence review" }],
+    ["blocked", { blocker: "Missing source material.", unblockAction: "Obtain the source material." }],
+    ["ready-for-parent", { handoffEvidence: ["draft research decision"] }]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    const worker = registry.nodes.find((node) => node.id === "worker-research");
+    worker.state = state;
+    worker.taskId = `task-worker-${state}`;
+    worker.parentTaskId = "task-boss";
+    Object.assign(worker, stateFields);
+    writeOrchestrationRegistry(registry);
+
+    const { io, out } = capture();
+    const code = await main(["orchestration", "validate"], io);
+    assert.equal(code, 1, state);
+    assert.match(out.join("\n"), /node worker-research: active state requires completed dependencies/);
+  }
+});
+
+fixtureTest("orchestration reports malformed array-shaped fields without crashing", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  worker.state = "eligible";
+  worker.dependencies = { manager: "manager-docs" };
+  manager.authority.allowedReads = { project: true };
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  const text = out.join("\n");
+  assert.match(text, /node worker-research: dependencies must be an array of node ids/);
+  assert.match(text, /node manager-docs: authority\.allowedReads must be an array of single-line strings/);
+});
+
+fixtureTest("orchestration requires every declared completion evidence item before terminal work validates", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["unrelated artifact"];
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /completionEvidence is missing required evidence: approved documentation artifact/);
+});
+
+fixtureTest("orchestration rejects completed terminal work with unfinished prerequisites", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const prerequisite = registry.nodes.find((node) => node.id === "worker-research");
+  prerequisite.id = "worker-prerequisite";
+  prerequisite.workRef = "PRE-1";
+  prerequisite.label = "Prerequisite research";
+  prerequisite.title = `${CONFIG.projectName} - Worker for Boss - PRE-1 Prerequisite research`;
+  prerequisite.dependencies = [];
+  manager.dependencies = [prerequisite.id];
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["approved documentation artifact"];
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /node manager-docs: completed terminal state requires completed dependencies/);
+});
+
+fixtureTest("orchestration keeps dependents blocked for cancelled or superseded prerequisites", async () => {
+  for (const terminalDisposition of ["cancelled", "superseded"]) {
+    const registry = validOrchestrationRegistry();
+    const manager = registry.nodes.find((node) => node.id === "manager-docs");
+    manager.state = "terminal";
+    manager.taskId = "task-manager-docs";
+    manager.parentTaskId = "task-boss";
+    manager.terminalDisposition = terminalDisposition;
+    manager.completionEvidence = ["approved documentation artifact"];
+    manager.taskBinding = taskBindingForTest(registry, manager);
+    writeOrchestrationRegistry(registry);
+
+    const next = capture();
+    const nextCode = await main(["orchestration", "next"], next.io);
+    assert.equal(nextCode, 0, `${terminalDisposition}: ${next.err.join("\n")}`);
+    assert.match(next.out.join("\n"), /eligible: 0/);
+    assert.doesNotMatch(next.out.join("\n"), /worker-research.*research/);
+
+    const launch = capture();
+    const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+    assert.equal(launchCode, 1, terminalDisposition);
+    assert.match(launch.err.join("\n"), /not dependency-eligible/);
+  }
+});
+
+fixtureTest("orchestration rejects terminal ambiguity and duplicate task launches", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.completionEvidence = ["artifact exists"];
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /terminal state requires completed, cancelled, or superseded terminalDisposition/);
+
+  writeOrchestrationRegistry(validOrchestrationRegistry());
+  const duplicate = capture();
+  const duplicateCode = await main(["orchestration", "launch-spec", "boss"], duplicate.io);
+  assert.equal(duplicateCode, 1);
+  assert.match(duplicate.err.join("\n"), /already has task state/);
+});
+
+fixtureTest("orchestration rejects a terminal parent with unfinished child responsibility", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["approved documentation artifact"];
+  manager.trustLevel = "T3";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded workstream delegation approval"]
+  };
+  manager.authority = orchestrationAuthority({ canDelegate: true, maxActiveChildren: 1 });
+  worker.parentId = "manager-docs";
+  worker.dependencies = [];
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /node manager-docs: terminal parent has non-terminal children/);
+});
+
+fixtureTest("orchestration rejects duplicate task IDs and task-backed children without task-backed parents", async () => {
+  const duplicateTask = validOrchestrationRegistry();
+  const duplicateManager = duplicateTask.nodes.find((node) => node.id === "manager-docs");
+  duplicateManager.state = "working";
+  duplicateManager.taskId = "task-boss";
+  duplicateManager.parentTaskId = "task-boss";
+  duplicateManager.nextAction = "Review the documentation refresh.";
+  writeOrchestrationRegistry(duplicateTask);
+
+  const duplicate = capture();
+  const duplicateCode = await main(["orchestration", "validate"], duplicate.io);
+  assert.equal(duplicateCode, 1);
+  assert.match(duplicate.out.join("\n"), /node manager-docs: taskId task-boss duplicates node boss/);
+
+  const parentlessTask = validOrchestrationRegistry();
+  const manager = parentlessTask.nodes.find((node) => node.id === "manager-docs");
+  const worker = parentlessTask.nodes.find((node) => node.id === "worker-research");
+  worker.parentId = manager.id;
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  worker.dependencies = [];
+  worker.state = "working";
+  worker.taskId = "task-worker-research";
+  worker.parentTaskId = "task-manager-docs";
+  worker.nextAction = "Prepare the research decision.";
+  writeOrchestrationRegistry(parentlessTask);
+
+  const missingParentTask = capture();
+  const missingParentTaskCode = await main(["orchestration", "validate"], missingParentTask.io);
+  assert.equal(missingParentTaskCode, 1);
+  assert.match(missingParentTask.out.join("\n"), /node worker-research: task-backed non-Boss node requires task-backed parent manager-docs/);
+});
+
+fixtureTest("orchestration rejects task-backed nodes while inactive", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.status = "inactive";
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /node boss: inactive orchestration may not contain task-backed nodes/);
+});
+
+fixtureTest("orchestration rejects hierarchical dependency deadlocks and composed graph cycles", async () => {
+  const ancestorDependency = validOrchestrationRegistry();
+  ancestorDependency.nodes.find((node) => node.id === "worker-research").dependencies = ["boss"];
+  writeOrchestrationRegistry(ancestorDependency);
+
+  const direct = capture();
+  const directCode = await main(["orchestration", "validate"], direct.io);
+  assert.equal(directCode, 1);
+  assert.match(direct.out.join("\n"), /node worker-research: dependency boss crosses the parent hierarchy/);
+
+  const combinedCycle = validOrchestrationRegistry();
+  const manager = combinedCycle.nodes.find((node) => node.id === "manager-docs");
+  const worker = combinedCycle.nodes.find((node) => node.id === "worker-research");
+  manager.state = "queued";
+  manager.dependencies = ["worker-review"];
+  manager.trustLevel = "T3";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded workstream delegation approval"]
+  };
+  manager.authority = orchestrationAuthority({ canDelegate: true, maxActiveChildren: 1 });
+  worker.parentId = "manager-docs";
+  worker.dependencies = [];
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  combinedCycle.nodes.push({
+    ...worker,
+    id: "worker-review",
+    workRef: "REV-3",
+    label: "Review gate",
+    title: `${CONFIG.projectName} - Worker for Boss - REV-3 Review gate`,
+    parentId: "boss",
+    dependencies: ["worker-research"],
+    objective: "Review the research outcome before its parent can complete.",
+    completionProfile: {
+      type: "artifact",
+      requiredEvidence: ["review record"]
+    }
+  });
+  writeOrchestrationRegistry(combinedCycle);
+
+  const composed = capture();
+  const composedCode = await main(["orchestration", "validate"], composed.io);
+  assert.equal(composedCode, 1);
+  assert.match(composed.out.join("\n"), /orchestration graph contains a parent\/dependency cycle/);
+});
+
+fixtureTest("orchestration validator rejects graph cycles and project budget overruns", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.trustPolicy.limits.maxActiveNodes = 1;
+  registry.trustPolicy.limits.maxDelegationDepth = 0;
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  boss.parentId = "manager-docs";
+  manager.state = "working";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.nextAction = "Draft the bounded artifact.";
+  manager.dependencies = ["worker-research"];
+  worker.dependencies = ["manager-docs"];
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  const text = out.join("\n");
+  assert.match(text, /parent graph contains a cycle/);
+  assert.match(text, /dependency graph contains a cycle/);
+  assert.match(text, /delegation depth .* exceeds project limit 0/);
+  assert.match(text, /2 active nodes exceed project limit 1/);
+});
+
+fixtureTest("orchestration launch contracts enforce delegation and capacity at materialization time", async () => {
+  const noDelegation = validOrchestrationRegistry();
+  const noDelegationBoss = noDelegation.nodes.find((node) => node.id === "boss");
+  noDelegationBoss.authority.canDelegate = false;
+  noDelegationBoss.taskBinding = taskBindingForTest(noDelegation, noDelegationBoss);
+  writeOrchestrationRegistry(noDelegation);
+  const authority = capture();
+  const authorityCode = await main(["orchestration", "launch-spec", "manager-docs"], authority.io);
+  assert.equal(authorityCode, 1);
+  assert.match(authority.err.join("\n"), /parent boss lacks T3 delegation authority/);
+
+  const childBudget = validOrchestrationRegistry();
+  const childBudgetBoss = childBudget.nodes.find((node) => node.id === "boss");
+  const activeManager = childBudget.nodes.find((node) => node.id === "manager-docs");
+  const queuedWorker = childBudget.nodes.find((node) => node.id === "worker-research");
+  childBudgetBoss.authority.maxActiveChildren = 1;
+  activeManager.state = "working";
+  activeManager.taskId = "task-manager-docs";
+  activeManager.parentTaskId = "task-boss";
+  activeManager.nextAction = "Draft the bounded artifact.";
+  childBudgetBoss.taskBinding = taskBindingForTest(childBudget, childBudgetBoss);
+  activeManager.taskBinding = taskBindingForTest(childBudget, activeManager);
+  queuedWorker.dependencies = [];
+  writeOrchestrationRegistry(childBudget);
+  const capacity = capture();
+  const capacityCode = await main(["orchestration", "launch-spec", "worker-research"], capacity.io);
+  assert.equal(capacityCode, 1);
+  assert.match(capacity.err.join("\n"), /exhausted its active-child budget/);
+
+  const projectBudget = validOrchestrationRegistry();
+  const projectManager = projectBudget.nodes.find((node) => node.id === "manager-docs");
+  const projectWorker = projectBudget.nodes.find((node) => node.id === "worker-research");
+  projectBudget.trustPolicy.limits.maxActiveNodes = 2;
+  projectManager.state = "working";
+  projectManager.taskId = "task-manager-docs";
+  projectManager.parentTaskId = "task-boss";
+  projectManager.nextAction = "Draft the bounded artifact.";
+  projectWorker.dependencies = [];
+  const projectBoss = projectBudget.nodes.find((node) => node.id === "boss");
+  projectBoss.taskBinding = taskBindingForTest(projectBudget, projectBoss);
+  projectManager.taskBinding = taskBindingForTest(projectBudget, projectManager);
+  writeOrchestrationRegistry(projectBudget);
+  const portfolio = capture();
+  const portfolioCode = await main(["orchestration", "launch-spec", "worker-research"], portfolio.io);
+  assert.equal(portfolioCode, 1);
+  assert.match(portfolio.err.join("\n"), /project active-node budget is exhausted/);
+});
+
+fixtureTest("orchestration refuses child launches from ready-for-parent nodes", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  manager.state = "ready-for-parent";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.handoffEvidence = ["approved documentation artifact"];
+  manager.trustLevel = "T3";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded workstream delegation approval"]
+  };
+  manager.authority = orchestrationAuthority({ canDelegate: true, maxActiveChildren: 1 });
+  worker.parentId = manager.id;
+  worker.dependencies = [];
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /node manager-docs: ready-for-parent parent has non-terminal children/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+});
+
+fixtureTest("orchestration launch specs require a compare-and-set reservation before task creation", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  registry.trustPolicy.limits.maxActiveNodes = 2;
+  worker.dependencies = [];
+  registry.nodes.find((node) => node.id === "boss").taskBinding = taskBindingForTest(registry, registry.nodes.find((node) => node.id === "boss"));
+  writeOrchestrationRegistry(registry);
+
+  const firstLaunch = capture();
+  const firstLaunchCode = await main(["orchestration", "launch-spec", "manager-docs"], firstLaunch.io);
+  assert.equal(firstLaunchCode, 0, firstLaunch.err.join("\n"));
+  const firstSpec = JSON.parse(firstLaunch.out.join("\n"));
+  assert.equal(firstSpec.reservation.expectedRegistryRevision, 0);
+  assert.equal(firstSpec.reservation.expectedNode.state, "eligible");
+  assert.equal(firstSpec.reservation.expectedParent.id, "boss");
+  assert.equal(firstSpec.reservation.expectedParent.state, "working");
+  assert.equal(firstSpec.reservation.expectedParent.taskId, "task-boss");
+  assert.equal(firstSpec.reservation.expectedParent.trustLevel, "T3");
+  assert.deepEqual(firstSpec.reservation.expectedParent.authority, registry.nodes.find((node) => node.id === "boss").authority);
+  assert.deepEqual(firstSpec.reservation.capacity, {
+    activeNodeCount: 1,
+    reservedNodeCount: 0,
+    maxActiveNodes: 2,
+    parentId: "boss",
+    activeChildCount: 0,
+    reservedChildCount: 0,
+    maxActiveChildren: 2
+  });
+
+  registry.revision = 1;
+  writeOrchestrationRegistry(registry);
+  const refreshedLaunch = capture();
+  const refreshedLaunchCode = await main(["orchestration", "launch-spec", "manager-docs"], refreshedLaunch.io);
+  assert.equal(refreshedLaunchCode, 0, refreshedLaunch.err.join("\n"));
+  const refreshedSpec = JSON.parse(refreshedLaunch.out.join("\n"));
+  assert.equal(refreshedSpec.reservation.expectedRegistryRevision, 1);
+  assert.equal(refreshedSpec.reservation.launchKey, firstSpec.reservation.launchKey);
+  assert.equal(firstSpec.callback.reserve.expectedRegistryRevision, 0);
+
+  manager.launchReservation = refreshedSpec.callback.reserve.onSuccess.launchReservation;
+  registry.revision = refreshedSpec.callback.reserve.onSuccess.registryRevision;
+  writeOrchestrationRegistry(registry);
+  const reservationValidation = capture();
+  const reservationValidationCode = await main(["orchestration", "validate"], reservationValidation.io);
+  assert.equal(reservationValidationCode, 0, reservationValidation.out.concat(reservationValidation.err).join("\n"));
+  const validity = refreshedSpec.callback.reserve.onSuccess.launchReservation.validity;
+  assert.equal(validity.expectedRegistryRevision, registry.revision);
+  assert.equal(validity.expectedRegistryStatus, "active");
+  assert.equal(validity.expectedNode.launchReservationKey, refreshedSpec.reservation.launchKey);
+  assert.equal(validity.expectedNode.trustLevel, "T1");
+  assert.deepEqual(validity.expectedNode.authority, manager.authority);
+  assert.equal(validity.expectedParent.trustLevel, "T3");
+  assert.equal(validity.expectedParent.authority.canDelegate, true);
+  assert.deepEqual(refreshedSpec.callback.preCreate.expectedNode, validity.expectedNode);
+  assert.deepEqual(refreshedSpec.callback.preCreate.expectedParent, validity.expectedParent);
+  assert.deepEqual(refreshedSpec.callback.bind.capacity, validity.capacity);
+  assert.equal(refreshedSpec.externalTask.idempotencyKey, refreshedSpec.reservation.launchKey);
+  assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation and reconcile/);
+  assert.equal(refreshedSpec.callback.reconcile.operation, "compare-and-set-reconcile-bind");
+  assert.deepEqual(refreshedSpec.callback.reconcile.requiredReservation, {
+    key: refreshedSpec.reservation.launchKey,
+    baseRevision: refreshedSpec.reservation.expectedRegistryRevision
+  });
+  assert.equal(refreshedSpec.callback.reconcile.externalTask.reconciliationKey, refreshedSpec.reservation.launchKey);
+  assert.equal(refreshedSpec.callback.reconcile.externalTask.createAllowed, false);
+
+  const next = capture();
+  const nextCode = await main(["orchestration", "next"], next.io);
+  assert.equal(nextCode, 0, next.err.join("\n"));
+  assert.doesNotMatch(next.out.join("\n"), /manager-docs/);
+
+  const duplicate = capture();
+  const duplicateCode = await main(["orchestration", "launch-spec", "manager-docs"], duplicate.io);
+  assert.equal(duplicateCode, 1);
+  assert.match(duplicate.err.join("\n"), /pending launch reservation/);
+  assert.equal(refreshedSpec.callback.bind.requiredReservationKey, refreshedSpec.reservation.launchKey);
+
+  const capacity = capture();
+  const capacityCode = await main(["orchestration", "launch-spec", "worker-research"], capacity.io);
+  assert.equal(capacityCode, 1);
+  assert.match(capacity.err.join("\n"), /project active-node budget is exhausted/);
+
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.canDelegate = false;
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const revocation = capture();
+  const revocationCode = await main(["orchestration", "validate"], revocation.io);
+  assert.equal(revocationCode, 1);
+  assert.match(revocation.out.join("\n"), /launchReservation validity no longer matches registry status, work contract, authority, capacity, or task identity/);
+});
+
+fixtureTest("orchestration rejects self-consistent reservations that fail launch eligibility", async () => {
+  for (const [name, mutate, expectedBlocker] of [
+    ["dependencies", (registry, node) => { node.dependencies = ["worker-research"]; }, /launch eligibility requires completed dependencies/],
+    ["registry status", (registry) => { registry.status = "inactive"; }, /launch eligibility requires active orchestration/],
+    ["parent task", (registry, node, parent) => { parent.state = "queued"; parent.taskId = null; delete parent.nextAction; }, /launch eligibility requires task-backed parent boss/],
+    ["parent state", (registry, node, parent) => { parent.state = "ready-for-parent"; parent.handoffEvidence = ["portfolio handoff"]; delete parent.nextAction; }, /launch eligibility requires parent boss in an active managing state/],
+    ["delegation authority", (registry, node, parent) => { parent.authority.canDelegate = false; }, /launch eligibility requires parent boss with T3 delegation authority/],
+    ["approval gate", (registry, node, parent) => { parent.authority.approvalGates.push("human-review"); }, /launch eligibility requires parent approval gate human-review/],
+    ["child capacity", (registry, node, parent) => { parent.authority.maxActiveChildren = 0; }, /launch eligibility exceeds parent boss active-child budget/],
+    ["project capacity", (registry) => { registry.trustPolicy.limits.maxActiveNodes = 1; }, /launch eligibility exceeds project active-node budget/],
+    ["task identity", (registry, node) => { node.taskId = "task-manager-docs"; }, /launch eligibility requires a queued or eligible node without taskId/]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    writeOrchestrationRegistry(registry);
+    const launch = capture();
+    const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+    assert.equal(launchCode, 0, `${name}: ${launch.err.join("\n")}`);
+    const spec = JSON.parse(launch.out.join("\n"));
+    const node = registry.nodes.find((candidate) => candidate.id === "manager-docs");
+    const parent = registry.nodes.find((candidate) => candidate.id === "boss");
+    node.launchReservation = spec.callback.reserve.onSuccess.launchReservation;
+    registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+    mutate(registry, node, parent);
+    node.launchReservation.validity = selfConsistentReservationValidity(registry, node, parent);
+    writeOrchestrationRegistry(registry);
+
+    const validation = capture();
+    const validationCode = await main(["orchestration", "validate"], validation.io);
+    assert.equal(validationCode, 1, name);
+    assert.match(validation.out.join("\n"), expectedBlocker);
+    assert.doesNotMatch(validation.out.join("\n"), /launchReservation validity no longer matches registry status, revision, work contract, authority, capacity, or task identity/);
+  }
+});
+
+fixtureTest("orchestration reservation protocol requires durable launch-key reconciliation", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "AGENT-ORCHESTRATION.md");
+  const protocol = fs.readFileSync(protocolPath, "utf-8");
+  assert.match(protocol, /Immediately before task creation, atomically compare the reserved registry against `preCreate`/);
+  assert.match(protocol, /externalTask\.idempotencyKey/);
+  assert.match(protocol, /On a timeout, crash, ambiguous response, or failed bind, retain the reservation/);
+  assert.match(protocol, /do not clear or retry creation until absence is proven/);
+  assert.match(protocol, /unrelated valid registry mutation advanced the revision before bind/);
+  assert.match(protocol, /target task-identity\/trust\/entire authority envelope including approval gates/);
+  assert.match(protocol, /reconciliation never creates a second task/);
+});
+
+fixtureTest("orchestration reconciles an existing task after an unrelated revision advance", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+  assert.equal(launchCode, 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  manager.launchReservation = spec.callback.reserve.onSuccess.launchReservation;
+  registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+  boss.nextAction = "Review a separate portfolio handoff.";
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 0, validation.out.concat(validation.err).join("\n"));
+  assert.equal(spec.callback.bind.expectedRegistryRevision, 1);
+  assert.equal(registry.revision, 2);
+  assert.equal(spec.callback.reconcile.readLatestRegistryRevision, true);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.completedDependencies, true);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.node.trustLevel, "T1");
+  assert.deepEqual(spec.callback.reconcile.requiredCurrentEligibility.node.authority, manager.authority);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.parentDelegationAuthorityRequired, true);
+  assert.deepEqual(spec.callback.reconcile.requiredCurrentEligibility.parentAuthorityInheritance, {
+    requireCurrentParentToChildValidation: true,
+    childTrustMayNotExceedParent: true,
+    allowedReadsSubset: true,
+    allowedWritesSubset: true,
+    allowedExternalActionsSubset: true,
+    inheritedApprovalGatesRequired: true,
+    delegatedBudgetWithinParent: true
+  });
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.materializedWorkContractHash, spec.workContract.hash);
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.capacityRequired, true);
+  assert.equal(spec.callback.reconcile.externalTask.requireExistingTask, true);
+  assert.equal(spec.callback.reconcile.externalTask.createAllowed, false);
+  assert.match(spec.callback.reconcile.onSuccess, /without another external create/);
+});
+
+fixtureTest("orchestration invalidates reservations after status, authority, capacity, or task changes", async () => {
+  for (const [name, mutate] of [
+    ["status", (registry) => { registry.status = "inactive"; }],
+    ["trust", (registry) => { registry.nodes.find((node) => node.id === "boss").trustLevel = "T4"; }],
+    ["approval gates", (registry) => { registry.nodes.find((node) => node.id === "boss").authority.approvalGates.push("human-review"); }],
+    ["target trust", (registry) => { registry.nodes.find((node) => node.id === "manager-docs").trustLevel = "T0"; }],
+    ["target authority", (registry) => { registry.nodes.find((node) => node.id === "manager-docs").authority.allowedReads = []; }],
+    ["target approval gates", (registry) => { registry.nodes.find((node) => node.id === "manager-docs").authority.approvalGates.push("human-review"); }],
+    ["capacity", (registry) => { registry.trustPolicy.limits.maxActiveNodes = 5; }],
+    ["task identity", (registry) => { registry.nodes.find((node) => node.id === "boss").taskId = "task-boss-replaced"; }]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    writeOrchestrationRegistry(registry);
+    const launch = capture();
+    const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+    assert.equal(launchCode, 0, `${name}: ${launch.err.join("\n")}`);
+    const spec = JSON.parse(launch.out.join("\n"));
+    const manager = registry.nodes.find((node) => node.id === "manager-docs");
+    manager.launchReservation = spec.callback.reserve.onSuccess.launchReservation;
+    registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+    mutate(registry);
+    registry.revision += 1;
+    writeOrchestrationRegistry(registry);
+
+    const validation = capture();
+    const validationCode = await main(["orchestration", "validate"], validation.io);
+    assert.equal(validationCode, 1, name);
+    assert.match(validation.out.join("\n"), /node manager-docs: launchReservation validity no longer matches registry status, work contract, authority, capacity, or task identity/);
+  }
+});
+
+fixtureTest("orchestration hashes canonical work contracts and quarantines stale payloads", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  const initial = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], initial.io), 0, initial.err.join("\n"));
+  const initialSpec = JSON.parse(initial.out.join("\n"));
+
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.governingProtocols.reverse();
+  manager.authority.stopConditions.reverse();
+  writeOrchestrationRegistry(registry);
+  const reordered = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], reordered.io), 0, reordered.err.join("\n"));
+  const reorderedSpec = JSON.parse(reordered.out.join("\n"));
+  assert.equal(reorderedSpec.workContract.hash, initialSpec.workContract.hash);
+  assert.equal(reorderedSpec.reservation.launchKey, initialSpec.reservation.launchKey);
+
+  manager.launchReservation = reorderedSpec.callback.reserve.onSuccess.launchReservation;
+  registry.revision = reorderedSpec.callback.reserve.onSuccess.registryRevision;
+  manager.objective = "Changed documentation scope after reservation.";
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const stalePayload = capture();
+  assert.equal(await main(["orchestration", "validate"], stalePayload.io), 1);
+  assert.match(stalePayload.out.join("\n"), /launchReservation validity no longer matches registry status, work contract, authority, capacity, or task identity/);
+});
+
+fixtureTest("orchestration preserves immutable task bindings across authority normalization and replanning", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedReads = ["project", "project"];
+  boss.authority.approvalGates = ["activation", "activation"];
+  boss.authority.stopConditions = ["scope-unclear", "authority-gap", "scope-unclear"];
+  writeOrchestrationRegistry(registry);
+
+  const normalized = capture();
+  assert.equal(await main(["orchestration", "validate"], normalized.io), 0, normalized.out.concat(normalized.err).join("\n"));
+
+  boss.objective = "Change the already-bound project contract.";
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const mutated = capture();
+  assert.equal(await main(["orchestration", "validate"], mutated.io), 1);
+  assert.match(mutated.out.join("\n"), /node boss: taskBinding\.(launchKey|workContractHash) must match the immutable materialized work contract/);
+
+  boss.objective = "Keep the project scope controlled and evidence-backed.";
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "superseded";
+  manager.completionEvidence = ["approved documentation artifact"];
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  registry.nodes.push({
+    ...manager,
+    id: "manager-docs-successor",
+    workRef: "DOCS-5",
+    label: "Documentation refresh successor",
+    title: `${CONFIG.projectName} - Manager - DOCS-5 Documentation refresh successor`,
+    taskId: null,
+    parentTaskId: null,
+    taskBinding: undefined,
+    state: "eligible",
+    terminalDisposition: undefined,
+    completionEvidence: undefined
+  });
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+
+  const replanned = capture();
+  assert.equal(await main(["orchestration", "validate"], replanned.io), 0, replanned.out.concat(replanned.err).join("\n"));
+});
+
+fixtureTest("orchestration launch contracts require immutable task binding metadata", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.taskBinding.launchKey, spec.reservation.launchKey);
+  assert.equal(spec.taskBinding.workContractHash, spec.workContract.hash);
+  assert.equal(spec.taskBinding.nodeId, "manager-docs");
+  assert.equal(spec.taskBinding.parentNodeId, "boss");
+  assert.equal(spec.taskBinding.parentTaskId, "task-boss");
+  assert.equal(spec.taskBinding.attestation.algorithm, "ed25519");
+  assert.equal(spec.taskBinding.attestation.keyId, BINDING_ATTESTOR_KEY_ID);
+  assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("Ed25519-attested taskBinding")));
+  assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
+  assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
+
+  delete registry.nodes.find((node) => node.id === "boss").taskBinding;
+  writeOrchestrationRegistry(registry);
+  const missing = capture();
+  assert.equal(await main(["orchestration", "validate"], missing.io), 1);
+  assert.match(missing.out.join("\n"), /node boss: task-backed node requires immutable taskBinding metadata/);
+});
+
+fixtureTest("orchestration requires an external attestation for immutable task bindings", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.objective = "A rewritten contract that retains the old task binding signature.";
+  const rewrittenHash = materializedWorkContractHash(registry, boss, null);
+  boss.taskBinding = {
+    ...boss.taskBinding,
+    launchKey: `orchestration:${registry.scope.id}:boss:${rewrittenHash}`,
+    workContractHash: rewrittenHash
+  };
+  writeOrchestrationRegistry(registry);
+
+  const rewritten = capture();
+  assert.equal(await main(["orchestration", "validate"], rewritten.io), 1);
+  assert.match(rewritten.out.join("\n"), /node boss: taskBinding\.attestation signature does not match the trusted immutable binding record/);
+
+  const missingAttestor = validOrchestrationRegistry();
+  delete missingAttestor.bindingAttestation;
+  writeOrchestrationRegistry(missingAttestor);
+  const unavailable = capture();
+  assert.equal(await main(["orchestration", "validate"], unavailable.io), 1);
+  assert.match(unavailable.out.join("\n"), /node boss: trusted binding attestor is unavailable/);
+});
+
+fixtureTest("orchestration rejects Boss parent-task metadata in working and terminal states", async () => {
+  for (const state of ["working", "terminal"]) {
+    const registry = validOrchestrationRegistry();
+    const boss = registry.nodes.find((node) => node.id === "boss");
+    boss.state = state;
+    if (state === "terminal") {
+      boss.terminalDisposition = "completed";
+      boss.completionEvidence = ["Boss completion evidence"];
+    }
+    boss.parentTaskId = "task-unrelated-parent";
+    writeOrchestrationRegistry(registry);
+
+    const parentTask = capture();
+    assert.equal(await main(["orchestration", "validate"], parentTask.io), 1, state);
+    assert.match(parentTask.out.join("\n"), /node boss: Boss parentTaskId must be null/);
+  }
+
+  for (const field of ["parentNodeId", "parentTaskId"]) {
+    const registry = validOrchestrationRegistry();
+    const boss = registry.nodes.find((node) => node.id === "boss");
+    boss.taskBinding[field] = "task-unrelated-parent";
+    writeOrchestrationRegistry(registry);
+
+    const binding = capture();
+    assert.equal(await main(["orchestration", "validate"], binding.io), 1, field);
+    assert.match(binding.out.join("\n"), new RegExp(`node boss: Boss taskBinding\\.${field} must be null`));
+  }
+});
+
+fixtureTest("orchestration requires current parent scope inheritance and immutable parent task identity", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  manager.trustLevel = "T2";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded documentation execution approval"]
+  };
+  manager.authority = orchestrationAuthority({ writes: ["project-files"] });
+  manager.state = "working";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.nextAction = "Review the documentation scope.";
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+  const valid = capture();
+  assert.equal(await main(["orchestration", "validate"], valid.io), 0, valid.out.concat(valid.err).join("\n"));
+
+  boss.authority.allowedWrites = [];
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const revokedScope = capture();
+  assert.equal(await main(["orchestration", "validate"], revokedScope.io), 1);
+  assert.match(revokedScope.out.join("\n"), /node manager-docs: authority\.allowedWrites entry project-files exceeds parent scope/);
+
+  boss.authority.allowedWrites = ["project-files"];
+  boss.taskId = "task-boss-replaced";
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const replacedParent = capture();
+  assert.equal(await main(["orchestration", "validate"], replacedParent.io), 1);
+  assert.match(replacedParent.out.join("\n"), /node manager-docs: parentTaskId must match immediate parent boss taskId/);
+});
+
+fixtureTest("orchestration rejects active children whose parent cannot manage delegation", async () => {
+  for (const [parentState, trustLevel, canDelegate, expectedBlocker] of [
+    ["ready-for-parent", "T3", true, /active non-Boss node requires parent manager-docs in an active managing state/],
+    ["working", "T3", false, /active non-Boss node requires parent manager-docs with T3 delegation authority/],
+    ["working", "T2", true, /active non-Boss node requires parent manager-docs with T3 delegation authority/]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    const manager = registry.nodes.find((node) => node.id === "manager-docs");
+    const worker = registry.nodes.find((node) => node.id === "worker-research");
+    manager.state = parentState;
+    manager.taskId = "task-manager-docs";
+    manager.parentTaskId = "task-boss";
+    manager.trustLevel = trustLevel;
+    manager.authority = orchestrationAuthority({ canDelegate, maxActiveChildren: 1 });
+    if (parentState === "ready-for-parent") manager.handoffEvidence = ["approved documentation artifact"];
+    else manager.nextAction = "Manage the research decision.";
+    if (trustLevel === "T3") {
+      manager.trustApproval = {
+        approvedBy: "project-owner",
+        approvedAt: "2026-07-16",
+        evidence: ["bounded workstream delegation approval"]
+      };
+    }
+    worker.parentId = manager.id;
+    worker.dependencies = [];
+    worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+    worker.state = "working";
+    worker.taskId = "task-worker-research";
+    worker.parentTaskId = "task-manager-docs";
+    worker.nextAction = "Prepare the research decision.";
+    writeOrchestrationRegistry(registry);
+
+    const { io, out } = capture();
+    const code = await main(["orchestration", "validate"], io);
+    assert.equal(code, 1, `${parentState}/${trustLevel}/${canDelegate}`);
+    assert.match(out.join("\n"), expectedBlocker);
+  }
+});
+
+fixtureTest("orchestration semantically validates trust approval timestamps", async () => {
+  for (const approvedAt of ["2026-99-99", "2026-02-29", "2026-01-01T24:00:00Z", "2026-01-01T12:60:00Z", "2026-01-01T12:00:61Z"]) {
+    const registry = validOrchestrationRegistry();
+    registry.nodes.find((node) => node.id === "boss").trustApproval.approvedAt = approvedAt;
+    writeOrchestrationRegistry(registry);
+
+    const { io, out } = capture();
+    const code = await main(["orchestration", "validate"], io);
+    assert.equal(code, 1, approvedAt);
+    assert.match(out.join("\n"), /node boss: trustApproval\.approvedAt must be YYYY-MM-DD or UTC RFC3339 seconds/);
+  }
+
+  const registry = validOrchestrationRegistry();
+  registry.nodes.find((node) => node.id === "boss").trustApproval.approvedAt = "2024-02-29T23:59:59.123Z";
+  writeOrchestrationRegistry(registry);
+  const { io, err } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 0, err.join("\n"));
 });
 
 fixtureTest("goals status reports configured implementation goals", async () => {

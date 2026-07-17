@@ -34,6 +34,8 @@ This package includes:
 - CLI skeletons and scaffolding scripts
 - optional no-mistakes PR-gate setup and status templates
 - optional Lavish review-surface protocol and tracker-capture templates
+- optional Boss/Manager/Worker orchestration registry, prompts, and ledger
+- goal-chain templates for repository-merge work that composes with project orchestration
 - plain-language setup references
 - automation, heartbeat, and run-log templates
 

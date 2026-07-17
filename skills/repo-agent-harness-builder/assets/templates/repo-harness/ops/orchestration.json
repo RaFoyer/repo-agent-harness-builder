@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "revision": 0,
+  "status": "inactive",
+  "prefix": {{PROJECT_NAME_JSON}},
+  "scope": {
+    "id": "project",
+    "kind": "repository",
+    "rootRef": "repository-root",
+    "objective": "Coordinate bounded project work with explicit authority and evidence."
+  },
+  "bindingAttestation": null,
+  "trustPolicy": {
+    "defaultLevel": "T1",
+    "maxLevel": "T2",
+    "promotionRequiresHumanApproval": true,
+    "childMayExceedParent": false,
+    "limits": {
+      "maxActiveNodes": 6,
+      "maxDelegationDepth": 2
+    }
+  },
+  "nodes": []
+}

@@ -4,7 +4,7 @@ Use this reference when a request needs more than a short starter prompt: creati
 
 ## Purpose
 
-A goal implementation graph is a dependency-aware execution plan for agent implementation work. One orchestration thread owns the graph and runs ticket-backed subgoal threads as independent nodes when safe. Each node starts from an approved base, lands one coherent unit of work, records verification evidence, merges into the integration branch, and unlocks dependent nodes from current shared state.
+A goal implementation graph is a dependency-aware execution plan for agent implementation work. It is a `repository-merge` profile that can be assigned to Boss, Manager, or Worker nodes defined by a general orchestration registry. Each goal starts from an approved base, lands one coherent unit of work, records verification evidence, merges into the integration branch, and unlocks dependent nodes from current shared state.
 
 A goal chain is the simplest graph: every node depends on the prior node. Prefer a graph whenever some goals can safely run in parallel.
 
@@ -26,7 +26,8 @@ Avoid it when the task is a one-off change, exploratory work should not create d
 | --- | --- |
 | Canonical tracker | Owns problem statement, scope, acceptance criteria, verification evidence, and linked PR/commit state. |
 | Integration branch | The shared base for each goal, usually `dev`, `main`, or `trunk`. |
-| Orchestration thread | The durable control plane that designs the graph, creates or steers subgoal threads, records status, and sequences fan-in. |
+| Orchestration registry | When present, owns role, title, task parentage, lifecycle, trust, authority, and delegation budgets. |
+| Goal-chain controller | Applies this repository-merge profile to the graph, records delivery evidence, and sequences fan-in within its orchestration authority. |
 | Goal | One coherent unit of ticket-backed work with objective, boundaries, exit criteria, and verification. |
 | Subgoal thread | A dedicated work session for one graph node, usually isolated in its own worktree when it edits code. |
 | Dependency edge | A prerequisite relation such as "needs merged API contract," "blocks UI wiring," or "must follow migration." |
@@ -50,6 +51,8 @@ Avoid it when the task is a one-off change, exploratory work should not create d
 12. Repeat until the graph reaches success, clean no-op, blocked, approval-required, exhausted, or stagnated state.
 
 ## Codex Thread Control
+
+When the repository has `AGENT-ORCHESTRATION.md`, use its exact registry-derived titles, immediate-parent links, lifecycle, trust, authority, and launch contract. This reference does not create a second hierarchy or status taxonomy. The goal-chain ledger records only ticket, branch, PR, merge, verification, residual-risk, and downstream-unlock evidence.
 
 Use actual Codex thread tools only when the user explicitly wants durable user-owned threads created or managed. For short-lived helper tasks inside the current request, use available subagent/delegation tools instead of creating persistent Codex threads.
 

@@ -1,4 +1,8 @@
-Orchestration goal: <project / epic / issue set>
+Goal-chain Boss specialization: <project / epic / issue set>
+
+Title: <exact title from orchestration launch spec>
+Immediate parent task ID: <from orchestration launch spec>
+Trust and authority: <from orchestration launch spec; this prompt does not expand them>
 
 First action: read the repository instructions, inspect the canonical tracker items, and produce an implementation goal graph before starting or assigning implementation work.
 
@@ -13,17 +17,20 @@ Thread policy:
 - Transient subagents: <allowed / not allowed>
 - Model override policy: <default only / recommended tiers / approved explicit mapping>
 
-Orchestrator responsibilities:
+Repository-merge responsibilities:
+- Own the complete portfolio, dependency graph, escalation path, and fan-in order.
+- Create or activate Managers for major ticket-backed workstreams; do not absorb their implementation work.
 - Build the dependency graph before making a linear queue.
 - Identify prerequisite contract/design nodes, parallel fan-out sets, fan-in gates, and serialized nodes.
 - Recommend model/effort per node, keeping orchestration on the strongest practical reasoning setting.
-- Start or prepare subgoal prompts only for nodes whose dependencies and write boundaries are clear.
-- Track thread IDs, bases, branches, PRs, verification evidence, blockers, merge commits, and dependent-node unlocks in the ledger.
-- Read child thread status before steering, merging, or launching dependents.
+- Start or prepare Manager and Worker prompts only for nodes whose dependencies and write boundaries are clear.
+- Track titles, immediate parent task IDs, thread IDs, bases, branches, PRs, verification evidence, blockers, merge commits, and dependent-node unlocks in the ledger.
+- Read Manager status before steering, merging, or launching dependents.
 - Preserve unrelated user work and keep secrets out of repo, chat, logs, tickets, commits, and CI.
+- Follow `AGENT-ORCHESTRATION.md` for role, lifecycle, trust, authority, and child budgets.
 
 Expected first deliverable:
-- Goal graph with node IDs, dependencies, execution modes, parallelism rationale, model/effort recommendations, verification gates, and first subgoal prompts.
+- Goal graph with node IDs, dependencies, execution modes, parallelism rationale, model/effort recommendations, verification gates, Manager boundaries, and first Worker prompts.
 
 Completion rule:
 - The orchestration goal is complete only when the graph reaches a named terminal state and the ledger records issue/PR/merge/verification evidence or the reason work is blocked.

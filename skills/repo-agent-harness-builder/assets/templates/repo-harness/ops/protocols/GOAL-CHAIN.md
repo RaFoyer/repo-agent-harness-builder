@@ -7,6 +7,7 @@ owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines ticket-backed implementation goal chains with merge, verification, and handoff evidence.
 related_protocols:
+  - AGENT-ORCHESTRATION
   - AUTOMATIONS
   - CLI-INTERFACE
   - LAVISH-REVIEW
@@ -19,6 +20,8 @@ related_protocols:
 ## Purpose
 
 Run product and engineering work through ticket-backed goals that each start from the current integration branch, land one coherent unit of work, record evidence, merge, and queue dependent work from shared repository state.
+
+This protocol defines a `repository-merge` completion profile. When work uses delegated tasks, compose it with `AGENT-ORCHESTRATION.md`; that protocol owns role, title, parentage, lifecycle, trust, authority, and delegation budgets.
 
 ## When To Use
 
@@ -54,11 +57,24 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 Use the bundled goal-chain assets when a task needs orchestration beyond a simple sequential chain:
 
 - `docs/templates/goal-chain/implementation-goal-graph.md`: durable graph shape with dependencies and fan-in.
-- `docs/templates/goal-chain/orchestration-ledger-template.md`: node, thread, base, model/effort, PR, merge, and verification ledger.
-- `docs/templates/goal-chain/orchestrator-thread-prompt.txt`: starter prompt for the orchestration thread.
-- `docs/templates/goal-chain/subgoal-thread-prompt.txt`: starter prompt for one graph node.
+- `docs/templates/goal-chain/orchestration-ledger-template.md`: goal-specific branch, PR, merge, and verification evidence that supplements `ops/orchestration.json`.
+- `docs/templates/goal-chain/orchestrator-thread-prompt.txt`: repository-merge specialization for a Boss prompt.
+- `docs/templates/goal-chain/manager-thread-prompt.txt`: repository-merge specialization for a Manager workstream.
+- `docs/templates/goal-chain/subgoal-thread-prompt.txt`: repository-merge specialization for one Worker node.
 
 The portable onboarding package also includes `skills/goal-chain-loop/SKILL.md` for graph creation, subgoal orchestration, and fan-out/fan-in planning.
+
+## Orchestration Composition
+
+For delegated goal chains, declare goal nodes in `ops/orchestration.json` with:
+
+- a canonical issue as `workRef`
+- `workKind: engineering` or another accurate domain slug
+- `governingProtocols` containing `AGENT-ORCHESTRATION` and `GOAL-CHAIN`
+- `completionProfile.type: repository-merge`
+- required evidence covering the merged PR, reachable integration commit, verification, issue disposition, residual risks, and downstream unlocks
+
+Use `./{{CLI_NAME}} orchestration next`, `orchestration prompt`, and `orchestration launch-spec` for hierarchy and task launch. Use `goals status`, `goals verify`, and `goals start-prompt` for goal-chain-specific local evidence. Do not maintain a second role or lifecycle taxonomy in this protocol.
 
 ## Guardrails
 
@@ -77,10 +93,12 @@ Use the repo CLI when the goal-chain module is active:
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} goals verify <goal-id>
 ./{{CLI_NAME}} goals start-prompt <goal-id>
+./{{CLI_NAME}} orchestration next
+./{{CLI_NAME}} orchestration launch-spec <node-id>
 ./{{CLI_NAME}} lavish tracker reconcile --issue <id> [--dry-run]
 ```
 
-`goals status` is read-only and may run before activation. `goals verify` rejects missing linked issue evidence, unresolved placeholders, negated verification text, negated PR evidence, missing residual-risk evidence, and merge or squash integration commits that either do not match the recorded PR number or are not reachable from the configured local integration branch or its configured local remote-tracking ref. Generated CLI config defaults `integrationBranch` to the default branch, `integrationRemote` to `origin`, `requiredGoalCloseoutFields` to `Issues:` and `Residual risks:`, and `trackerIssuePattern` to an empty value with common GitHub/Jira/Linear/Azure-style issue references accepted by default, with or without a trailing colon; update those values when the repository uses a different integration branch, remote, tracker reference shape, or migrated goal-chain schema. Fetch or pull the integration branch first if the PR was just merged remotely. The command does not verify live PR state, merge, update trackers, or create the next thread. `goals start-prompt` prints a bounded prompt for a goal thread, truncates long objectives with an `objective_preview` size hint, and accepts `--full` when the complete objective is needed.
+`goals status` is read-only and may run before activation. `goals verify` rejects missing linked issue evidence, unresolved placeholders, negated verification text, negated PR evidence, missing residual-risk evidence, and merge or squash integration commits that either do not match the recorded PR number or are not reachable from the configured local integration branch or its configured local remote-tracking ref. Generated CLI config defaults `integrationBranch` to the default branch, `integrationRemote` to `origin`, `requiredGoalCloseoutFields` to `Issues:` and `Residual risks:`, and `trackerIssuePattern` to an empty value with common GitHub/Jira/Linear/Azure-style issue references accepted by default, with or without a trailing colon; update those values when the repository uses a different integration branch, remote, tracker reference shape, or migrated goal-chain schema. Fetch or pull the integration branch first if the PR was just merged remotely. The command does not verify live PR state, merge, update trackers, or create the next thread. `goals start-prompt` prints a bounded goal prompt, truncates long objectives with an `objective_preview` size hint, and accepts `--full` when the complete objective is needed.
 
 Fresh generated harnesses fail closed on `Issues:` and `Residual risks:` through `requiredGoalCloseoutFields`. Older configs that omit that key enforce only closeout fields declared in each goal; add the key to opt into the fresh strict default, or set it to `[]` as an explicit migration opt-out. Additional entries in `requiredGoalCloseoutFields` are enforced as required closeout fields with non-placeholder evidence. The CLI also accepts `Linked issues:` and `Closed issues:` as issue-evidence aliases. Verification lines must include an explicit passing result such as `passed`, `verified`, `succeeded`, or `completed`. Keep custom note fields outside the `Verification:` block, or separate them with a blank line. Non-bulleted runner or result lines inside `Verification:` are still evaluated for failure tokens; note-style labels such as `Notes:` end the verification block.
 
@@ -98,4 +116,4 @@ A goal is complete only when:
 
 ## Update Rules
 
-When this protocol changes, update `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help/tests, and any goal-chain templates in the same change.
+When this protocol changes, update `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help/tests, and any goal-chain templates in the same change. Changes to roles, lifecycle, trust, authority, titles, or launch contracts belong in `AGENT-ORCHESTRATION.md` and `ops/orchestration.json` first.

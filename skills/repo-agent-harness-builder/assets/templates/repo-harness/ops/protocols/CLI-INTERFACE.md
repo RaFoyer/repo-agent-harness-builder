@@ -8,6 +8,7 @@ last_reviewed: YYYY-MM-DD
 summary: Defines the repository CLI contract for agents and maintainers.
 related_protocols:
   - AGENT-CLI-ERGONOMICS
+  - AGENT-ORCHESTRATION
   - LAVISH-REVIEW
   - NO-MISTAKES-GATE
   - SESSION-PREFLIGHT
@@ -49,6 +50,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections doctor` | Check a named connector profile without printing secret values |
 | `connections auth-plan` | Print a read-only browser/CLI authentication isolation plan for a profile |
 | `connections env` | Print value-safe provider config-root environment or flag guidance |
+| `orchestration` | Inspect project hierarchy, lifecycle, trust, authority, eligibility, prompts, and adapter launch contracts |
 | `goals` | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |
 | `lavish` | Check optional Lavish posture, run Lavish review lifecycle commands, check/apply Lavish updates, and draft tracker captures |
@@ -83,6 +85,8 @@ Run:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections auth-plan --profile example-gcloud
 ./{{CLI_NAME}} connections env --profile example-gcloud
+./{{CLI_NAME}} orchestration status
+./{{CLI_NAME}} orchestration validate
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status
 ./{{CLI_NAME}} lavish status
@@ -90,4 +94,11 @@ Run:
 ./{{CLI_NAME}} precommit --all
 ./{{CLI_NAME}} precommit hook-status
 node --test apps/cli/test/*.test.mjs
+```
+
+After configuring an eligible node and the required binding attestor, inspect
+its client-adapter contract with:
+
+```bash
+./{{CLI_NAME}} orchestration launch-spec <node-id>
 ```
