@@ -216,6 +216,7 @@ def main() -> int:
         ".no-mistakes.yaml",
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
+        "ops/orchestration.json",
         "scripts/setup-no-mistakes.sh",
         args.cli_name,
         "apps/cli/package.json",

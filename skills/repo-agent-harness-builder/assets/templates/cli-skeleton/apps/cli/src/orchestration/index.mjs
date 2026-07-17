@@ -235,6 +235,9 @@ function validateRegistry(registry) {
     if (node.state === "ready-for-parent" && !isStringArray(node.handoffEvidence, { nonEmpty: true })) {
       blockers.push(`${label}: ready-for-parent state requires handoffEvidence`);
     }
+    if (node.state === "eligible" && !dependenciesSatisfied(node, nodesById)) {
+      blockers.push(`${label}: eligible state requires completed dependencies`);
+    }
     if (node.role !== "boss") {
       if (!isObject(node.completionProfile) || !COMPLETION_TYPES.has(node.completionProfile.type)) {
         blockers.push(`${label}: completionProfile.type must name a supported profile`);
@@ -399,7 +402,8 @@ function runValidate(io) {
 }
 
 function dependenciesSatisfied(node, nodesById) {
-  return (node.dependencies || []).every((dependency) => {
+  if (!Array.isArray(node.dependencies)) return false;
+  return node.dependencies.every((dependency) => {
     const prerequisite = nodesById.get(dependency);
     return prerequisite?.state === "terminal" && prerequisite.terminalDisposition === "completed";
   });
@@ -536,7 +540,7 @@ function loadPromptTarget(nodeId, io) {
     io.stderr(`Node ${node.id} is terminal and should not be launched again without a successor node.`);
     return { code: 1 };
   }
-  if (node.state === "queued" && !dependenciesSatisfied(node, findings.nodesById)) {
+  if (["queued", "eligible"].includes(node.state) && !dependenciesSatisfied(node, findings.nodesById)) {
     io.stderr(`Node ${node.id} is not dependency-eligible.`);
     return { code: 1 };
   }

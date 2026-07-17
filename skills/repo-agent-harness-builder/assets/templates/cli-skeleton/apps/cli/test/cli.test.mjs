@@ -1604,6 +1604,41 @@ fixtureTest("orchestration unlocks queued work only from terminal dependency evi
   assert.match(spec.prompt, /Completion profile: human-decision/);
 });
 
+fixtureTest("orchestration rejects eligible work until every dependency is completed", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.state = "eligible";
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /node worker-research: eligible state requires completed dependencies/);
+
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "worker-research"], prompt.io);
+  assert.equal(promptCode, 1);
+  assert.match(prompt.err.join("\n"), /Orchestration registry has blockers/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+});
+
+fixtureTest("orchestration reports malformed eligible dependencies without crashing", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.state = "eligible";
+  worker.dependencies = "manager-docs";
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /node worker-research: dependencies must be an array of node ids/);
+});
+
 fixtureTest("orchestration requires every declared completion evidence item before terminal work validates", async () => {
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
