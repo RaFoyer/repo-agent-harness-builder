@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
@@ -132,8 +133,60 @@ function hasLaunchReservation(node) {
   return isObject(node?.launchReservation);
 }
 
-function launchKeyFor(registry, node) {
-  return `orchestration:${registry.scope.id}:${registry.revision}:${node.id}`;
+function launchKeyFor(registry, node, parent) {
+  return `orchestration:${registry.scope.id}:${node.id}:${materializedWorkContractHash(registry, node, parent)}`;
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!isObject(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+}
+
+function sortedValues(value) {
+  return arrayOrEmpty(value).slice().sort();
+}
+
+function canonicalAuthority(authority) {
+  if (!isObject(authority)) return authority;
+  return {
+    ...authority,
+    ...Object.fromEntries(AUTHORITY_ARRAY_FIELDS.map((field) => [field, sortedValues(authority[field])]))
+  };
+}
+
+function materializedWorkContract(registry, node, parent) {
+  return canonicalize({
+    scope: registry.scope,
+    trustPolicy: registry.trustPolicy,
+    node: {
+      id: node.id,
+      role: node.role,
+      parentId: node.parentId,
+      workRef: node.workRef,
+      workKind: node.workKind,
+      governingProtocols: sortedValues(node.governingProtocols),
+      label: node.label,
+      title: node.title,
+      objective: node.objective,
+      dependencies: sortedValues(node.dependencies),
+      trustLevel: node.trustLevel,
+      authority: canonicalAuthority(node.authority),
+      completionProfile: isObject(node.completionProfile)
+        ? { ...node.completionProfile, requiredEvidence: sortedValues(node.completionProfile.requiredEvidence) }
+        : node.completionProfile
+    },
+    parent: parent ? {
+      id: parent.id,
+      taskId: parent.taskId,
+      trustLevel: parent.trustLevel,
+      authority: canonicalAuthority(parent.authority)
+    } : null
+  });
+}
+
+function materializedWorkContractHash(registry, node, parent) {
+  return createHash("sha256").update(JSON.stringify(materializedWorkContract(registry, node, parent))).digest("hex");
 }
 
 function parentSnapshot(parent) {
@@ -166,6 +219,7 @@ function reservationCapacity(nodes, parent, maxActiveNodes) {
 }
 
 function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation) {
+  const workContractHash = materializedWorkContractHash(registry, node, parent);
   return {
     expectedRegistryRevision: registry.revision,
     expectedRegistryStatus: registry.status,
@@ -174,11 +228,14 @@ function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, r
       state: node.state,
       taskId: node.taskId,
       launchReservationKey: reservation.key,
+      parentTaskId: node.parentTaskId ?? null,
       trustLevel: node.trustLevel,
-      authority: node.authority
+      authority: node.authority,
+      materializedWorkContractHash: workContractHash
     },
     expectedParent: parentSnapshot(parent),
-    capacity: reservationCapacity(nodes, parent, maxActiveNodes)
+    capacity: reservationCapacity(nodes, parent, maxActiveNodes),
+    materializedWorkContractHash: workContractHash
   };
 }
 
@@ -191,11 +248,37 @@ function reservationValidityMatchesCurrent(reservation, expectedValidity) {
   const expectedCurrentState = { ...expectedValidity };
   delete persistedCurrentState.expectedRegistryRevision;
   delete expectedCurrentState.expectedRegistryRevision;
-  return isDeepStrictEqual(persistedCurrentState, expectedCurrentState);
+  return reservation.workContractHash === expectedValidity.materializedWorkContractHash
+    && isDeepStrictEqual(persistedCurrentState, expectedCurrentState);
 }
 
 function hasDelegationAuthority(node) {
   return isObject(node?.authority) && node.authority.canDelegate === true && trustRank(node.trustLevel) >= trustRank("T3");
+}
+
+function authorityInheritanceBlockers(node, parent) {
+  const blockers = [];
+  const label = `node ${node.id || "<missing-id>"}`;
+  if (!parent || !isObject(node.authority) || !isObject(parent.authority)) return blockers;
+  if (TRUST_RANK.has(node.trustLevel) && TRUST_RANK.has(parent.trustLevel) && trustRank(node.trustLevel) > trustRank(parent.trustLevel)) {
+    blockers.push(`${label}: trustLevel ${node.trustLevel} exceeds parent ${parent.id} trustLevel ${parent.trustLevel}`);
+  }
+  for (const field of ["allowedReads", "allowedWrites", "allowedExternalActions"]) {
+    const parentValues = new Set(arrayOrEmpty(parent.authority[field]));
+    for (const value of arrayOrEmpty(node.authority[field])) {
+      if (!parentValues.has(value)) blockers.push(`${label}: authority.${field} entry ${value} exceeds parent scope`);
+    }
+  }
+  const parentApprovalGates = new Set(arrayOrEmpty(parent.authority.approvalGates));
+  const childApprovalGates = new Set(arrayOrEmpty(node.authority.approvalGates));
+  for (const gate of parentApprovalGates) {
+    if (!childApprovalGates.has(gate)) blockers.push(`${label}: authority.approvalGates is missing parent gate ${gate}`);
+  }
+  if (node.authority.canDelegate && !parent.authority.canDelegate) blockers.push(`${label}: delegation exceeds parent authority`);
+  if (Number.isInteger(parent.authority.maxActiveChildren) && node.authority.maxActiveChildren > parent.authority.maxActiveChildren) {
+    blockers.push(`${label}: maxActiveChildren ${node.authority.maxActiveChildren} exceeds parent budget ${parent.authority.maxActiveChildren}`);
+  }
+  return blockers;
 }
 
 function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, maxActiveNodes, mode }) {
@@ -214,6 +297,9 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   }
   if (!["queued", "eligible"].includes(node.state) || isNonEmptyString(node.taskId)) {
     block("task-identity", "launch eligibility requires a queued or eligible node without taskId");
+  }
+  if (node.parentTaskId !== undefined && node.parentTaskId !== null) {
+    block("parent-task-identity", "launch eligibility requires no bound parentTaskId");
   }
   if (mode === "launch" && hasReservation) {
     block("reservation", "launch eligibility requires no pending launch reservation");
@@ -288,9 +374,6 @@ function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
   if (trustRank(node.trustLevel) > trustRank(maxLevel)) {
     blockers.push(`${label}: trustLevel ${node.trustLevel} exceeds project maxLevel ${maxLevel}`);
   }
-  if (parent && trustRank(node.trustLevel) > trustRank(parent.trustLevel)) {
-    blockers.push(`${label}: trustLevel ${node.trustLevel} exceeds parent ${parent.id} trustLevel ${parent.trustLevel}`);
-  }
   if (trustRank(node.trustLevel) > trustRank(defaultLevel)) {
     if (!isObject(node.trustApproval)) {
       blockers.push(`${label}: trust promotion above ${defaultLevel} requires structured trustApproval`);
@@ -321,23 +404,7 @@ function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
   if (trustRank(node.trustLevel) <= trustRank("T2") && arrayOrEmpty(node.authority.allowedExternalActions).length) {
     blockers.push(`${label}: external actions require T3 or higher`);
   }
-  if (parent && isObject(parent.authority)) {
-    for (const field of ["allowedReads", "allowedWrites", "allowedExternalActions"]) {
-      const parentValues = new Set(arrayOrEmpty(parent.authority[field]));
-      for (const value of arrayOrEmpty(node.authority[field])) {
-        if (!parentValues.has(value)) blockers.push(`${label}: authority.${field} entry ${value} exceeds parent scope`);
-      }
-    }
-    const parentApprovalGates = new Set(arrayOrEmpty(parent.authority.approvalGates));
-    const childApprovalGates = new Set(arrayOrEmpty(node.authority.approvalGates));
-    for (const gate of parentApprovalGates) {
-      if (!childApprovalGates.has(gate)) blockers.push(`${label}: authority.approvalGates is missing parent gate ${gate}`);
-    }
-    if (node.authority.canDelegate && !parent.authority.canDelegate) blockers.push(`${label}: delegation exceeds parent authority`);
-    if (Number.isInteger(parent.authority.maxActiveChildren) && node.authority.maxActiveChildren > parent.authority.maxActiveChildren) {
-      blockers.push(`${label}: maxActiveChildren ${node.authority.maxActiveChildren} exceeds parent budget ${parent.authority.maxActiveChildren}`);
-    }
-  }
+  blockers.push(...authorityInheritanceBlockers(node, parent));
 }
 
 function validateRegistry(registry) {
@@ -434,15 +501,15 @@ function validateRegistry(registry) {
           blockers.push(`${label}: launchReservation requires a queued or eligible node without taskId`);
         }
         if (isNonEmptyString(registry.scope?.id) && Number.isSafeInteger(reservation.baseRevision) && isNonEmptyString(reservation.key)) {
-          const expectedKey = `orchestration:${registry.scope.id}:${reservation.baseRevision}:${node.id}`;
-          if (reservation.key !== expectedKey) blockers.push(`${label}: launchReservation.key does not match its node and baseRevision`);
+          const expectedKey = launchKeyFor(registry, node, parent);
+          if (reservation.key !== expectedKey) blockers.push(`${label}: launchReservation.key does not match the current materialized work contract`);
         }
         if (!isObject(reservation.validity)) {
           blockers.push(`${label}: launchReservation.validity is required`);
         } else {
           const expectedValidity = reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation);
           if (!reservationValidityMatchesCurrent(reservation, expectedValidity)) {
-            blockers.push(`${label}: launchReservation validity no longer matches registry status, authority, capacity, or task identity`);
+            blockers.push(`${label}: launchReservation validity no longer matches registry status, work contract, authority, capacity, or task identity`);
           }
         }
         blockers.push(...launchEligibilityBlockers({
@@ -456,8 +523,15 @@ function validateRegistry(registry) {
         }).map((blocker) => blocker.message));
       }
     }
-    if (node.role !== "boss" && isTaskBackedNode(node) && parent && !isTaskBackedNode(parent)) {
-      blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent.id}`);
+    if (node.role !== "boss" && isTaskBackedNode(node)) {
+      if (!isTaskBackedNode(parent)) blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent?.id || node.parentId}`);
+      if (!isNonEmptyString(node.parentTaskId)) {
+        blockers.push(`${label}: task-backed non-Boss node requires immutable parentTaskId`);
+      } else if (node.parentTaskId !== parent?.taskId) {
+        blockers.push(`${label}: parentTaskId must match immediate parent ${parent?.id || node.parentId} taskId; replace parent tasks only after bound descendants are reconciled`);
+      }
+    } else if (node.role !== "boss" && node.parentTaskId !== undefined && node.parentTaskId !== null) {
+      blockers.push(`${label}: unmaterialized non-Boss node must not claim parentTaskId`);
     }
     if (node.role !== "boss" && ACTIVE_STATES.has(node.state) && parent) {
       if (!MANAGING_STATES.has(parent.state)) {
@@ -825,9 +899,12 @@ function runLaunchSpec(nodeId, io) {
     return 1;
   }
   const configured = findings.nodesById.has(node.id);
-  const launchKey = launchKeyFor(loaded.registry, node);
+  const workContract = materializedWorkContract(loaded.registry, node, parent);
+  const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
+  const launchKey = launchKeyFor(loaded.registry, node, parent);
   const reservation = {
     launchKey,
+    workContract: { algorithm: "sha256", hash: workContractHash, payload: workContract },
     expectedRegistryRevision: loaded.registry.revision,
     expectedRegistryStatus: loaded.registry.status,
     expectedNode: {
@@ -835,6 +912,7 @@ function runLaunchSpec(nodeId, io) {
       exists: configured,
       state: node.state,
       taskId: null,
+      parentTaskId: null,
       launchReservation: null
     },
     expectedParent: parentSnapshot(parent),
@@ -847,7 +925,7 @@ function runLaunchSpec(nodeId, io) {
   };
   const reservedNode = {
     ...node,
-    launchReservation: { key: launchKey, baseRevision: loaded.registry.revision }
+    launchReservation: { key: launchKey, baseRevision: loaded.registry.revision, workContractHash }
   };
   const reservedNodes = configured
     ? findings.nodes.map((candidate) => (candidate.id === node.id ? reservedNode : candidate))
@@ -874,6 +952,7 @@ function runLaunchSpec(nodeId, io) {
     parentTaskId: parent?.taskId || null,
     trustLevel: node.trustLevel,
     authority: node.authority,
+    workContract: { algorithm: "sha256", hash: workContractHash },
     externalTask: {
       idempotencyKey: launchKey,
       reconciliationKey: launchKey,
@@ -907,6 +986,7 @@ function runLaunchSpec(nodeId, io) {
         ...reservationValidity,
         requiredUpdates: [
           "taskId",
+          ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "state=working",
           "nextAction",
           "clear launchReservation"
@@ -934,21 +1014,34 @@ function runLaunchSpec(nodeId, io) {
             id: node.id,
             state: node.state,
             taskId: null,
+            parentTaskId: null,
             launchReservationKey: launchKey,
             trustLevel: node.trustLevel,
-            authority: node.authority
+            authority: node.authority,
+            materializedWorkContractHash: workContractHash
           },
           ...(parent ? {
             parentId: parent.id,
             parentTaskRequired: true,
             parentManagingStateRequired: true,
             parentDelegationAuthorityRequired: true,
-            parentApprovalGatesRequired: arrayOrEmpty(parent.authority?.approvalGates)
+            parentApprovalGatesRequired: arrayOrEmpty(parent.authority?.approvalGates),
+            parentAuthorityInheritance: {
+              requireCurrentParentToChildValidation: true,
+              childTrustMayNotExceedParent: true,
+              allowedReadsSubset: true,
+              allowedWritesSubset: true,
+              allowedExternalActionsSubset: true,
+              inheritedApprovalGatesRequired: true,
+              delegatedBudgetWithinParent: true
+            }
           } : {}),
-          capacityRequired: true
+          capacityRequired: true,
+          materializedWorkContractHash: workContractHash
         },
         requiredUpdates: [
           "taskId from reconciled external task",
+          ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "state=working",
           "nextAction",
           "clear launchReservation"
@@ -961,6 +1054,7 @@ function runLaunchSpec(nodeId, io) {
         ? [
           ...(node.role === "boss" ? ["status=active"] : []),
           "taskId",
+          ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "state=working",
           "nextAction"
         ]
