@@ -1512,6 +1512,7 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   assert.equal(promptCode, 0, prompt.err.join("\n"));
   const promptText = prompt.out.join("\n");
   assert.match(promptText, /Work kind: documentation/);
+  assert.match(promptText, /Governing protocols: AGENT-ORCHESTRATION, DOCUMENT-QUALITY/);
   assert.match(promptText, /Completion profile: artifact/);
   assert.match(promptText, /Immediate parent task ID: task-boss/);
 
@@ -1522,6 +1523,23 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   assert.equal(spec.parentTaskId, "task-boss");
   assert.equal(spec.callback.mode, "update-node");
   assert.equal(spec.title, `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`);
+});
+
+fixtureTest("orchestration requires the core protocol for every node", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.governingProtocols = ["DOCUMENT-QUALITY"];
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /node worker-research: governingProtocols must include AGENT-ORCHESTRATION/);
+
+  const prompt = capture();
+  const promptCode = await main(["orchestration", "prompt", "worker-research"], prompt.io);
+  assert.equal(promptCode, 1);
+  assert.match(prompt.err.join("\n"), /Orchestration registry has blockers/);
 });
 
 fixtureTest("orchestration refuses role-based authority escalation and delegation-budget expansion", async () => {

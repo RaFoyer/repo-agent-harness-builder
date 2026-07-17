@@ -20,6 +20,7 @@ const ACTIVE_STATES = new Set(["working", "waiting", "blocked", "ready-for-paren
 const TERMINAL_DISPOSITIONS = new Set(["completed", "cancelled", "superseded"]);
 const COMPLETION_TYPES = new Set(["repository-merge", "artifact", "external-operation", "human-decision", "custom"]);
 const SCOPE_KINDS = new Set(["repository", "project", "program", "personal-folder", "custom"]);
+const CORE_GOVERNING_PROTOCOL = "AGENT-ORCHESTRATION";
 const AUTHORITY_ARRAY_FIELDS = ["allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "stopConditions"];
 
 function registryPath() {
@@ -213,6 +214,7 @@ function validateRegistry(registry) {
     if (!isNonEmptyString(node.workRef)) blockers.push(`${label}: workRef is required`);
     if (!isNonEmptyString(node.workKind) || !/^[a-z][a-z0-9-]*$/.test(node.workKind)) blockers.push(`${label}: workKind must be a lowercase slug`);
     if (!isStringArray(node.governingProtocols, { nonEmpty: true })) blockers.push(`${label}: governingProtocols must be a non-empty string array`);
+    else if (!node.governingProtocols.includes(CORE_GOVERNING_PROTOCOL)) blockers.push(`${label}: governingProtocols must include ${CORE_GOVERNING_PROTOCOL}`);
     if (!isNonEmptyString(node.label)) blockers.push(`${label}: label is required`);
     if (!isNonEmptyString(node.objective)) blockers.push(`${label}: objective is required`);
     if (!Array.isArray(node.dependencies) || !node.dependencies.every(isNonEmptyString)) blockers.push(`${label}: dependencies must be an array of node ids`);
@@ -458,7 +460,7 @@ function syntheticBoss(registry) {
     role: "boss",
     workRef: "portfolio",
     workKind: "governance",
-    governingProtocols: ["AGENT-ORCHESTRATION"],
+    governingProtocols: [CORE_GOVERNING_PROTOCOL],
     label: "Project control plane",
     title: `${registry.prefix} - Boss`,
     taskId: null,
