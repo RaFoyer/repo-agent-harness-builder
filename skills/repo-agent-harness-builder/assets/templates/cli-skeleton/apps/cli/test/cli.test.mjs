@@ -1118,6 +1118,16 @@ test("core command smoke paths run", async () => {
   }
 });
 
+fixtureTest("preflight requires the orchestration protocol required by harness verification", async () => {
+  fs.rmSync(path.join(repoRoot, "ops", "protocols", "AGENT-ORCHESTRATION.md"));
+
+  const { io, err } = capture();
+  const code = await main(["preflight"], io);
+
+  assert.equal(code, 1);
+  assert.match(err.join("\n"), /Missing protocol: ops\/protocols\/AGENT-ORCHESTRATION\.md/);
+});
+
 test("verify dry-run lists delegated checks", async () => {
   const { io, out, err } = capture();
   const code = await main(["verify", "--dry-run"], io);
