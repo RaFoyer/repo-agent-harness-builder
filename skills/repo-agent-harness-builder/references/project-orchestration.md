@@ -23,6 +23,7 @@ Do not infer permissions from role, completion from task visibility, or work dom
 
 One `ops/orchestration.json` governs one explicit scope. Record:
 
+- a non-negative monotonic registry revision
 - scope ID
 - scope kind: repository, project, program, personal-folder, or custom
 - stable root reference
@@ -75,7 +76,7 @@ Each node needs explicit:
 - maximum active children
 - stop conditions
 
-Project policy also caps active nodes and delegation depth. Child trust, named scopes, and child budgets must be subsets of the parent envelope. Use stable capability IDs; do not treat a broad path prefix or role label as an implicit grant.
+Project policy also caps active nodes and delegation depth. Child trust, named scopes, approval gates, and child budgets must be subsets of the parent envelope. Every parent approval gate remains mandatory for a child. Use stable capability IDs; do not treat a broad path prefix or role label as an implicit grant.
 
 ## Completion Profiles
 
@@ -96,9 +97,10 @@ The repo CLI remains read-only and agent-agnostic:
 1. Validate the registry.
 2. List dependency-eligible nodes.
 3. Generate a prompt for inspection or a JSON launch spec for task creation.
-4. Let the active client verify current authority and call its native task API.
-5. Follow the callback mode: insert the explicit `registryNode` payload and activate the registry when bootstrapping an empty registry, or update the existing node; record the returned task ID, working state, and next action.
-6. Require the child to report to its immediate parent and the parent to reconcile evidence.
+4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision, node and parent states, and capacity preconditions; on success it records the deterministic launch key and advances the revision.
+5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
+6. Create the task only after reservation succeeds, then atomically bind the returned task ID with the reservation key, set working state and next action, clear the reservation, and advance the revision. Boss bootstrap reservation also activates the registry; an empty registry inserts the exact `registryNode` payload in that transaction.
+7. Require the child to report to its immediate parent and the parent to reconcile evidence.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
 
@@ -113,7 +115,10 @@ Reject designs that:
 - treat cancelled or superseded prerequisites as completed work instead of replanning them to a completed replacement
 - allow dependencies between an ancestor and descendant or cycles composed from parent and dependency links
 - allow children to exceed parent trust, capability scope, child budget, or depth budget
-- let a terminal parent retain non-terminal children
+- let a child drop an inherited approval gate
+- permit task-backed nodes while the registry is inactive
+- let a ready-for-parent or terminal parent retain non-terminal children
+- create a task before a matching compare-and-set reservation succeeds
 - treat an open PR, draft artifact, or agent assertion as universal completion
 - create a second lifecycle vocabulary in each domain protocol
 - hide task creation or external writes behind a status, validation, prompt, or help command
@@ -141,4 +146,5 @@ Focused tests should cover:
 - child scope and budget escalation
 - active-node, active-child, and delegation-depth overruns
 - terminal disposition and terminal-parent reconciliation
-- duplicate task launch prevention
+- inherited approval-gate enforcement, inactive task rejection, and ready-parent reconciliation
+- deterministic stale-spec, reservation, duplicate-launch, and reserved-capacity behavior

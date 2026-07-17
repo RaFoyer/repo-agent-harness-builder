@@ -4,6 +4,7 @@ import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 
 const REGISTRY_REL_PATH = "ops/orchestration.json";
+const REGISTRY_SCHEMA_VERSION = 2;
 const TRUST_LEVELS = [
   { id: "T0", name: "Observe", authority: "approved reads and reporting only" },
   { id: "T1", name: "Propose", authority: "plans, graphs, drafts, and prompts without project-state mutation" },
@@ -126,6 +127,14 @@ function isTaskBackedNode(node) {
   return TASK_STATES.has(node?.state) && isNonEmptyString(node.taskId);
 }
 
+function hasLaunchReservation(node) {
+  return isObject(node?.launchReservation);
+}
+
+function launchKeyFor(registry, node) {
+  return `orchestration:${registry.scope.id}:${registry.revision}:${node.id}`;
+}
+
 function hasDelegationAuthority(node) {
   return isObject(node?.authority) && node.authority.canDelegate === true && trustRank(node.trustLevel) >= trustRank("T3");
 }
@@ -179,6 +188,11 @@ function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
         if (!parentValues.has(value)) blockers.push(`${label}: authority.${field} entry ${value} exceeds parent scope`);
       }
     }
+    const parentApprovalGates = new Set(arrayOrEmpty(parent.authority.approvalGates));
+    const childApprovalGates = new Set(arrayOrEmpty(node.authority.approvalGates));
+    for (const gate of parentApprovalGates) {
+      if (!childApprovalGates.has(gate)) blockers.push(`${label}: authority.approvalGates is missing parent gate ${gate}`);
+    }
     if (node.authority.canDelegate && !parent.authority.canDelegate) blockers.push(`${label}: delegation exceeds parent authority`);
     if (Number.isInteger(parent.authority.maxActiveChildren) && node.authority.maxActiveChildren > parent.authority.maxActiveChildren) {
       blockers.push(`${label}: maxActiveChildren ${node.authority.maxActiveChildren} exceeds parent budget ${parent.authority.maxActiveChildren}`);
@@ -190,7 +204,8 @@ function validateRegistry(registry) {
   const blockers = [];
   const warnings = [];
   if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
-  if (registry.schemaVersion !== 1) blockers.push("schemaVersion must be 1");
+  if (registry.schemaVersion !== REGISTRY_SCHEMA_VERSION) blockers.push(`schemaVersion must be ${REGISTRY_SCHEMA_VERSION}`);
+  if (!Number.isSafeInteger(registry.revision) || registry.revision < 0) blockers.push("revision must be a non-negative safe integer");
   if (!["inactive", "active"].includes(registry.status)) blockers.push("status must be inactive or active");
   if (!isNonEmptyString(registry.prefix)) blockers.push("prefix must be a non-empty single-line string");
   if (!isObject(registry.scope)) blockers.push("scope is required");
@@ -261,6 +276,29 @@ function validateRegistry(registry) {
     }
     if (TASK_STATES.has(node.state) && !isNonEmptyString(node.taskId)) blockers.push(`${label}: task-backed state ${node.state} requires taskId`);
     if (["queued", "eligible"].includes(node.state) && node.taskId) blockers.push(`${label}: graph state ${node.state} must not claim a live taskId`);
+    if (registry.status === "inactive" && (TASK_STATES.has(node.state) || isNonEmptyString(node.taskId))) {
+      blockers.push(`${label}: inactive orchestration may not contain task-backed nodes`);
+    }
+    if (node.launchReservation !== undefined && node.launchReservation !== null) {
+      if (!isObject(node.launchReservation)) {
+        blockers.push(`${label}: launchReservation must be an object when present`);
+      } else {
+        const reservation = node.launchReservation;
+        if (!isNonEmptyString(reservation.key)) blockers.push(`${label}: launchReservation.key must be a non-empty single-line string`);
+        if (!Number.isSafeInteger(reservation.baseRevision) || reservation.baseRevision < 0) {
+          blockers.push(`${label}: launchReservation.baseRevision must be a non-negative safe integer`);
+        } else if (Number.isSafeInteger(registry.revision) && reservation.baseRevision >= registry.revision) {
+          blockers.push(`${label}: launchReservation.baseRevision must precede registry revision`);
+        }
+        if (!["queued", "eligible"].includes(node.state) || node.taskId) {
+          blockers.push(`${label}: launchReservation requires a queued or eligible node without taskId`);
+        }
+        if (isNonEmptyString(registry.scope?.id) && Number.isSafeInteger(reservation.baseRevision) && isNonEmptyString(reservation.key)) {
+          const expectedKey = `orchestration:${registry.scope.id}:${reservation.baseRevision}:${node.id}`;
+          if (reservation.key !== expectedKey) blockers.push(`${label}: launchReservation.key does not match its node and baseRevision`);
+        }
+      }
+    }
     if (node.role !== "boss" && isTaskBackedNode(node) && parent && !isTaskBackedNode(parent)) {
       blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent.id}`);
     }
@@ -338,6 +376,8 @@ function validateRegistry(registry) {
   if (Number.isInteger(maxActiveNodes)) {
     const activeNodes = nodes.filter((node) => ACTIVE_STATES.has(node.state)).length;
     if (activeNodes > maxActiveNodes) blockers.push(`${activeNodes} active nodes exceed project limit ${maxActiveNodes}`);
+    const occupiedNodes = nodes.filter((node) => ACTIVE_STATES.has(node.state) || hasLaunchReservation(node)).length;
+    if (occupiedNodes > maxActiveNodes) blockers.push(`${occupiedNodes} active or reserved nodes exceed project limit ${maxActiveNodes}`);
   }
   for (const parent of nodes) {
     if (!isObject(parent.authority) || !Number.isInteger(parent.authority.maxActiveChildren)) continue;
@@ -346,8 +386,12 @@ function validateRegistry(registry) {
     if (activeChildren > parent.authority.maxActiveChildren) {
       blockers.push(`node ${parent.id}: ${activeChildren} active children exceed maxActiveChildren ${parent.authority.maxActiveChildren}`);
     }
-    if (parent.state === "terminal" && children.some((node) => node.state !== "terminal")) {
-      blockers.push(`node ${parent.id}: terminal parent has non-terminal children`);
+    const occupiedChildren = children.filter((node) => ACTIVE_STATES.has(node.state) || hasLaunchReservation(node)).length;
+    if (occupiedChildren > parent.authority.maxActiveChildren) {
+      blockers.push(`node ${parent.id}: ${occupiedChildren} active or reserved children exceed maxActiveChildren ${parent.authority.maxActiveChildren}`);
+    }
+    if (["terminal", "ready-for-parent"].includes(parent.state) && children.some((node) => node.state !== "terminal")) {
+      blockers.push(`node ${parent.id}: ${parent.state} parent has non-terminal children`);
     }
   }
   return { blockers, warnings, nodes, nodesById };
@@ -478,7 +522,7 @@ function runNext(io) {
     io.stdout('reason: "orchestration is inactive"');
     return 0;
   }
-  const eligible = findings.nodes.filter((node) => node.role !== "boss" && ["queued", "eligible"].includes(node.state) && dependenciesSatisfied(node, findings.nodesById));
+  const eligible = findings.nodes.filter((node) => node.role !== "boss" && ["queued", "eligible"].includes(node.state) && !hasLaunchReservation(node) && dependenciesSatisfied(node, findings.nodesById));
   io.stdout(`eligible: ${eligible.length}`);
   io.stdout(`nodes[${eligible.length}]{id,role,work_ref,work_kind,state,title}:`);
   for (const node of eligible) {
@@ -626,6 +670,10 @@ function runLaunchSpec(nodeId, io) {
     io.stderr(`Node ${node.id} cannot launch before all dependencies are completed.`);
     return 1;
   }
+  if (hasLaunchReservation(node)) {
+    io.stderr(`Node ${node.id} has a pending launch reservation and cannot be materialized again.`);
+    return 1;
+  }
   if (loaded.registry.status !== "active" && node.role !== "boss") {
     io.stderr(`Node ${node.id} cannot launch while project orchestration is inactive.`);
     return 1;
@@ -635,20 +683,53 @@ function runLaunchSpec(nodeId, io) {
     return 1;
   }
   if (parent) {
-    const activeSiblings = findings.nodes.filter((candidate) => candidate.parentId === parent.id && ACTIVE_STATES.has(candidate.state)).length;
-    if (activeSiblings >= parent.authority.maxActiveChildren) {
+    const occupiedSiblings = findings.nodes.filter((candidate) => candidate.parentId === parent.id && (ACTIVE_STATES.has(candidate.state) || hasLaunchReservation(candidate))).length;
+    if (occupiedSiblings >= parent.authority.maxActiveChildren) {
       io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} has exhausted its active-child budget.`);
       return 1;
     }
   }
-  const activeNodes = findings.nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state)).length;
-  if (activeNodes >= loaded.registry.trustPolicy.limits.maxActiveNodes) {
+  const occupiedNodes = findings.nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state) || hasLaunchReservation(candidate)).length;
+  if (occupiedNodes >= loaded.registry.trustPolicy.limits.maxActiveNodes) {
     io.stderr(`Node ${node.id} cannot launch because the project active-node budget is exhausted.`);
     return 1;
   }
   const configured = findings.nodesById.has(node.id);
+  const activeNodeCount = findings.nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state)).length;
+  const reservedNodeCount = findings.nodes.filter(hasLaunchReservation).length;
+  const activeChildCount = parent ? findings.nodes.filter((candidate) => candidate.parentId === parent.id && ACTIVE_STATES.has(candidate.state)).length : 0;
+  const reservedChildCount = parent ? findings.nodes.filter((candidate) => candidate.parentId === parent.id && hasLaunchReservation(candidate)).length : 0;
+  const launchKey = launchKeyFor(loaded.registry, node);
+  const reservation = {
+    launchKey,
+    expectedRegistryRevision: loaded.registry.revision,
+    expectedRegistryStatus: loaded.registry.status,
+    expectedNode: {
+      id: node.id,
+      exists: configured,
+      state: node.state,
+      taskId: null,
+      launchReservation: null
+    },
+    expectedParent: parent ? {
+      id: parent.id,
+      state: parent.state,
+      taskId: parent.taskId
+    } : null,
+    capacity: {
+      activeNodeCount,
+      reservedNodeCount,
+      maxActiveNodes: loaded.registry.trustPolicy.limits.maxActiveNodes,
+      ...(parent ? {
+        parentId: parent.id,
+        activeChildCount,
+        reservedChildCount,
+        maxActiveChildren: parent.authority.maxActiveChildren
+      } : {})
+    }
+  };
   io.stdout(JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
@@ -657,10 +738,33 @@ function runLaunchSpec(nodeId, io) {
     trustLevel: node.trustLevel,
     authority: node.authority,
     prompt: buildPromptLines(node, parent).join("\n"),
+    reservation,
     callback: {
       registry: REGISTRY_REL_PATH,
       mode: configured ? "update-node" : "insert-node",
       registryNode: configured ? undefined : node,
+      reserve: {
+        operation: "compare-and-set-reserve",
+        ...reservation,
+        onSuccess: {
+          registryRevision: loaded.registry.revision + 1,
+          ...(node.role === "boss" ? { status: "active" } : {}),
+          launchReservation: { key: launchKey, baseRevision: loaded.registry.revision }
+        }
+      },
+      bind: {
+        operation: "compare-and-set-bind",
+        requiredReservationKey: launchKey,
+        requiredNode: { id: node.id, state: node.state, taskId: null },
+        requiredParent: reservation.expectedParent,
+        requiredUpdates: [
+          "taskId",
+          "state=working",
+          "nextAction",
+          "clear launchReservation"
+        ],
+        mustAdvanceRegistryRevision: true
+      },
       requiredUpdates: configured
         ? [
           ...(node.role === "boss" ? ["status=active"] : []),

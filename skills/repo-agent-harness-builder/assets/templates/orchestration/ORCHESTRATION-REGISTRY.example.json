@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "revision": 0,
   "status": "active",
   "prefix": "EXAMPLE",
   "scope": {
@@ -70,7 +71,7 @@
         "allowedReads": ["project"],
         "allowedWrites": [],
         "allowedExternalActions": [],
-        "approvalGates": ["activation"],
+        "approvalGates": ["activation", "merge", "deployment"],
         "canDelegate": false,
         "maxActiveChildren": 0,
         "stopConditions": ["scope-unclear"]

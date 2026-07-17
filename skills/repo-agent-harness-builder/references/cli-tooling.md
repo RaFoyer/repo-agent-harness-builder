@@ -179,12 +179,20 @@ branches, pull requests, or software delivery. Minimum behavior:
   a thin client adapter. Reject terminal or already materialized nodes,
   unsatisfied dependencies, inactive child orchestration, parents without T3
   delegation authority or task IDs, and exhausted child or project capacity.
-  Its callback distinguishes inserting a bootstrapped Boss from updating a
-  configured node.
+  The contract includes the monotonic registry revision, deterministic launch
+  key, expected registry/node/parent states, and capacity preconditions. An
+  adapter must atomically reserve the node and advance the revision before task
+  creation, then bind the returned task ID with the reservation key and advance
+  the revision again. A stale or duplicate reservation must fail before side
+  effects. Its callback distinguishes inserting a bootstrapped Boss from
+  updating a configured node, and activates the registry in every Boss
+  bootstrap reservation.
 
 All commands are read-only. A Codex, Claude Code, Gemini CLI, Cursor, or other
 adapter may use a launch spec only when current authority allows task creation,
-then must write the returned task ID and working state back to the registry.
+then must reserve the node by compare-and-set before external task creation and
+write the returned task ID and working state back with the matching reservation
+key.
 This separates a portable repository contract from client-specific task APIs.
 
 ## Goal Chain Command Contract

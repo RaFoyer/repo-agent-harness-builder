@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "revision": 0,
   "status": "inactive",
   "prefix": {{PROJECT_NAME_JSON}},
   "scope": {

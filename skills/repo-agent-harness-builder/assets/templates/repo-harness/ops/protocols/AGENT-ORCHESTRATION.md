@@ -2,7 +2,7 @@
 protocol_id: AGENT-ORCHESTRATION
 title: Agent Orchestration
 status: inactive
-version: 0.1.0
+version: 0.2.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines project-wide Boss, Manager, and Worker coordination with explicit trust, authority, state, and evidence boundaries.
@@ -21,7 +21,7 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 
 ## Source Of Truth
 
-- `ops/orchestration.json` owns the configured scope, hierarchy, task parentage, trust levels, authority envelopes, dependencies, budgets, and current states.
+- `ops/orchestration.json` owns the configured scope, monotonic revision, hierarchy, task parentage, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.
 - Markdown ledgers and task titles are human-readable views. They do not override the registry.
@@ -97,7 +97,7 @@ Every task-backed node records its task ID and immediate parent task ID in `ops/
 | T4 | Operate | Perform explicitly allowlisted external writes, deployments, or schedules with rollback and audit evidence |
 | T5 | Govern | Run a bounded portfolio control loop, delegate within budgets, reconcile evidence, and escalate exceptions |
 
-Trust only limits maximum authority. Each node also needs an authority envelope naming allowed reads, writes, external actions, approval gates, delegation permission, child budget, and stop conditions. Scope entries are named capability identifiers, not implicit filesystem prefix grants. Children may not exceed the parent trust level, named authority scope, or child budget. Project policy also caps total active nodes and delegation depth. Promotion above the default requires a structured `trustApproval` with approver, timestamp, and evidence; a free-form self-assertion is insufficient. Demotion or revocation may be immediate.
+Trust only limits maximum authority. Each node also needs an authority envelope naming allowed reads, writes, external actions, approval gates, delegation permission, child budget, and stop conditions. Scope entries are named capability identifiers, not implicit filesystem prefix grants. Children may not exceed the parent trust level, named authority scope, approval gates, or child budget: every parent approval gate remains mandatory for every descendant. Project policy also caps total active nodes and delegation depth. Promotion above the default requires a structured `trustApproval` with approver, timestamp, and evidence; a free-form self-assertion is insufficient. Demotion or revocation may be immediate.
 
 ## Lifecycle Rules
 
@@ -111,6 +111,7 @@ Trust only limits maximum authority. Each node also needs an authority envelope 
 
 Only `working`, `waiting`, `blocked`, `ready-for-parent`, and `terminal` are task-backed states. The first four are active. `queued` and `eligible` are graph states and must not pretend a task exists. Archive is metadata on a terminal node, not a substitute for disposition and evidence.
 An `eligible` or active node is valid only when every declared dependency is terminal with a `completed` disposition.
+An inactive registry may not contain task-backed nodes. A `ready-for-parent` node may have only terminal children; it must stay in a managing state while it has unfinished responsibility.
 
 ## Completion Profiles
 
@@ -154,14 +155,18 @@ These commands are read-only. They inspect local registry state and print bounde
 
 ## Client Adapter Handshake
 
-The repository harness is agent-agnostic, so task creation belongs to a thin client adapter:
+The repository harness is agent-agnostic, so task creation belongs to a thin client adapter. The CLI remains read-only; the adapter performs the compare-and-set operations described by the launch spec.
 
-1. Run `orchestration validate`, then select a node from `orchestration next`.
-2. Run `orchestration launch-spec <node-id>`.
-3. The active client verifies that the current user request or recorded scope grant authorizes task creation.
-4. The client creates the task with the exact title, prompt, and immediate parent from the launch spec.
-5. Follow the callback contract: insert the configured Boss node and set registry `status` to `active` when bootstrapping an empty registry, or update the existing node; record the returned task ID, set `state` to `working`, and add `nextAction` before implementation proceeds.
-6. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
+1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`.
+2. The active client verifies that the current user request or recorded scope grant authorizes task creation.
+3. Before any external side effect, atomically compare the registry revision, expected registry status, target node state, immediate parent state/task ID, and capacity preconditions from `reservation`. On a match, add the exact `launchReservation` key, advance the registry revision by one, and reserve capacity. For an empty registry, insert the exact `registryNode` payload in that same transaction. For every Boss bootstrap, also set `status` to `active` in that transaction.
+4. If the compare-and-set fails, do not create a task. Re-read the registry and generate a new launch spec; an old spec or duplicate reservation is never reusable.
+5. Only after reservation succeeds, create the task with the exact title, prompt, and immediate parent from the launch spec.
+6. Atomically bind the returned task ID only when the node still holds the spec's `requiredReservationKey`; set `state` to `working`, add `nextAction`, clear the reservation, and advance the registry revision by one. Re-check the parent contract before binding.
+7. If task creation fails, atomically clear only the matching reservation and advance the revision before retrying from a newly generated spec.
+8. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
+
+`revision` is a non-negative monotonic integer. Every registry mutation advances it exactly once. A pending reservation exists only on a queued or eligible node without a task ID and counts against project and parent active-capacity budgets until it is bound or released.
 
 This adapter boundary makes worker launch easy without hiding external writes inside the repo CLI or binding the protocol to Codex, Claude Code, Gemini CLI, Cursor, or another client.
 
@@ -169,8 +174,10 @@ This adapter boundary makes worker launch easy without hiding external writes in
 
 - Role and trust are orthogonal; never infer authority from a title.
 - A child may not exceed its parent trust level, authority scope, or delegated budget.
+- A child may not drop an approval gate required by its parent.
 - Do not fan out overlapping write sets or unstable contracts.
 - Do not create a task from a launch spec whose parent task is missing or whose dependencies are unsatisfied.
+- Never create a task before the launch spec's atomic reservation succeeds; a stale revision, occupied reservation, changed parent, or exhausted reserved capacity is a pre-side-effect failure.
 - Create child tasks only while the parent is `working`, `waiting`, or `blocked`; a `ready-for-parent` node must not acquire new unfinished responsibility.
 - Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
@@ -189,6 +196,7 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Live tasks have task IDs and state-specific control fields.
 - Trust and authority never exceed parent or project policy; promoted nodes have auditable approval records.
 - Active node count, active child count, and delegation depth stay within configured budgets.
+- Registry revisions advance monotonically, and pending launch reservations consume capacity until they are bound or released.
 - Terminal nodes contain a disposition and evidence required by their completion profile; terminal parents have no non-terminal children.
 
 ## Update Rules

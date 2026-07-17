@@ -98,7 +98,8 @@ function orchestrationAuthority({
 
 function validOrchestrationRegistry() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    revision: 0,
     status: "active",
     prefix: CONFIG.projectName,
     scope: {
@@ -1493,12 +1494,21 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   const launchCode = await main(["orchestration", "launch-spec", "boss"], launch.io);
   assert.equal(launchCode, 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.schemaVersion, 2);
   assert.equal(spec.operation, "create-task");
   assert.equal(spec.role, "boss");
   assert.equal(spec.parentTaskId, null);
   assert.deepEqual(spec.authority.allowedWrites, []);
   assert.equal(spec.callback.mode, "insert-node");
   assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]);
+  assert.equal(spec.reservation.expectedRegistryRevision, 0);
+  assert.equal(spec.reservation.launchKey, "orchestration:project:0:boss");
+  assert.deepEqual(spec.callback.reserve.onSuccess, {
+    registryRevision: 1,
+    status: "active",
+    launchReservation: { key: "orchestration:project:0:boss", baseRevision: 0 }
+  });
+  assert.equal(spec.callback.bind.requiredReservationKey, spec.reservation.launchKey);
   assert.deepEqual(Object.keys(spec.callback.registryNode).sort(), [
     "authority",
     "dependencies",
@@ -1520,11 +1530,19 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
   registry.nodes.push({
     ...spec.callback.registryNode,
-    taskId: "task-created-boss",
-    state: "working",
-    nextAction: "Establish the project control plane."
+    launchReservation: spec.callback.reserve.onSuccess.launchReservation
   });
   registry.status = "active";
+  registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+  writeOrchestrationRegistry(registry);
+  const reservationValidation = capture();
+  const reservationValidationCode = await main(["orchestration", "validate"], reservationValidation.io);
+  assert.equal(reservationValidationCode, 0, reservationValidation.out.concat(reservationValidation.err).join("\n"));
+  delete registry.nodes[0].launchReservation;
+  registry.nodes[0].taskId = "task-created-boss";
+  registry.nodes[0].state = "working";
+  registry.nodes[0].nextAction = "Establish the project control plane.";
+  registry.revision += 1;
   writeOrchestrationRegistry(registry);
   const callbackValidation = capture();
   const callbackValidationCode = await main(["orchestration", "validate"], callbackValidation.io);
@@ -1580,6 +1598,7 @@ fixtureTest("orchestration activates configured Boss callbacks", async () => {
   const spec = JSON.parse(launch.out.join("\n"));
   assert.equal(spec.callback.mode, "update-node");
   assert.deepEqual(spec.callback.requiredUpdates, ["status=active", "taskId", "state=working", "nextAction"]);
+  assert.equal(spec.callback.reserve.onSuccess.status, "active");
 
   registry.status = "active";
   boss.taskId = "task-configured-boss";
@@ -1655,6 +1674,33 @@ fixtureTest("orchestration trust levels remain ceilings even for the Boss role",
   assert.match(text, /node boss: T1 may not allow writes/);
   assert.match(text, /node boss: T1 may not allow external actions/);
   assert.match(text, /node boss: delegation requires T3 or higher/);
+});
+
+fixtureTest("orchestration requires children to retain every parent approval gate", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  boss.authority.approvalGates = ["activation", "merge"];
+  manager.authority.approvalGates = ["activation"];
+  writeOrchestrationRegistry(registry);
+
+  const missingGate = capture();
+  const missingGateCode = await main(["orchestration", "validate"], missingGate.io);
+  assert.equal(missingGateCode, 1);
+  assert.match(missingGate.out.join("\n"), /node manager-docs: authority\.approvalGates is missing parent gate merge/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+
+  manager.authority.approvalGates = ["activation", "merge"];
+  worker.authority.approvalGates = ["activation", "merge"];
+  writeOrchestrationRegistry(registry);
+  const retainedGate = capture();
+  const retainedGateCode = await main(["orchestration", "validate"], retainedGate.io);
+  assert.equal(retainedGateCode, 0, retainedGate.out.concat(retainedGate.err).join("\n"));
 });
 
 fixtureTest("orchestration trust promotion requires an auditable human approval record", async () => {
@@ -1886,6 +1932,17 @@ fixtureTest("orchestration rejects duplicate task IDs and task-backed children w
   assert.match(missingParentTask.out.join("\n"), /node worker-research: task-backed non-Boss node requires task-backed parent manager-docs/);
 });
 
+fixtureTest("orchestration rejects task-backed nodes while inactive", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.status = "inactive";
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /node boss: inactive orchestration may not contain task-backed nodes/);
+});
+
 fixtureTest("orchestration rejects hierarchical dependency deadlocks and composed graph cycles", async () => {
   const ancestorDependency = validOrchestrationRegistry();
   ancestorDependency.nodes.find((node) => node.id === "worker-research").dependencies = ["boss"];
@@ -2016,10 +2073,74 @@ fixtureTest("orchestration refuses child launches from ready-for-parent nodes", 
   worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
   writeOrchestrationRegistry(registry);
 
-  const { io, err } = capture();
-  const code = await main(["orchestration", "launch-spec", "worker-research"], io);
-  assert.equal(code, 1);
-  assert.match(err.join("\n"), /parent manager-docs is not in an active managing state/);
+  const validation = capture();
+  const validationCode = await main(["orchestration", "validate"], validation.io);
+  assert.equal(validationCode, 1);
+  assert.match(validation.out.join("\n"), /node manager-docs: ready-for-parent parent has non-terminal children/);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+  assert.equal(launchCode, 1);
+  assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+});
+
+fixtureTest("orchestration launch specs require a compare-and-set reservation before task creation", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  registry.trustPolicy.limits.maxActiveNodes = 2;
+  worker.dependencies = [];
+  writeOrchestrationRegistry(registry);
+
+  const firstLaunch = capture();
+  const firstLaunchCode = await main(["orchestration", "launch-spec", "manager-docs"], firstLaunch.io);
+  assert.equal(firstLaunchCode, 0, firstLaunch.err.join("\n"));
+  const firstSpec = JSON.parse(firstLaunch.out.join("\n"));
+  assert.equal(firstSpec.reservation.expectedRegistryRevision, 0);
+  assert.equal(firstSpec.reservation.expectedNode.state, "eligible");
+  assert.deepEqual(firstSpec.reservation.expectedParent, { id: "boss", state: "working", taskId: "task-boss" });
+  assert.deepEqual(firstSpec.reservation.capacity, {
+    activeNodeCount: 1,
+    reservedNodeCount: 0,
+    maxActiveNodes: 2,
+    parentId: "boss",
+    activeChildCount: 0,
+    reservedChildCount: 0,
+    maxActiveChildren: 2
+  });
+
+  registry.revision = 1;
+  writeOrchestrationRegistry(registry);
+  const refreshedLaunch = capture();
+  const refreshedLaunchCode = await main(["orchestration", "launch-spec", "manager-docs"], refreshedLaunch.io);
+  assert.equal(refreshedLaunchCode, 0, refreshedLaunch.err.join("\n"));
+  const refreshedSpec = JSON.parse(refreshedLaunch.out.join("\n"));
+  assert.equal(refreshedSpec.reservation.expectedRegistryRevision, 1);
+  assert.notEqual(refreshedSpec.reservation.launchKey, firstSpec.reservation.launchKey);
+  assert.equal(firstSpec.callback.reserve.expectedRegistryRevision, 0);
+
+  manager.launchReservation = refreshedSpec.callback.reserve.onSuccess.launchReservation;
+  registry.revision = refreshedSpec.callback.reserve.onSuccess.registryRevision;
+  writeOrchestrationRegistry(registry);
+  const reservationValidation = capture();
+  const reservationValidationCode = await main(["orchestration", "validate"], reservationValidation.io);
+  assert.equal(reservationValidationCode, 0, reservationValidation.out.concat(reservationValidation.err).join("\n"));
+
+  const next = capture();
+  const nextCode = await main(["orchestration", "next"], next.io);
+  assert.equal(nextCode, 0, next.err.join("\n"));
+  assert.doesNotMatch(next.out.join("\n"), /manager-docs/);
+
+  const duplicate = capture();
+  const duplicateCode = await main(["orchestration", "launch-spec", "manager-docs"], duplicate.io);
+  assert.equal(duplicateCode, 1);
+  assert.match(duplicate.err.join("\n"), /pending launch reservation/);
+  assert.equal(refreshedSpec.callback.bind.requiredReservationKey, refreshedSpec.reservation.launchKey);
+
+  const capacity = capture();
+  const capacityCode = await main(["orchestration", "launch-spec", "worker-research"], capacity.io);
+  assert.equal(capacityCode, 1);
+  assert.match(capacity.err.join("\n"), /project active-node budget is exhausted/);
 });
 
 fixtureTest("orchestration rejects active children whose parent cannot manage delegation", async () => {
