@@ -159,12 +159,13 @@ The repository harness is agent-agnostic, so task creation belongs to a thin cli
 
 1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`.
 2. The active client verifies that the current user request or recorded scope grant authorizes task creation.
-3. Before any external side effect, atomically compare the registry revision, expected registry status, target node state, immediate parent state/task ID, and capacity preconditions from `reservation`. On a match, add the exact `launchReservation` key, advance the registry revision by one, and reserve capacity. For an empty registry, insert the exact `registryNode` payload in that same transaction. For every Boss bootstrap, also set `status` to `active` in that transaction.
+3. Before any external side effect, atomically compare the registry revision, expected registry status, target node state and task identity, immediate parent state/task ID/trust/authority/approval gates, and capacity preconditions from `reservation`. On a match, add the exact `launchReservation` key with its complete `validity` snapshot, advance the registry revision by one, and reserve capacity. For an empty registry, insert the exact `registryNode` payload in that same transaction. For every Boss bootstrap, also set `status` to `active` in that transaction.
 4. If the compare-and-set fails, do not create a task. Re-read the registry and generate a new launch spec; an old spec or duplicate reservation is never reusable.
-5. Only after reservation succeeds, create the task with the exact title, prompt, and immediate parent from the launch spec.
-6. Atomically bind the returned task ID only when the node still holds the spec's `requiredReservationKey`; set `state` to `working`, add `nextAction`, clear the reservation, and advance the registry revision by one. Re-check the parent contract before binding.
-7. If task creation fails, atomically clear only the matching reservation and advance the revision before retrying from a newly generated spec.
-8. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
+5. Immediately before task creation, atomically compare the reserved registry against `preCreate`: its revision, status, target task identity and reservation key, parent state/task ID/trust/entire authority envelope including approval gates, and project/parent capacity must still match. A changed status, authority, approval gate, task identity, capacity, or revision invalidates the reservation before the side effect.
+6. Create the task with the exact title, prompt, and immediate parent from the launch spec, using `externalTask.idempotencyKey` (the `launchKey`) as the task API's durable idempotency key and `externalTask.reconciliationKey` for lookup.
+7. Atomically bind the returned task ID only when the complete `bind` current-state contract still matches the reserved registry. Set `state` to `working`, add `nextAction`, clear the reservation, and advance the registry revision by one. A failed bind must preserve the reservation and trigger reconciliation by `launchKey`, never a second create.
+8. If create fails with a definitive proof that no task exists for `launchKey`, atomically clear only the matching reservation and advance the revision before generating a new spec. On a timeout, crash, ambiguous response, or failed bind, retain the reservation and reconcile the external task by `launchKey`; do not clear or retry creation until absence is proven.
+9. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
 
 `revision` is a non-negative monotonic integer. Every registry mutation advances it exactly once. A pending reservation exists only on a queued or eligible node without a task ID and counts against project and parent active-capacity budgets until it is bound or released.
 
@@ -177,7 +178,8 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - A child may not drop an approval gate required by its parent.
 - Do not fan out overlapping write sets or unstable contracts.
 - Do not create a task from a launch spec whose parent task is missing or whose dependencies are unsatisfied.
-- Never create a task before the launch spec's atomic reservation succeeds; a stale revision, occupied reservation, changed parent, or exhausted reserved capacity is a pre-side-effect failure.
+- Never create a task before the launch spec's atomic reservation and immediate `preCreate` comparison succeed; a stale revision, changed status, parent authority or approval gate, task identity, occupied reservation, or exhausted reserved capacity is a pre-side-effect failure.
+- Use `launchKey` as the durable external idempotency and reconciliation key. An indeterminate create or bind result keeps its reservation until lookup proves no external task exists.
 - Create child tasks only while the parent is `working`, `waiting`, or `blocked`; a `ready-for-parent` node must not acquire new unfinished responsibility.
 - Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
@@ -196,7 +198,7 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Live tasks have task IDs and state-specific control fields.
 - Trust and authority never exceed parent or project policy; promoted nodes have auditable approval records.
 - Active node count, active child count, and delegation depth stay within configured budgets.
-- Registry revisions advance monotonically, and pending launch reservations consume capacity until they are bound or released.
+- Registry revisions advance monotonically, pending launch reservations consume capacity until they are bound or definitively released, and each reservation's validity snapshot matches the current registry before create and bind.
 - Terminal nodes contain a disposition and evidence required by their completion profile; terminal parents have no non-terminal children.
 
 ## Update Rules

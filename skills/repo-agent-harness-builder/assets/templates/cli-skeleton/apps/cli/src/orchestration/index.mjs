@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 
@@ -133,6 +134,50 @@ function hasLaunchReservation(node) {
 
 function launchKeyFor(registry, node) {
   return `orchestration:${registry.scope.id}:${registry.revision}:${node.id}`;
+}
+
+function parentSnapshot(parent) {
+  if (!parent) return null;
+  return {
+    id: parent.id,
+    state: parent.state,
+    taskId: parent.taskId,
+    trustLevel: parent.trustLevel,
+    authority: parent.authority
+  };
+}
+
+function reservationCapacity(nodes, parent, maxActiveNodes) {
+  const activeNodeCount = nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state)).length;
+  const reservedNodeCount = nodes.filter(hasLaunchReservation).length;
+  const activeChildCount = parent ? nodes.filter((candidate) => candidate.parentId === parent.id && ACTIVE_STATES.has(candidate.state)).length : 0;
+  const reservedChildCount = parent ? nodes.filter((candidate) => candidate.parentId === parent.id && hasLaunchReservation(candidate)).length : 0;
+  return {
+    activeNodeCount,
+    reservedNodeCount,
+    maxActiveNodes,
+    ...(parent ? {
+      parentId: parent.id,
+      activeChildCount,
+      reservedChildCount,
+      maxActiveChildren: parent.authority?.maxActiveChildren
+    } : {})
+  };
+}
+
+function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation) {
+  return {
+    expectedRegistryRevision: registry.revision,
+    expectedRegistryStatus: registry.status,
+    expectedNode: {
+      id: node.id,
+      state: node.state,
+      taskId: node.taskId,
+      launchReservationKey: reservation.key
+    },
+    expectedParent: parentSnapshot(parent),
+    capacity: reservationCapacity(nodes, parent, maxActiveNodes)
+  };
 }
 
 function hasDelegationAuthority(node) {
@@ -296,6 +341,14 @@ function validateRegistry(registry) {
         if (isNonEmptyString(registry.scope?.id) && Number.isSafeInteger(reservation.baseRevision) && isNonEmptyString(reservation.key)) {
           const expectedKey = `orchestration:${registry.scope.id}:${reservation.baseRevision}:${node.id}`;
           if (reservation.key !== expectedKey) blockers.push(`${label}: launchReservation.key does not match its node and baseRevision`);
+        }
+        if (!isObject(reservation.validity)) {
+          blockers.push(`${label}: launchReservation.validity is required`);
+        } else {
+          const expectedValidity = reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation);
+          if (!isDeepStrictEqual(reservation.validity, expectedValidity)) {
+            blockers.push(`${label}: launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity`);
+          }
         }
       }
     }
@@ -695,10 +748,6 @@ function runLaunchSpec(nodeId, io) {
     return 1;
   }
   const configured = findings.nodesById.has(node.id);
-  const activeNodeCount = findings.nodes.filter((candidate) => ACTIVE_STATES.has(candidate.state)).length;
-  const reservedNodeCount = findings.nodes.filter(hasLaunchReservation).length;
-  const activeChildCount = parent ? findings.nodes.filter((candidate) => candidate.parentId === parent.id && ACTIVE_STATES.has(candidate.state)).length : 0;
-  const reservedChildCount = parent ? findings.nodes.filter((candidate) => candidate.parentId === parent.id && hasLaunchReservation(candidate)).length : 0;
   const launchKey = launchKeyFor(loaded.registry, node);
   const reservation = {
     launchKey,
@@ -711,22 +760,33 @@ function runLaunchSpec(nodeId, io) {
       taskId: null,
       launchReservation: null
     },
-    expectedParent: parent ? {
-      id: parent.id,
-      state: parent.state,
-      taskId: parent.taskId
-    } : null,
-    capacity: {
-      activeNodeCount,
-      reservedNodeCount,
-      maxActiveNodes: loaded.registry.trustPolicy.limits.maxActiveNodes,
-      ...(parent ? {
-        parentId: parent.id,
-        activeChildCount,
-        reservedChildCount,
-        maxActiveChildren: parent.authority.maxActiveChildren
-      } : {})
-    }
+    expectedParent: parentSnapshot(parent),
+    capacity: reservationCapacity(findings.nodes, parent, loaded.registry.trustPolicy.limits.maxActiveNodes)
+  };
+  const reservedRegistry = {
+    ...loaded.registry,
+    revision: loaded.registry.revision + 1,
+    ...(node.role === "boss" ? { status: "active" } : {})
+  };
+  const reservedNode = {
+    ...node,
+    launchReservation: { key: launchKey, baseRevision: loaded.registry.revision }
+  };
+  const reservedNodes = configured
+    ? findings.nodes.map((candidate) => (candidate.id === node.id ? reservedNode : candidate))
+    : [...findings.nodes, reservedNode];
+  const reservedParent = parent ? reservedNodes.find((candidate) => candidate.id === parent.id) : null;
+  const reservationValidity = reservationValidityFor(
+    reservedRegistry,
+    reservedNode,
+    reservedParent,
+    reservedNodes,
+    loaded.registry.trustPolicy.limits.maxActiveNodes,
+    reservedNode.launchReservation
+  );
+  const persistedReservation = {
+    ...reservedNode.launchReservation,
+    validity: reservationValidity
   };
   io.stdout(JSON.stringify({
     schemaVersion: 2,
@@ -737,6 +797,12 @@ function runLaunchSpec(nodeId, io) {
     parentTaskId: parent?.taskId || null,
     trustLevel: node.trustLevel,
     authority: node.authority,
+    externalTask: {
+      idempotencyKey: launchKey,
+      reconciliationKey: launchKey,
+      requiredCreateBehavior: "Use launchKey as the external task API idempotency key.",
+      indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
+    },
     prompt: buildPromptLines(node, parent).join("\n"),
     reservation,
     callback: {
@@ -749,21 +815,27 @@ function runLaunchSpec(nodeId, io) {
         onSuccess: {
           registryRevision: loaded.registry.revision + 1,
           ...(node.role === "boss" ? { status: "active" } : {}),
-          launchReservation: { key: launchKey, baseRevision: loaded.registry.revision }
+          launchReservation: persistedReservation
         }
+      },
+      preCreate: {
+        operation: "compare-and-set-reservation-validity",
+        requiredReservationKey: launchKey,
+        ...reservationValidity,
+        onFailure: "Do not create a task; reconcile any existing external task by launchKey."
       },
       bind: {
         operation: "compare-and-set-bind",
         requiredReservationKey: launchKey,
-        requiredNode: { id: node.id, state: node.state, taskId: null },
-        requiredParent: reservation.expectedParent,
+        ...reservationValidity,
         requiredUpdates: [
           "taskId",
           "state=working",
           "nextAction",
           "clear launchReservation"
         ],
-        mustAdvanceRegistryRevision: true
+        mustAdvanceRegistryRevision: true,
+        onFailure: "Keep the reservation and reconcile the external task by launchKey; do not create another task."
       },
       requiredUpdates: configured
         ? [

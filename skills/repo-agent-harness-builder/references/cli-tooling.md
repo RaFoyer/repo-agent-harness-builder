@@ -180,19 +180,24 @@ branches, pull requests, or software delivery. Minimum behavior:
   unsatisfied dependencies, inactive child orchestration, parents without T3
   delegation authority or task IDs, and exhausted child or project capacity.
   The contract includes the monotonic registry revision, deterministic launch
-  key, expected registry/node/parent states, and capacity preconditions. An
-  adapter must atomically reserve the node and advance the revision before task
-  creation, then bind the returned task ID with the reservation key and advance
-  the revision again. A stale or duplicate reservation must fail before side
-  effects. Its callback distinguishes inserting a bootstrapped Boss from
-  updating a configured node, and activates the registry in every Boss
-  bootstrap reservation.
+  key, expected registry/node/parent states and task identities, parent trust
+  and full authority envelope including approval gates, and capacity
+  preconditions. An adapter must atomically reserve the node and advance the
+  revision before task creation, then compare the complete reserved-state
+  contract immediately before the external call and again when binding the
+  returned task ID. A stale or duplicate reservation must fail before side
+  effects. The launch key is the durable task-API idempotency and reconciliation
+  key: after an ambiguous create, crash, timeout, or bind failure, keep the
+  reservation and reconcile by that key rather than creating again. Its callback
+  distinguishes inserting a bootstrapped Boss from updating a configured node,
+  and activates the registry in every Boss bootstrap reservation.
 
 All commands are read-only. A Codex, Claude Code, Gemini CLI, Cursor, or other
 adapter may use a launch spec only when current authority allows task creation,
-then must reserve the node by compare-and-set before external task creation and
-write the returned task ID and working state back with the matching reservation
-key.
+then must reserve the node by compare-and-set, validate the current reservation
+contract immediately before external task creation, use the launch key as the
+task API idempotency key, and write the returned task ID and working state back
+only with the matching current reservation contract.
 This separates a portable repository contract from client-specific task APIs.
 
 ## Goal Chain Command Contract

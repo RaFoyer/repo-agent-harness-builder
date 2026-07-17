@@ -1503,12 +1503,19 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]);
   assert.equal(spec.reservation.expectedRegistryRevision, 0);
   assert.equal(spec.reservation.launchKey, "orchestration:project:0:boss");
-  assert.deepEqual(spec.callback.reserve.onSuccess, {
-    registryRevision: 1,
-    status: "active",
-    launchReservation: { key: "orchestration:project:0:boss", baseRevision: 0 }
-  });
+  assert.equal(spec.callback.reserve.onSuccess.registryRevision, 1);
+  assert.equal(spec.callback.reserve.onSuccess.status, "active");
+  assert.equal(spec.callback.reserve.onSuccess.launchReservation.key, "orchestration:project:0:boss");
+  assert.equal(spec.callback.reserve.onSuccess.launchReservation.baseRevision, 0);
   assert.equal(spec.callback.bind.requiredReservationKey, spec.reservation.launchKey);
+  assert.equal(spec.externalTask.idempotencyKey, spec.reservation.launchKey);
+  assert.equal(spec.externalTask.reconciliationKey, spec.reservation.launchKey);
+  assert.match(spec.externalTask.indeterminateCreateBehavior, /Keep the reservation and reconcile/);
+  assert.equal(spec.callback.preCreate.requiredReservationKey, spec.reservation.launchKey);
+  assert.equal(spec.callback.preCreate.expectedRegistryRevision, 1);
+  assert.equal(spec.callback.preCreate.expectedRegistryStatus, "active");
+  assert.deepEqual(spec.callback.bind.expectedNode, spec.callback.preCreate.expectedNode);
+  assert.deepEqual(spec.callback.bind.capacity, spec.callback.preCreate.capacity);
   assert.deepEqual(Object.keys(spec.callback.registryNode).sort(), [
     "authority",
     "dependencies",
@@ -2098,7 +2105,11 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   const firstSpec = JSON.parse(firstLaunch.out.join("\n"));
   assert.equal(firstSpec.reservation.expectedRegistryRevision, 0);
   assert.equal(firstSpec.reservation.expectedNode.state, "eligible");
-  assert.deepEqual(firstSpec.reservation.expectedParent, { id: "boss", state: "working", taskId: "task-boss" });
+  assert.equal(firstSpec.reservation.expectedParent.id, "boss");
+  assert.equal(firstSpec.reservation.expectedParent.state, "working");
+  assert.equal(firstSpec.reservation.expectedParent.taskId, "task-boss");
+  assert.equal(firstSpec.reservation.expectedParent.trustLevel, "T3");
+  assert.deepEqual(firstSpec.reservation.expectedParent.authority, registry.nodes.find((node) => node.id === "boss").authority);
   assert.deepEqual(firstSpec.reservation.capacity, {
     activeNodeCount: 1,
     reservedNodeCount: 0,
@@ -2125,6 +2136,16 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   const reservationValidation = capture();
   const reservationValidationCode = await main(["orchestration", "validate"], reservationValidation.io);
   assert.equal(reservationValidationCode, 0, reservationValidation.out.concat(reservationValidation.err).join("\n"));
+  const validity = refreshedSpec.callback.reserve.onSuccess.launchReservation.validity;
+  assert.equal(validity.expectedRegistryRevision, registry.revision);
+  assert.equal(validity.expectedRegistryStatus, "active");
+  assert.equal(validity.expectedNode.launchReservationKey, refreshedSpec.reservation.launchKey);
+  assert.equal(validity.expectedParent.trustLevel, "T3");
+  assert.equal(validity.expectedParent.authority.canDelegate, true);
+  assert.deepEqual(refreshedSpec.callback.preCreate.expectedParent, validity.expectedParent);
+  assert.deepEqual(refreshedSpec.callback.bind.capacity, validity.capacity);
+  assert.equal(refreshedSpec.externalTask.idempotencyKey, refreshedSpec.reservation.launchKey);
+  assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation and reconcile/);
 
   const next = capture();
   const nextCode = await main(["orchestration", "next"], next.io);
@@ -2141,6 +2162,52 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   const capacityCode = await main(["orchestration", "launch-spec", "worker-research"], capacity.io);
   assert.equal(capacityCode, 1);
   assert.match(capacity.err.join("\n"), /project active-node budget is exhausted/);
+
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.canDelegate = false;
+  registry.revision += 1;
+  writeOrchestrationRegistry(registry);
+  const revocation = capture();
+  const revocationCode = await main(["orchestration", "validate"], revocation.io);
+  assert.equal(revocationCode, 1);
+  assert.match(revocation.out.join("\n"), /launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity/);
+});
+
+fixtureTest("orchestration reservation protocol requires durable launch-key reconciliation", async () => {
+  const protocolPath = path.join(repoRoot, "ops", "protocols", "AGENT-ORCHESTRATION.md");
+  const protocol = fs.readFileSync(protocolPath, "utf-8");
+  assert.match(protocol, /Immediately before task creation, atomically compare the reserved registry against `preCreate`/);
+  assert.match(protocol, /externalTask\.idempotencyKey/);
+  assert.match(protocol, /On a timeout, crash, ambiguous response, or failed bind, retain the reservation/);
+  assert.match(protocol, /do not clear or retry creation until absence is proven/);
+});
+
+fixtureTest("orchestration invalidates reservations after status, authority, capacity, or task changes", async () => {
+  for (const [name, mutate] of [
+    ["status", (registry) => { registry.status = "inactive"; }],
+    ["trust", (registry) => { registry.nodes.find((node) => node.id === "boss").trustLevel = "T4"; }],
+    ["approval gates", (registry) => { registry.nodes.find((node) => node.id === "boss").authority.approvalGates.push("human-review"); }],
+    ["capacity", (registry) => { registry.trustPolicy.limits.maxActiveNodes = 5; }],
+    ["task identity", (registry) => { registry.nodes.find((node) => node.id === "boss").taskId = "task-boss-replaced"; }]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    writeOrchestrationRegistry(registry);
+    const launch = capture();
+    const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
+    assert.equal(launchCode, 0, `${name}: ${launch.err.join("\n")}`);
+    const spec = JSON.parse(launch.out.join("\n"));
+    const manager = registry.nodes.find((node) => node.id === "manager-docs");
+    manager.launchReservation = spec.callback.reserve.onSuccess.launchReservation;
+    registry.revision = spec.callback.reserve.onSuccess.registryRevision;
+    mutate(registry);
+    registry.revision += 1;
+    writeOrchestrationRegistry(registry);
+
+    const validation = capture();
+    const validationCode = await main(["orchestration", "validate"], validation.io);
+    assert.equal(validationCode, 1, name);
+    assert.match(validation.out.join("\n"), /node manager-docs: launchReservation validity no longer matches registry status, revision, authority, capacity, or task identity/);
+  }
 });
 
 fixtureTest("orchestration rejects active children whose parent cannot manage delegation", async () => {

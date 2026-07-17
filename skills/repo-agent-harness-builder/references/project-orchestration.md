@@ -97,10 +97,11 @@ The repo CLI remains read-only and agent-agnostic:
 1. Validate the registry.
 2. List dependency-eligible nodes.
 3. Generate a prompt for inspection or a JSON launch spec for task creation.
-4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision, node and parent states, and capacity preconditions; on success it records the deterministic launch key and advances the revision.
+4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision and status, node task identity, parent state/task ID/trust/full authority including approval gates, and capacity preconditions; on success it records the deterministic launch key and advances the revision.
 5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
-6. Create the task only after reservation succeeds, then atomically bind the returned task ID with the reservation key, set working state and next action, clear the reservation, and advance the revision. Boss bootstrap reservation also activates the registry; an empty registry inserts the exact `registryNode` payload in that transaction.
-7. Require the child to report to its immediate parent and the parent to reconcile evidence.
+6. Immediately before create and again at bind, compare the current registry to the reservation's complete validity contract. Any changed revision, status, parent authority or gate, capacity, or task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation, set working state and next action, clear the reservation, and advance the revision. Boss bootstrap reservation also activates the registry; an empty registry inserts the exact `registryNode` payload in that transaction.
+7. On a timeout, crash, ambiguous create, or failed bind, keep the reservation and reconcile the external task by `launchKey`; release and retry only after proving no task exists for that key.
+8. Require the child to report to its immediate parent and the parent to reconcile evidence.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
 
@@ -119,6 +120,7 @@ Reject designs that:
 - permit task-backed nodes while the registry is inactive
 - let a ready-for-parent or terminal parent retain non-terminal children
 - create a task before a matching compare-and-set reservation succeeds
+- create a task without an immediate current-state reservation check or retry an indeterminate task creation without reconciling its launch key
 - treat an open PR, draft artifact, or agent assertion as universal completion
 - create a second lifecycle vocabulary in each domain protocol
 - hide task creation or external writes behind a status, validation, prompt, or help command
@@ -147,4 +149,4 @@ Focused tests should cover:
 - active-node, active-child, and delegation-depth overruns
 - terminal disposition and terminal-parent reconciliation
 - inherited approval-gate enforcement, inactive task rejection, and ready-parent reconciliation
-- deterministic stale-spec, reservation, duplicate-launch, and reserved-capacity behavior
+- deterministic stale-spec, authority-revocation, reservation, duplicate-launch, crash-reconciliation, and reserved-capacity behavior
