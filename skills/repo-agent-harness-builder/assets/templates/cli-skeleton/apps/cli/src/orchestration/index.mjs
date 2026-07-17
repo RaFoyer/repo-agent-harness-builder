@@ -295,6 +295,9 @@ function validateRegistry(registry) {
     }
     if (node.state === "terminal") {
       if (!TERMINAL_DISPOSITIONS.has(node.terminalDisposition)) blockers.push(`${label}: terminal state requires completed, cancelled, or superseded terminalDisposition`);
+      if (node.terminalDisposition === "completed" && !dependenciesSatisfied(node, nodesById)) {
+        blockers.push(`${label}: completed terminal state requires completed dependencies`);
+      }
       if (!isStringArray(node.completionEvidence, { nonEmpty: true })) blockers.push(`${label}: terminal state requires completionEvidence`);
       const missingEvidence = missingCompletionEvidence(node);
       if (missingEvidence.length) blockers.push(`${label}: completionEvidence is missing required evidence: ${missingEvidence.join(", ")}`);
@@ -659,7 +662,12 @@ function runLaunchSpec(nodeId, io) {
       mode: configured ? "update-node" : "insert-node",
       registryNode: configured ? undefined : node,
       requiredUpdates: configured
-        ? ["taskId", "state=working", "nextAction"]
+        ? [
+          ...(node.role === "boss" ? ["status=active"] : []),
+          "taskId",
+          "state=working",
+          "nextAction"
+        ]
         : ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]
     }
   }, null, 2));

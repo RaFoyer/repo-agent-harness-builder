@@ -1555,6 +1555,34 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   assert.equal(spec.title, `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`);
 });
 
+fixtureTest("orchestration activates configured Boss callbacks", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.status = "inactive";
+  boss.state = "eligible";
+  boss.taskId = null;
+  delete boss.nextAction;
+  writeOrchestrationRegistry(registry);
+
+  const launch = capture();
+  const launchCode = await main(["orchestration", "launch-spec", "boss"], launch.io);
+  assert.equal(launchCode, 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.callback.mode, "update-node");
+  assert.deepEqual(spec.callback.requiredUpdates, ["status=active", "taskId", "state=working", "nextAction"]);
+
+  registry.status = "active";
+  boss.taskId = "task-configured-boss";
+  boss.state = "working";
+  boss.nextAction = "Review eligible project work.";
+  writeOrchestrationRegistry(registry);
+
+  const next = capture();
+  const nextCode = await main(["orchestration", "next"], next.io);
+  assert.equal(nextCode, 0, next.err.join("\n"));
+  assert.match(next.out.join("\n"), /manager-docs.*documentation/);
+});
+
 fixtureTest("orchestration requires the core protocol for every node", async () => {
   const registry = validOrchestrationRegistry();
   const worker = registry.nodes.find((node) => node.id === "worker-research");
@@ -1725,6 +1753,28 @@ fixtureTest("orchestration requires every declared completion evidence item befo
   const code = await main(["orchestration", "validate"], io);
   assert.equal(code, 1);
   assert.match(out.join("\n"), /completionEvidence is missing required evidence: approved documentation artifact/);
+});
+
+fixtureTest("orchestration rejects completed terminal work with unfinished prerequisites", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const prerequisite = registry.nodes.find((node) => node.id === "worker-research");
+  prerequisite.id = "worker-prerequisite";
+  prerequisite.workRef = "PRE-1";
+  prerequisite.label = "Prerequisite research";
+  prerequisite.title = `${CONFIG.projectName} - Worker for Boss - PRE-1 Prerequisite research`;
+  prerequisite.dependencies = [];
+  manager.dependencies = [prerequisite.id];
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["approved documentation artifact"];
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /node manager-docs: completed terminal state requires completed dependencies/);
 });
 
 fixtureTest("orchestration keeps dependents blocked for cancelled or superseded prerequisites", async () => {
