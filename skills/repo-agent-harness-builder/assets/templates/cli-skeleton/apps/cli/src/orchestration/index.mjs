@@ -58,8 +58,20 @@ function trustRank(level) {
   return TRUST_RANK.has(level) ? TRUST_RANK.get(level) : -1;
 }
 
+function isCalendarDate(year, month, day) {
+  if (month < 1 || month > 12 || day < 1) return false;
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
 function isApprovalTimestamp(value) {
-  return isNonEmptyString(value) && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)?$/.test(value);
+  if (!isNonEmptyString(value)) return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z)?$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day, hour, minute, second] = match.map((part) => (part === undefined ? part : Number(part)));
+  if (!isCalendarDate(year, month, day)) return false;
+  return hour === undefined || (hour <= 23 && minute <= 59 && second <= 59);
 }
 
 function titleForNode(node, nodesById, prefix) {
@@ -112,6 +124,10 @@ function missingCompletionEvidence(node) {
 
 function isTaskBackedNode(node) {
   return TASK_STATES.has(node?.state) && isNonEmptyString(node.taskId);
+}
+
+function hasDelegationAuthority(node) {
+  return isObject(node?.authority) && node.authority.canDelegate === true && trustRank(node.trustLevel) >= trustRank("T3");
 }
 
 function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
@@ -247,6 +263,14 @@ function validateRegistry(registry) {
     if (["queued", "eligible"].includes(node.state) && node.taskId) blockers.push(`${label}: graph state ${node.state} must not claim a live taskId`);
     if (node.role !== "boss" && isTaskBackedNode(node) && parent && !isTaskBackedNode(parent)) {
       blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent.id}`);
+    }
+    if (node.role !== "boss" && ACTIVE_STATES.has(node.state) && parent) {
+      if (!MANAGING_STATES.has(parent.state)) {
+        blockers.push(`${label}: active non-Boss node requires parent ${parent.id} in an active managing state`);
+      }
+      if (!hasDelegationAuthority(parent)) {
+        blockers.push(`${label}: active non-Boss node requires parent ${parent.id} with T3 delegation authority`);
+      }
     }
     if (node.state === "working" && !isNonEmptyString(node.nextAction)) blockers.push(`${label}: working state requires nextAction`);
     if (node.state === "waiting" && !isNonEmptyString(node.waitingOn)) blockers.push(`${label}: waiting state requires waitingOn`);
@@ -603,7 +627,7 @@ function runLaunchSpec(nodeId, io) {
     io.stderr(`Node ${node.id} cannot launch while project orchestration is inactive.`);
     return 1;
   }
-  if (parent && (!parent.authority.canDelegate || trustRank(parent.trustLevel) < trustRank("T3"))) {
+  if (parent && !hasDelegationAuthority(parent)) {
     io.stderr(`Node ${node.id} cannot launch because parent ${parent.id} lacks T3 delegation authority.`);
     return 1;
   }
@@ -636,7 +660,7 @@ function runLaunchSpec(nodeId, io) {
       registryNode: configured ? undefined : node,
       requiredUpdates: configured
         ? ["taskId", "state=working", "nextAction"]
-        : ["insert registryNode", "taskId", "state=working", "nextAction"]
+        : ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]
     }
   }, null, 2));
   return 0;

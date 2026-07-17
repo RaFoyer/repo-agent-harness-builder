@@ -1488,7 +1488,7 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
   assert.equal(spec.parentTaskId, null);
   assert.deepEqual(spec.authority.allowedWrites, []);
   assert.equal(spec.callback.mode, "insert-node");
-  assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "taskId", "state=working", "nextAction"]);
+  assert.deepEqual(spec.callback.requiredUpdates, ["insert registryNode", "status=active", "taskId", "state=working", "nextAction"]);
   assert.deepEqual(Object.keys(spec.callback.registryNode).sort(), [
     "authority",
     "dependencies",
@@ -1514,6 +1514,7 @@ fixtureTest("orchestration inactive scaffold validates and emits a bounded Boss 
     state: "working",
     nextAction: "Establish the project control plane."
   });
+  registry.status = "active";
   writeOrchestrationRegistry(registry);
   const callbackValidation = capture();
   const callbackValidationCode = await main(["orchestration", "validate"], callbackValidation.io);
@@ -1959,6 +1960,63 @@ fixtureTest("orchestration refuses child launches from ready-for-parent nodes", 
   const code = await main(["orchestration", "launch-spec", "worker-research"], io);
   assert.equal(code, 1);
   assert.match(err.join("\n"), /parent manager-docs is not in an active managing state/);
+});
+
+fixtureTest("orchestration rejects active children whose parent cannot manage delegation", async () => {
+  for (const [parentState, trustLevel, canDelegate, expectedBlocker] of [
+    ["ready-for-parent", "T3", true, /active non-Boss node requires parent manager-docs in an active managing state/],
+    ["working", "T3", false, /active non-Boss node requires parent manager-docs with T3 delegation authority/],
+    ["working", "T2", true, /active non-Boss node requires parent manager-docs with T3 delegation authority/]
+  ]) {
+    const registry = validOrchestrationRegistry();
+    const manager = registry.nodes.find((node) => node.id === "manager-docs");
+    const worker = registry.nodes.find((node) => node.id === "worker-research");
+    manager.state = parentState;
+    manager.taskId = "task-manager-docs";
+    manager.trustLevel = trustLevel;
+    manager.authority = orchestrationAuthority({ canDelegate, maxActiveChildren: 1 });
+    if (parentState === "ready-for-parent") manager.handoffEvidence = ["approved documentation artifact"];
+    else manager.nextAction = "Manage the research decision.";
+    if (trustLevel === "T3") {
+      manager.trustApproval = {
+        approvedBy: "project-owner",
+        approvedAt: "2026-07-16",
+        evidence: ["bounded workstream delegation approval"]
+      };
+    }
+    worker.parentId = manager.id;
+    worker.dependencies = [];
+    worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+    worker.state = "working";
+    worker.taskId = "task-worker-research";
+    worker.nextAction = "Prepare the research decision.";
+    writeOrchestrationRegistry(registry);
+
+    const { io, out } = capture();
+    const code = await main(["orchestration", "validate"], io);
+    assert.equal(code, 1, `${parentState}/${trustLevel}/${canDelegate}`);
+    assert.match(out.join("\n"), expectedBlocker);
+  }
+});
+
+fixtureTest("orchestration semantically validates trust approval timestamps", async () => {
+  for (const approvedAt of ["2026-99-99", "2026-02-29", "2026-01-01T24:00:00Z", "2026-01-01T12:60:00Z", "2026-01-01T12:00:61Z"]) {
+    const registry = validOrchestrationRegistry();
+    registry.nodes.find((node) => node.id === "boss").trustApproval.approvedAt = approvedAt;
+    writeOrchestrationRegistry(registry);
+
+    const { io, out } = capture();
+    const code = await main(["orchestration", "validate"], io);
+    assert.equal(code, 1, approvedAt);
+    assert.match(out.join("\n"), /node boss: trustApproval\.approvedAt must be YYYY-MM-DD or UTC RFC3339 seconds/);
+  }
+
+  const registry = validOrchestrationRegistry();
+  registry.nodes.find((node) => node.id === "boss").trustApproval.approvedAt = "2024-02-29T23:59:59.123Z";
+  writeOrchestrationRegistry(registry);
+  const { io, err } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 0, err.join("\n"));
 });
 
 fixtureTest("goals status reports configured implementation goals", async () => {

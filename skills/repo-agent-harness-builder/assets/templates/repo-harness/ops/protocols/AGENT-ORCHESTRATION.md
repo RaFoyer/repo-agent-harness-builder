@@ -160,7 +160,7 @@ The repository harness is agent-agnostic, so task creation belongs to a thin cli
 2. Run `orchestration launch-spec <node-id>`.
 3. The active client verifies that the current user request or recorded scope grant authorizes task creation.
 4. The client creates the task with the exact title, prompt, and immediate parent from the launch spec.
-5. Follow the callback contract: insert the configured Boss node when bootstrapping an empty registry, or update the existing node; record the returned task ID, set `state` to `working`, and add `nextAction` before implementation proceeds.
+5. Follow the callback contract: insert the configured Boss node and set registry `status` to `active` when bootstrapping an empty registry, or update the existing node; record the returned task ID, set `state` to `working`, and add `nextAction` before implementation proceeds.
 6. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
 
 This adapter boundary makes worker launch easy without hiding external writes inside the repo CLI or binding the protocol to Codex, Claude Code, Gemini CLI, Cursor, or another client.
