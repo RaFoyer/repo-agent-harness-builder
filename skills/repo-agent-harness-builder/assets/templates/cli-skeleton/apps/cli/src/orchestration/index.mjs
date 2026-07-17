@@ -86,6 +86,24 @@ function graphHasCycle(nodes, edgesForNode) {
   return nodes.some((node) => visit(node.id));
 }
 
+function isAncestor(ancestorId, node, nodesById) {
+  const seen = new Set();
+  let current = node;
+  while (current?.parentId && !seen.has(current.id)) {
+    seen.add(current.id);
+    if (current.parentId === ancestorId) return true;
+    current = nodesById.get(current.parentId);
+  }
+  return false;
+}
+
+function missingCompletionEvidence(node) {
+  const requiredEvidence = node.completionProfile?.requiredEvidence;
+  if (!isStringArray(requiredEvidence, { nonEmpty: true })) return [];
+  const completionEvidence = new Set(Array.isArray(node.completionEvidence) ? node.completionEvidence : []);
+  return requiredEvidence.filter((evidence) => !completionEvidence.has(evidence));
+}
+
 function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
   const label = `node ${node.id || "<missing-id>"}`;
   if (!TRUST_RANK.has(node.trustLevel)) {
@@ -227,6 +245,8 @@ function validateRegistry(registry) {
     if (node.state === "terminal") {
       if (!TERMINAL_DISPOSITIONS.has(node.terminalDisposition)) blockers.push(`${label}: terminal state requires completed, cancelled, or superseded terminalDisposition`);
       if (!isStringArray(node.completionEvidence, { nonEmpty: true })) blockers.push(`${label}: terminal state requires completionEvidence`);
+      const missingEvidence = missingCompletionEvidence(node);
+      if (missingEvidence.length) blockers.push(`${label}: completionEvidence is missing required evidence: ${missingEvidence.join(", ")}`);
     }
     for (const dependency of node.dependencies || []) {
       if (!nodesById.has(dependency)) blockers.push(`${label}: dependency ${dependency} does not exist`);
@@ -236,6 +256,18 @@ function validateRegistry(registry) {
   }
   if (graphHasCycle(nodes, (node) => (node.parentId ? [node.parentId] : []))) blockers.push("parent graph contains a cycle");
   if (graphHasCycle(nodes, (node) => node.dependencies || [])) blockers.push("dependency graph contains a cycle");
+  if (graphHasCycle(nodes, (node) => [...(node.parentId ? [node.parentId] : []), ...(node.dependencies || [])])) {
+    blockers.push("orchestration graph contains a parent/dependency cycle");
+  }
+  for (const node of nodes) {
+    for (const dependencyId of node.dependencies || []) {
+      const dependency = nodesById.get(dependencyId);
+      if (!dependency) continue;
+      if (isAncestor(dependencyId, node, nodesById) || isAncestor(node.id, dependency, nodesById)) {
+        blockers.push(`node ${node.id}: dependency ${dependencyId} crosses the parent hierarchy`);
+      }
+    }
+  }
   if (Number.isInteger(maxDelegationDepth)) {
     for (const node of nodes) {
       let depth = 0;
@@ -367,7 +399,10 @@ function runValidate(io) {
 }
 
 function dependenciesSatisfied(node, nodesById) {
-  return (node.dependencies || []).every((dependency) => nodesById.get(dependency)?.state === "terminal");
+  return (node.dependencies || []).every((dependency) => {
+    const prerequisite = nodesById.get(dependency);
+    return prerequisite?.state === "terminal" && prerequisite.terminalDisposition === "completed";
+  });
 }
 
 function runNext(io) {
@@ -529,7 +564,7 @@ function runLaunchSpec(nodeId, io) {
     return 1;
   }
   if (!dependenciesSatisfied(node, findings.nodesById)) {
-    io.stderr(`Node ${node.id} cannot launch before all dependencies are terminal.`);
+    io.stderr(`Node ${node.id} cannot launch before all dependencies are completed.`);
     return 1;
   }
   if (loaded.registry.status !== "active" && node.role !== "boss") {

@@ -46,7 +46,7 @@ Every node should declare:
 - completion profile and required evidence
 - task ID only after the client materializes the graph node as a task
 
-Queued and eligible nodes are graph state, not fake tasks. Working, waiting, blocked, ready-for-parent, and terminal nodes are task-backed. Terminal nodes record a disposition and evidence.
+Queued and eligible nodes are graph state, not fake tasks. Working, waiting, blocked, ready-for-parent, and terminal nodes are task-backed. Terminal nodes record a disposition and every exact evidence identifier required by their completion profile.
 
 ## Progressive Autonomy
 
@@ -110,6 +110,8 @@ Reject designs that:
 - use a Boss title as implicit permission to create tasks, write files, message people, deploy, or cross project boundaries
 - count queued graph nodes as live tasks
 - allow task creation before dependencies or parent task identity exist
+- treat cancelled or superseded prerequisites as completed work instead of replanning them to a completed replacement
+- allow dependencies between an ancestor and descendant or cycles composed from parent and dependency links
 - allow children to exceed parent trust, capability scope, child budget, or depth budget
 - let a terminal parent retain non-terminal children
 - treat an open PR, draft artifact, or agent assertion as universal completion
@@ -129,8 +131,9 @@ Focused tests should cover:
 - non-ticket work kinds and non-PR completion profiles
 - exact titles and parent links
 - dependency eligibility
+- completed-only dependency resolution and exact completion-evidence matching
 - prompt and JSON launch contract output
-- duplicate Boss, parent cycles, and dependency cycles
+- duplicate Boss, parent cycles, dependency cycles, and parent/dependency cycles
 - lifecycle-specific missing evidence
 - trust promotion without evidence
 - malformed or self-asserted trust approval

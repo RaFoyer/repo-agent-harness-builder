@@ -1604,6 +1604,44 @@ fixtureTest("orchestration unlocks queued work only from terminal dependency evi
   assert.match(spec.prompt, /Completion profile: human-decision/);
 });
 
+fixtureTest("orchestration requires every declared completion evidence item before terminal work validates", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["unrelated artifact"];
+  writeOrchestrationRegistry(registry);
+
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /completionEvidence is missing required evidence: approved documentation artifact/);
+});
+
+fixtureTest("orchestration keeps dependents blocked for cancelled or superseded prerequisites", async () => {
+  for (const terminalDisposition of ["cancelled", "superseded"]) {
+    const registry = validOrchestrationRegistry();
+    const manager = registry.nodes.find((node) => node.id === "manager-docs");
+    manager.state = "terminal";
+    manager.taskId = "task-manager-docs";
+    manager.terminalDisposition = terminalDisposition;
+    manager.completionEvidence = ["approved documentation artifact"];
+    writeOrchestrationRegistry(registry);
+
+    const next = capture();
+    const nextCode = await main(["orchestration", "next"], next.io);
+    assert.equal(nextCode, 0, `${terminalDisposition}: ${next.err.join("\n")}`);
+    assert.match(next.out.join("\n"), /eligible: 0/);
+    assert.doesNotMatch(next.out.join("\n"), /worker-research.*research/);
+
+    const launch = capture();
+    const launchCode = await main(["orchestration", "launch-spec", "worker-research"], launch.io);
+    assert.equal(launchCode, 1, terminalDisposition);
+    assert.match(launch.err.join("\n"), /not dependency-eligible/);
+  }
+});
+
 fixtureTest("orchestration rejects terminal ambiguity and duplicate task launches", async () => {
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
@@ -1648,6 +1686,53 @@ fixtureTest("orchestration rejects a terminal parent with unfinished child respo
   const code = await main(["orchestration", "validate"], io);
   assert.equal(code, 1);
   assert.match(out.join("\n"), /node manager-docs: terminal parent has non-terminal children/);
+});
+
+fixtureTest("orchestration rejects hierarchical dependency deadlocks and composed graph cycles", async () => {
+  const ancestorDependency = validOrchestrationRegistry();
+  ancestorDependency.nodes.find((node) => node.id === "worker-research").dependencies = ["boss"];
+  writeOrchestrationRegistry(ancestorDependency);
+
+  const direct = capture();
+  const directCode = await main(["orchestration", "validate"], direct.io);
+  assert.equal(directCode, 1);
+  assert.match(direct.out.join("\n"), /node worker-research: dependency boss crosses the parent hierarchy/);
+
+  const combinedCycle = validOrchestrationRegistry();
+  const manager = combinedCycle.nodes.find((node) => node.id === "manager-docs");
+  const worker = combinedCycle.nodes.find((node) => node.id === "worker-research");
+  manager.state = "queued";
+  manager.dependencies = ["worker-review"];
+  manager.trustLevel = "T3";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded workstream delegation approval"]
+  };
+  manager.authority = orchestrationAuthority({ canDelegate: true, maxActiveChildren: 1 });
+  worker.parentId = "manager-docs";
+  worker.dependencies = [];
+  worker.title = `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`;
+  combinedCycle.nodes.push({
+    ...worker,
+    id: "worker-review",
+    workRef: "REV-3",
+    label: "Review gate",
+    title: `${CONFIG.projectName} - Worker for Boss - REV-3 Review gate`,
+    parentId: "boss",
+    dependencies: ["worker-research"],
+    objective: "Review the research outcome before its parent can complete.",
+    completionProfile: {
+      type: "artifact",
+      requiredEvidence: ["review record"]
+    }
+  });
+  writeOrchestrationRegistry(combinedCycle);
+
+  const composed = capture();
+  const composedCode = await main(["orchestration", "validate"], composed.io);
+  assert.equal(composedCode, 1);
+  assert.match(composed.out.join("\n"), /orchestration graph contains a parent\/dependency cycle/);
 });
 
 fixtureTest("orchestration validator rejects graph cycles and project budget overruns", async () => {

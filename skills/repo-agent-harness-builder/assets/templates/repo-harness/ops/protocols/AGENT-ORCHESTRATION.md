@@ -121,7 +121,7 @@ Every non-Boss node declares one completion profile:
 - `human-decision`: recorded human decision and downstream disposition
 - `custom`: project-defined evidence named by the governing domain protocol
 
-The profile determines terminal evidence. A PR is not a universal definition of done.
+The profile determines terminal evidence. `completionEvidence` must contain every exact evidence identifier declared by `completionProfile.requiredEvidence`; arbitrary evidence does not complete a profile. A PR is not a universal definition of done.
 
 ## Required Sequence
 
@@ -170,6 +170,8 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - A child may not exceed its parent trust level, authority scope, or delegated budget.
 - Do not fan out overlapping write sets or unstable contracts.
 - Do not create a task from a launch spec whose parent task is missing or whose dependencies are unsatisfied.
+- Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
+- Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
 - Do not let Managers silently become Workers.
 - Do not let a Worker report around its parent except for material safety risk.
 - Do not leave a live task idle without a named reason and next control action.

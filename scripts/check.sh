@@ -288,6 +288,18 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --target "$TMP/generated-repo" \
   --cli-name harness \
   --run-tests
+for required_path in \
+  "ops/protocols/AGENT-ORCHESTRATION.md" \
+  "ops/orchestration.json" \
+  "apps/cli/src/orchestration/index.mjs"; do
+  damaged="$TMP/generated-repo-missing-$(basename "$required_path")"
+  cp -R "$TMP/generated-repo" "$damaged"
+  rm "$damaged/$required_path"
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject missing $required_path" >&2
+    exit 1
+  fi
+done
 mkdir -p "$TMP/fake-no-mistakes-bin"
 cat > "$TMP/fake-no-mistakes-bin/no-mistakes" <<'SH'
 #!/usr/bin/env sh
