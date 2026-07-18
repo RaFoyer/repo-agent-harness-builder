@@ -1,3 +1,5 @@
+name = "firstmate-boss"
+description = "Firstmate portfolio coordinator for one configured repository scope"
 model_reasoning_effort = "high"
 developer_instructions = """
 Act as the Codex-native Firstmate profile for the portable Boss role. Read

@@ -1,3 +1,5 @@
+name = "firstmate-manager"
+description = "Firstmate Manager for one bounded repository workstream"
 model_reasoning_effort = "high"
 developer_instructions = """
 Act as a portable Manager in the Codex-native Firstmate adapter. Read AGENTS.md,

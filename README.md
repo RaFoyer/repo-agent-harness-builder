@@ -190,7 +190,8 @@ The skill can help with:
   graph templates, and handoff records
 - repo-local Codex-native Firstmate assets under `.codex/` and
   `.agents/skills/codex-native-firstmate/`, scaffolded as examples and inactive
-  protocol support rather than an implicit runtime dependency
+  protocol support rather than an implicit runtime dependency; its custom-agent
+  profiles are namespaced to preserve existing repository profiles
 
 ## Build The Portable Package
 

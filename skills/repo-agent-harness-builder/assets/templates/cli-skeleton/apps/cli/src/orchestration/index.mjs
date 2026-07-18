@@ -33,9 +33,9 @@ const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
 const CODEX_FIRSTMATE_ASSETS = [
   ".agents/skills/codex-native-firstmate/SKILL.md",
   ".codex/config.firstmate.example.toml",
-  ".codex/agents/boss.toml",
-  ".codex/agents/manager.toml",
-  ".codex/agents/worker.toml",
+  ".codex/agents/firstmate-boss.toml",
+  ".codex/agents/firstmate-manager.toml",
+  ".codex/agents/firstmate-worker.toml",
   "docs/templates/orchestration/codex-native-firstmate-prompt.txt",
   "docs/templates/orchestration/codex-native-firstmate-adapter.example.json",
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md"
@@ -830,6 +830,78 @@ function printHelp(io) {
   io.stdout("All commands are read-only and never create tasks or mutate external systems.");
 }
 
+function firstmateActivationBlockers(registry, adapter) {
+  const blockers = [];
+  if (!isObject(registry) || registry.status !== "active") {
+    blockers.push("orchestration must be active");
+  }
+  if (!isObject(adapter) || adapter.profile !== CODEX_FIRSTMATE_PROFILE || adapter.status !== "active") {
+    blockers.push("clientAdapter must select an active codex-native-firstmate profile");
+    return blockers;
+  }
+
+  const bosses = arrayOrEmpty(registry.nodes).filter((node) => isObject(node) && node.role === "boss");
+  if (bosses.length !== 1 || !isTaskBackedNode(bosses[0])) {
+    blockers.push("one task-backed Firstmate Boss is required");
+  } else if (!isNonEmptyString(adapter.bossTaskId) || adapter.bossTaskId !== bosses[0].taskId) {
+    blockers.push("clientAdapter.bossTaskId must match the task-backed Firstmate Boss");
+  }
+
+  if (typeof adapter.standingTaskCreationGrant !== "boolean") {
+    blockers.push("clientAdapter.standingTaskCreationGrant must declare the task-creation posture");
+  } else if (!adapter.standingTaskCreationGrant && !isNonEmptyString(adapter.taskCreationApprovalGate)) {
+    blockers.push("clientAdapter.taskCreationApprovalGate is required without a standing task-creation grant");
+  }
+  if (!isObject(adapter.completionProfiles)
+    || Object.keys(adapter.completionProfiles).length === 0
+    || Object.entries(adapter.completionProfiles).some(([type, evidence]) => !COMPLETION_TYPES.has(type) || !isStringArray(evidence, { nonEmpty: true }))) {
+    blockers.push("clientAdapter.completionProfiles must configure supported profiles with required evidence");
+  }
+  if (!isNonEmptyString(adapter.baseRef)) blockers.push("clientAdapter.baseRef is required");
+
+  const worktreePolicy = adapter.worktreePolicy;
+  if (!isObject(worktreePolicy)
+    || worktreePolicy.mode !== "managed"
+    || worktreePolicy.parallelWrites !== "disjoint-only"
+    || worktreePolicy.landedWorkProofRequiredBeforeArchive !== true) {
+    blockers.push("clientAdapter.worktreePolicy must require managed, disjoint worktrees and landed-work proof before archive");
+  }
+
+  for (const integration of ["browserIntegration", "githubIntegration"]) {
+    if (!isNonEmptyString(adapter[integration]) || adapter[integration] === "unconfigured") {
+      blockers.push(`clientAdapter.${integration} must record a deliberate integration choice`);
+    }
+  }
+  for (const boundary of ["browserAuthenticationBoundary", "githubAuthenticationBoundary"]) {
+    if (!isNonEmptyString(adapter[boundary])) blockers.push(`clientAdapter.${boundary} is required`);
+  }
+
+  const heartbeat = adapter.heartbeat;
+  if (!isObject(heartbeat)
+    || !isNonEmptyString(heartbeat.mode)
+    || heartbeat.mode === "disabled"
+    || !isNonEmptyString(heartbeat.cadence)
+    || !isNonEmptyString(heartbeat.registryMutator)) {
+    blockers.push("clientAdapter.heartbeat must configure mode, cadence, and registry mutator");
+  }
+
+  const retention = adapter.retention;
+  if (!isObject(retention)
+    || typeof retention.pinBoss !== "boolean"
+    || !isNonEmptyString(retention.archivePolicy)
+    || retention.archivePolicy === "unconfigured"
+    || !isNonEmptyString(retention.handoffPolicy)) {
+    blockers.push("clientAdapter.retention must configure pin, handoff, and archive policy");
+  }
+  if (!isNonEmptyString(adapter.reconciliationPolicy) || adapter.reconciliationPolicy === "unconfigured") {
+    blockers.push("clientAdapter.reconciliationPolicy is required");
+  }
+
+  const attestorError = bindingAttestationConfigError(registry);
+  if (attestorError) blockers.push(`binding assurance is required: ${attestorError}`);
+  return blockers;
+}
+
 function runAdapterStatus(io) {
   const loaded = loadRegistry();
   const adapter = isObject(loaded.registry?.clientAdapter) ? loaded.registry.clientAdapter : null;
@@ -840,6 +912,8 @@ function runAdapterStatus(io) {
   const presentCount = assets.filter((asset) => asset.present).length;
   const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
   const registryValid = Boolean(loaded.exists && !loaded.error && validateRegistry(loaded.registry).blockers.length === 0);
+  const activationBlockers = registryValid ? firstmateActivationBlockers(loaded.registry, adapter) : ["registry must be valid"];
+  if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
 
   io.stdout(`profile: ${toonString(CODEX_FIRSTMATE_PROFILE)}`);
   io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
@@ -871,7 +945,9 @@ function runAdapterStatus(io) {
   io.stdout('  "Treehouse/tmux for non-Codex adapters"');
   io.stdout('  "Codex app-server headless fallback"');
   io.stdout(`orchestration_active: ${Boolean(registryValid && loaded.registry?.status === "active")}`);
-  io.stdout(`activation_ready: ${Boolean(registryValid && loaded.registry?.status === "active" && selected && adapter?.status === "active" && presentCount === assets.length)}`);
+  io.stdout(`activation_ready: ${activationBlockers.length === 0}`);
+  io.stdout(`activation_blockers[${activationBlockers.length}]:`);
+  for (const blocker of activationBlockers) io.stdout(`  ${toonString(blocker)}`);
   io.stdout(renderHelpBlock([
     `Read ops/protocols/CODEX-NATIVE-FIRSTMATE.md`,
     `Configure the repo-local adapter deliberately before activation`,

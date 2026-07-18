@@ -198,6 +198,9 @@ with zipfile.ZipFile(zip_path) as archive:
         "repo-agent-harness-reference/references/AGENT-CLIENTS-AND-SKILL-INSTALL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/SKILL.md",
         "repo-agent-harness-reference/skills/codex-native-firstmate/SKILL.md",
+        "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-boss.toml",
+        "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-manager.toml",
+        "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-worker.toml",
     ]
     missing = [name for name in required if name not in names]
     if missing:
@@ -317,12 +320,33 @@ for required_path in \
   "ops/orchestration.json" \
   ".agents/skills/codex-native-firstmate/SKILL.md" \
   ".codex/config.firstmate.example.toml" \
+  ".codex/agents/firstmate-boss.toml" \
+  ".codex/agents/firstmate-manager.toml" \
+  ".codex/agents/firstmate-worker.toml" \
   "apps/cli/src/orchestration/index.mjs"; do
   damaged="$TMP/generated-repo-missing-$(basename "$required_path")"
   cp -R "$TMP/generated-repo" "$damaged"
   rm "$damaged/$required_path"
   if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
     echo "expected verifier to reject missing $required_path" >&2
+    exit 1
+  fi
+done
+mkdir -p "$TMP/firstmate-profile-collision/.codex/agents"
+printf 'name = "boss"\n' > "$TMP/firstmate-profile-collision/.codex/agents/boss.toml"
+python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/firstmate-profile-collision" \
+  --project-name "Firstmate Profile Collision" \
+  --repo-slug "example/firstmate-profile-collision" \
+  --cli-name harness \
+  --allow-non-git >/dev/null
+if ! grep -q 'name = "boss"' "$TMP/firstmate-profile-collision/.codex/agents/boss.toml"; then
+  echo "expected scaffold to preserve generic Codex boss profile" >&2
+  exit 1
+fi
+for profile in firstmate-boss firstmate-manager firstmate-worker; do
+  if [ ! -f "$TMP/firstmate-profile-collision/.codex/agents/$profile.toml" ]; then
+    echo "expected scaffold to install namespaced Firstmate profile: $profile" >&2
     exit 1
   fi
 done

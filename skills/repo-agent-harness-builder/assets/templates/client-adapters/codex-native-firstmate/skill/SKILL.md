@@ -27,8 +27,10 @@ independent repository Firstmates.
   read-only.
 - **Configure the adapter:** start from
   `docs/templates/orchestration/codex-native-firstmate-adapter.example.json` and
-  `.codex/config.firstmate.example.toml`. Merge settings deliberately; example
-  files do not activate orchestration.
+  `.codex/config.firstmate.example.toml`. The namespaced `firstmate-boss`,
+  `firstmate-manager`, and `firstmate-worker` profiles preserve generic local
+  profiles. Merge settings deliberately; example files do not activate
+  orchestration.
 - **Operate as Firstmate/Boss:** combine the validated Boss launch prompt with
   `docs/templates/orchestration/codex-native-firstmate-prompt.txt`.
 - **Launch durable work:** use persistent Codex tasks and managed worktrees for

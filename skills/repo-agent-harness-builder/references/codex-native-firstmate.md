@@ -159,7 +159,9 @@ The adapter template installs:
 
 - `.agents/skills/codex-native-firstmate/SKILL.md`
 - `.codex/config.firstmate.example.toml`
-- `.codex/agents/boss.toml`, `manager.toml`, and `worker.toml`
+- `.codex/agents/firstmate-boss.toml`, `firstmate-manager.toml`, and
+  `firstmate-worker.toml`; these names deliberately avoid generic profile
+  names already owned by the repository
 - `docs/templates/orchestration/codex-native-firstmate-prompt.txt`
 - `docs/templates/orchestration/codex-native-firstmate-adapter.example.json`
 - `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`

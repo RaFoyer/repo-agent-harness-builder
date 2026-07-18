@@ -40,6 +40,8 @@ repo-local Firstmates and needs separate explicit authority.
 Merge `.codex/config.firstmate.example.toml` deliberately when genuine
 Boss -> Manager -> Worker nesting is required. Its `agents.max_depth = 2`
 setting is an example, not an activation side effect.
+The example references `firstmate-boss`, `firstmate-manager`, and
+`firstmate-worker` profiles so generic repository profiles remain untouched.
 
 ## Dependency Posture
 
@@ -91,6 +93,15 @@ authority envelopes, budgets, completion profiles, adapter, base/worktree
 policy, Browser/GitHub integration, heartbeat, retention/archive policy, and
 binding/reconciliation assurance. Installed examples and a Firstmate title do
 not grant activation or task authority.
+
+For an active adapter, record the matching Boss task ID, a base ref, managed
+disjoint-worktree policy, deliberate Browser and GitHub choices, heartbeat
+mode/cadence/registry mutator, retention handoff/archive policy, and a
+reconciliation policy. Also record completion profiles with their required
+evidence and the repository-scoped authentication boundary for each selected
+integration. Without a standing creation grant, record the per-task human
+approval gate. A trusted external Ed25519 binding attestor and its repo-selected
+public-key trust anchor must also be available.
 
 ## Update Rule
 

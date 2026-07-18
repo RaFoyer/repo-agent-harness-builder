@@ -283,6 +283,42 @@ function validOrchestrationRegistry() {
   return registry;
 }
 
+function configuredFirstmateAdapter(registry) {
+  const boss = registry.nodes.find((node) => node.role === "boss");
+  return {
+    id: "codex-app",
+    profile: "codex-native-firstmate",
+    status: "active",
+    bossTaskId: boss.taskId,
+    standingTaskCreationGrant: false,
+    taskCreationApprovalGate: "per-task-human-approval",
+    completionProfiles: {
+      artifact: ["approved artifact"]
+    },
+    baseRef: "{{DEFAULT_BRANCH}}",
+    worktreePolicy: {
+      mode: "managed",
+      parallelWrites: "disjoint-only",
+      landedWorkProofRequiredBeforeArchive: true
+    },
+    browserIntegration: "not-used",
+    browserAuthenticationBoundary: "repository-scoped",
+    githubIntegration: "not-used",
+    githubAuthenticationBoundary: "repository-scoped",
+    heartbeat: {
+      mode: "manual",
+      cadence: "on-demand",
+      registryMutator: "project-owner"
+    },
+    retention: {
+      pinBoss: true,
+      archivePolicy: "manual-after-landed-proof",
+      handoffPolicy: "parent-review-before-archive"
+    },
+    reconciliationPolicy: "quarantine-and-human-reconcile"
+  };
+}
+
 function createFixtureCommit(message = "fixture commit", branch = "{{DEFAULT_BRANCH}}") {
   const checkout = runCommand("git", ["checkout", "-B", branch], { cwd: repoRoot });
   assert.equal(checkout.ok, true, checkout.stderr);
@@ -482,6 +518,14 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.match(text, /adapter_state: "unconfigured"/);
   assert.match(text, /repo_local_scope: true/);
   assert.match(text, /assets_present: 8/);
+  for (const profile of ["firstmate-boss", "firstmate-manager", "firstmate-worker"]) {
+    const profilePath = path.join(repoRoot, ".codex", "agents", `${profile}.toml`);
+    assert.equal(fs.existsSync(profilePath), true);
+    const profileText = fs.readFileSync(profilePath, "utf-8");
+    assert.match(profileText, new RegExp(`name = "${profile}"`));
+    assert.match(profileText, /description = "/);
+  }
+  assert.equal(fs.existsSync(path.join(repoRoot, ".codex", "agents", "boss.toml")), false);
   assert.match(text, /required_external_dependencies\[0\]:/);
   assert.match(text, /orchestration_active: false/);
   assert.match(text, /activation_ready: false/);
@@ -489,14 +533,9 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.equal(fs.statSync(registryPath).mtimeMs, beforeMtime);
 });
 
-fixtureTest("Codex-native Firstmate adapter readiness requires active orchestration and active selected adapter", async () => {
+fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit activation configuration", async () => {
   const inactiveRegistry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
-  inactiveRegistry.clientAdapter = {
-    id: "codex-app",
-    profile: "codex-native-firstmate",
-    status: "active",
-    standingTaskCreationGrant: true
-  };
+  inactiveRegistry.clientAdapter = configuredFirstmateAdapter(validOrchestrationRegistry());
   writeOrchestrationRegistry(inactiveRegistry);
 
   const inactive = capture();
@@ -506,17 +545,38 @@ fixtureTest("Codex-native Firstmate adapter readiness requires active orchestrat
   assert.match(inactive.out.join("\n"), /activation_ready: false/);
 
   const activeRegistry = validOrchestrationRegistry();
-  activeRegistry.clientAdapter = {
-    id: "codex-app",
-    profile: "codex-native-firstmate",
-    status: "active",
-    standingTaskCreationGrant: true
-  };
+  activeRegistry.clientAdapter = configuredFirstmateAdapter(activeRegistry);
   writeOrchestrationRegistry(activeRegistry);
   const active = capture();
   assert.equal(await main(["orchestration", "adapter-status"], active.io), 0, active.err.join("\n"));
   assert.match(active.out.join("\n"), /orchestration_active: true/);
   assert.match(active.out.join("\n"), /activation_ready: true/);
+
+  for (const [name, mutate, expectedBlocker] of [
+    ["Boss task identity", (registry) => { registry.clientAdapter.bossTaskId = null; }, /bossTaskId/],
+    ["task-creation decision", (registry) => { registry.clientAdapter.taskCreationApprovalGate = null; }, /taskCreationApprovalGate/],
+    ["completion profiles", (registry) => { registry.clientAdapter.completionProfiles = {}; }, /completionProfiles/],
+    ["base ref", (registry) => { registry.clientAdapter.baseRef = null; }, /baseRef/],
+    ["worktree policy", (registry) => { registry.clientAdapter.worktreePolicy.mode = "unmanaged"; }, /worktreePolicy/],
+    ["Browser choice", (registry) => { registry.clientAdapter.browserIntegration = "unconfigured"; }, /browserIntegration/],
+    ["Browser boundary", (registry) => { registry.clientAdapter.browserAuthenticationBoundary = null; }, /browserAuthenticationBoundary/],
+    ["GitHub choice", (registry) => { registry.clientAdapter.githubIntegration = "unconfigured"; }, /githubIntegration/],
+    ["GitHub boundary", (registry) => { registry.clientAdapter.githubAuthenticationBoundary = null; }, /githubAuthenticationBoundary/],
+    ["heartbeat ownership", (registry) => { delete registry.clientAdapter.heartbeat.registryMutator; }, /heartbeat must configure mode, cadence, and registry mutator/],
+    ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
+    ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
+    ["binding assurance", (registry) => { registry.bindingAttestation = null; }, /registry must be valid/]
+  ]) {
+    const partialRegistry = validOrchestrationRegistry();
+    partialRegistry.clientAdapter = configuredFirstmateAdapter(partialRegistry);
+    mutate(partialRegistry);
+    writeOrchestrationRegistry(partialRegistry);
+    const partial = capture();
+    assert.equal(await main(["orchestration", "adapter-status"], partial.io), 0, `${name}: ${partial.err.join("\n")}`);
+    assert.match(partial.out.join("\n"), name === "binding assurance" ? /orchestration_active: false/ : /orchestration_active: true/, name);
+    assert.match(partial.out.join("\n"), /activation_ready: false/, name);
+    assert.match(partial.out.join("\n"), expectedBlocker, name);
+  }
 
   activeRegistry.prefix = "";
   writeOrchestrationRegistry(activeRegistry);

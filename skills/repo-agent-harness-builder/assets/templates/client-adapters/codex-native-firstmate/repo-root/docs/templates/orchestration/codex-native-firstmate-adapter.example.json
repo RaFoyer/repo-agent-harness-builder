@@ -4,6 +4,8 @@
   "status": "inactive",
   "bossTaskId": null,
   "standingTaskCreationGrant": false,
+  "taskCreationApprovalGate": null,
+  "completionProfiles": null,
   "baseRef": null,
   "worktreePolicy": {
     "mode": "managed",
@@ -11,14 +13,19 @@
     "landedWorkProofRequiredBeforeArchive": true
   },
   "browserIntegration": "unconfigured",
+  "browserAuthenticationBoundary": null,
   "githubIntegration": "unconfigured",
+  "githubAuthenticationBoundary": null,
   "heartbeat": {
     "mode": "disabled",
-    "cadence": null
+    "cadence": null,
+    "registryMutator": null
   },
   "retention": {
     "pinBoss": false,
-    "archivePolicy": "manual-after-landed-proof"
+    "archivePolicy": "manual-after-landed-proof",
+    "handoffPolicy": null
   },
+  "reconciliationPolicy": null,
   "headlessFallback": "disabled"
 }

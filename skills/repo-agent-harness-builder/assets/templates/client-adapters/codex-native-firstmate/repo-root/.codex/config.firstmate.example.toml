@@ -7,14 +7,14 @@ multi_agent = true
 [agents]
 max_depth = 2
 
-[agents.boss]
+[agents.firstmate-boss]
 description = "Firstmate/Boss portfolio coordinator for one configured orchestration scope"
-config_file = "agents/boss.toml"
+config_file = "agents/firstmate-boss.toml"
 
-[agents.manager]
+[agents.firstmate-manager]
 description = "Manager for one bounded workstream and its goal chain or goal graph"
-config_file = "agents/manager.toml"
+config_file = "agents/firstmate-manager.toml"
 
-[agents.worker]
+[agents.firstmate-worker]
 description = "Worker for one bounded execution loop reporting to its immediate parent"
-config_file = "agents/worker.toml"
+config_file = "agents/firstmate-worker.toml"
