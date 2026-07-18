@@ -455,6 +455,7 @@ test("help lists core commands", () => {
   assert.match(help, /connections auth-plan/);
   assert.match(help, /connections env/);
   assert.match(help, /orchestration status/);
+  assert.match(help, /orchestration adapter-status/);
   assert.match(help, /orchestration validate/);
   assert.match(help, /orchestration prompt/);
   assert.match(help, /orchestration launch-spec/);
@@ -465,6 +466,80 @@ test("help lists core commands", () => {
   assert.match(help, /lavish status/);
   assert.match(help, /lavish update/);
   assert.match(help, /checklist/);
+});
+
+fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-light, and read-only by default", async () => {
+  const registryPath = path.join(repoRoot, "ops", "orchestration.json");
+  const before = fs.readFileSync(registryPath, "utf-8");
+  const beforeMtime = fs.statSync(registryPath).mtimeMs;
+  const { io, out, err } = capture();
+  const code = await main(["orchestration", "adapter-status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /profile: "codex-native-firstmate"/);
+  assert.match(text, /registry_state: "inactive"/);
+  assert.match(text, /registry_valid: true/);
+  assert.match(text, /adapter_state: "unconfigured"/);
+  assert.match(text, /repo_local_scope: true/);
+  assert.match(text, /assets_present: 8/);
+  assert.match(text, /required_external_dependencies\[0\]:/);
+  assert.match(text, /orchestration_active: false/);
+  assert.match(text, /activation_ready: false/);
+  assert.equal(fs.readFileSync(registryPath, "utf-8"), before);
+  assert.equal(fs.statSync(registryPath).mtimeMs, beforeMtime);
+});
+
+fixtureTest("Codex-native Firstmate adapter readiness requires active orchestration and active selected adapter", async () => {
+  const inactiveRegistry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
+  inactiveRegistry.clientAdapter = {
+    id: "codex-app",
+    profile: "codex-native-firstmate",
+    status: "active",
+    standingTaskCreationGrant: true
+  };
+  writeOrchestrationRegistry(inactiveRegistry);
+
+  const inactive = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], inactive.io), 0, inactive.err.join("\n"));
+  assert.match(inactive.out.join("\n"), /adapter_selected: true/);
+  assert.match(inactive.out.join("\n"), /orchestration_active: false/);
+  assert.match(inactive.out.join("\n"), /activation_ready: false/);
+
+  const activeRegistry = validOrchestrationRegistry();
+  activeRegistry.clientAdapter = {
+    id: "codex-app",
+    profile: "codex-native-firstmate",
+    status: "active",
+    standingTaskCreationGrant: true
+  };
+  writeOrchestrationRegistry(activeRegistry);
+  const active = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], active.io), 0, active.err.join("\n"));
+  assert.match(active.out.join("\n"), /orchestration_active: true/);
+  assert.match(active.out.join("\n"), /activation_ready: true/);
+
+  activeRegistry.prefix = "";
+  writeOrchestrationRegistry(activeRegistry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], invalid.io), 0, invalid.err.join("\n"));
+  assert.match(invalid.out.join("\n"), /registry_valid: false/);
+  assert.match(invalid.out.join("\n"), /orchestration_active: false/);
+  assert.match(invalid.out.join("\n"), /activation_ready: false/);
+});
+
+fixtureTest("active orchestration rejects an explicitly configured inactive client adapter", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = {
+    id: "codex-app",
+    profile: "codex-native-firstmate",
+    status: "inactive",
+    standingTaskCreationGrant: false
+  };
+  writeOrchestrationRegistry(registry);
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /configured clientAdapter must be active when orchestration is active/);
 });
 
 test("no args renders content-first agent home view", async () => {

@@ -86,6 +86,7 @@ Run:
 ./{{CLI_NAME}} connections auth-plan --profile example-gcloud
 ./{{CLI_NAME}} connections env --profile example-gcloud
 ./{{CLI_NAME}} orchestration status
+./{{CLI_NAME}} orchestration adapter-status
 ./{{CLI_NAME}} orchestration validate
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status

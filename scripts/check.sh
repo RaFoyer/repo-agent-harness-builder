@@ -197,6 +197,7 @@ with zipfile.ZipFile(zip_path) as archive:
         "repo-agent-harness-reference/AGENT-HANDOFF.md",
         "repo-agent-harness-reference/references/AGENT-CLIENTS-AND-SKILL-INSTALL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/SKILL.md",
+        "repo-agent-harness-reference/skills/codex-native-firstmate/SKILL.md",
     ]
     missing = [name for name in required if name not in names]
     if missing:
@@ -312,7 +313,10 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --run-tests
 for required_path in \
   "ops/protocols/AGENT-ORCHESTRATION.md" \
+  "ops/protocols/CODEX-NATIVE-FIRSTMATE.md" \
   "ops/orchestration.json" \
+  ".agents/skills/codex-native-firstmate/SKILL.md" \
+  ".codex/config.firstmate.example.toml" \
   "apps/cli/src/orchestration/index.mjs"; do
   damaged="$TMP/generated-repo-missing-$(basename "$required_path")"
   cp -R "$TMP/generated-repo" "$damaged"

@@ -18,6 +18,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 TEMPLATE_DIR = SKILL_DIR / "assets" / "templates" / "onboarding-package"
+CODEX_FIRSTMATE_SKILL_DIR = SKILL_DIR / "assets" / "templates" / "client-adapters" / "codex-native-firstmate" / "skill"
 PACKAGE_NAME = "repo-agent-harness-reference"
 SKILL_VERSION = "0.1.0"
 MAX_SCANNED_FILE_BYTES = 1_000_000
@@ -229,9 +230,12 @@ def ensure_no_symlinks(root: Path) -> None:
 def copy_inputs(package_root: Path) -> None:
     ensure_no_symlinks(TEMPLATE_DIR)
     ensure_no_symlinks(SKILL_DIR)
+    ensure_no_symlinks(CODEX_FIRSTMATE_SKILL_DIR)
     shutil.copytree(TEMPLATE_DIR, package_root, ignore=ignore)
     skill_dest = package_root / "skill" / SKILL_DIR.name
     shutil.copytree(SKILL_DIR, skill_dest, ignore=ignore)
+    adapter_skill_dest = package_root / "skills" / "codex-native-firstmate"
+    shutil.copytree(CODEX_FIRSTMATE_SKILL_DIR, adapter_skill_dest, ignore=ignore)
 
 
 def git_value(args: list[str]) -> str | None:

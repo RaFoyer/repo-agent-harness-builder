@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex-Native Firstmate"
+  short_description: "Run portable project orchestration through native Codex surfaces"
+  default_prompt: "Use the repository's portable Boss/Manager/Worker protocol and inspect the inactive Codex-native Firstmate adapter before proposing activation or task materialization."

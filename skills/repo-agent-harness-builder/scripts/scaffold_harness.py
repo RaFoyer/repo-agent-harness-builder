@@ -15,6 +15,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 TEMPLATE_DIR = SKILL_DIR / "assets" / "templates"
+CODEX_FIRSTMATE_TEMPLATE_DIR = TEMPLATE_DIR / "client-adapters" / "codex-native-firstmate"
 
 
 def parse_args() -> argparse.Namespace:
@@ -303,6 +304,15 @@ def main() -> int:
     entries: list[tuple[Path, Path, str]] = []
     entries.extend(collect_tree(TEMPLATE_DIR / "repo-harness", target, mapping, args.cli_name))
     entries.extend(collect_tree(TEMPLATE_DIR / "cli-skeleton", target, mapping, args.cli_name))
+    entries.extend(collect_tree(CODEX_FIRSTMATE_TEMPLATE_DIR / "repo-root", target, mapping, args.cli_name))
+    entries.extend(
+        collect_tree(
+            CODEX_FIRSTMATE_TEMPLATE_DIR / "skill",
+            target / ".agents" / "skills" / "codex-native-firstmate",
+            mapping,
+            args.cli_name,
+        )
+    )
     planned = plan_writes(entries, target, args.force)
 
     transaction = WriteTransaction()

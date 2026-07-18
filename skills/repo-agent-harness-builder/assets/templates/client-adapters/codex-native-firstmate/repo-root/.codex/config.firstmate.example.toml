@@ -1,0 +1,20 @@
+# Example only. Deliberately merge selected settings into .codex/config.toml
+# after human approval; this file does not activate orchestration.
+
+[features]
+multi_agent = true
+
+[agents]
+max_depth = 2
+
+[agents.boss]
+description = "Firstmate/Boss portfolio coordinator for one configured orchestration scope"
+config_file = "agents/boss.toml"
+
+[agents.manager]
+description = "Manager for one bounded workstream and its goal chain or goal graph"
+config_file = "agents/manager.toml"
+
+[agents.worker]
+description = "Worker for one bounded execution loop reporting to its immediate parent"
+config_file = "agents/worker.toml"

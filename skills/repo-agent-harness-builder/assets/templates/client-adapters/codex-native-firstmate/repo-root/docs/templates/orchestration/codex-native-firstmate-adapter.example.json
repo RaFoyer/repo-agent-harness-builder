@@ -1,0 +1,24 @@
+{
+  "id": "codex-app",
+  "profile": "codex-native-firstmate",
+  "status": "inactive",
+  "bossTaskId": null,
+  "standingTaskCreationGrant": false,
+  "baseRef": null,
+  "worktreePolicy": {
+    "mode": "managed",
+    "parallelWrites": "disjoint-only",
+    "landedWorkProofRequiredBeforeArchive": true
+  },
+  "browserIntegration": "unconfigured",
+  "githubIntegration": "unconfigured",
+  "heartbeat": {
+    "mode": "disabled",
+    "cadence": null
+  },
+  "retention": {
+    "pinBoss": false,
+    "archivePolicy": "manual-after-landed-proof"
+  },
+  "headlessFallback": "disabled"
+}

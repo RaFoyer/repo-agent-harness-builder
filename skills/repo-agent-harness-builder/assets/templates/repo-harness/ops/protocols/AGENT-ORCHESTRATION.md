@@ -9,6 +9,7 @@ summary: Defines project-wide Boss, Manager, and Worker coordination with explic
 related_protocols:
   - AUTOMATIONS
   - CLI-INTERFACE
+  - CODEX-NATIVE-FIRSTMATE
   - GOAL-CHAIN
   - PROJECT-TRACKING
 ---
@@ -22,6 +23,7 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 ## Source Of Truth
 
 - `ops/orchestration.json` owns the configured scope, monotonic revision, hierarchy, task parentage, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
+- `clientAdapter` is null in the inactive scaffold. A configured object names the selected client/profile and activation posture; installed adapter files alone do not select it.
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.
 - Markdown ledgers and task titles are human-readable views. They do not override the registry.
@@ -44,6 +46,12 @@ A role never grants authority by itself. A Boss at T1 may propose a graph but ca
 ## Scope And Work Taxonomy
 
 One registry governs one explicit orchestration scope, such as a repository, project, program, personal folder, or custom boundary. “One Boss” means one logical Boss per registry scope, not one Boss for every repository visible on the machine.
+
+In this generated repository harness, the default complete scope is this
+repository: its own registry, one resident Boss capability, and repo-local
+Managers and Workers. No global project list is required. Cross-repository
+portfolio control is optional composition above independently governed
+repository Bosses and requires separate explicit scope and authority.
 
 Every node records:
 
@@ -152,6 +160,12 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ```
 
 These commands are read-only. They inspect local registry state and print bounded prompts or JSON launch contracts; they do not create tasks, update trackers, merge, deploy, schedule, or send messages.
+
+When the opt-in Codex-native profile is relevant, inspect it with
+`./{{CLI_NAME}} orchestration adapter-status` and read
+`CODEX-NATIVE-FIRSTMATE.md`. Firstmate is a Codex-facing Boss profile, not a
+fourth role. Installed profile assets do not activate orchestration or grant
+task-creation authority.
 
 ## Client Adapter Handshake
 

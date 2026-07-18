@@ -29,6 +29,17 @@ const AUTHORITY_ARRAY_FIELDS = ["allowedReads", "allowedWrites", "allowedExterna
 const BINDING_ATTESTATION_ALGORITHM = "ed25519";
 const BINDING_PUBLIC_KEY_ENV = "ORCHESTRATION_BINDING_PUBLIC_KEY";
 const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
+const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
+const CODEX_FIRSTMATE_ASSETS = [
+  ".agents/skills/codex-native-firstmate/SKILL.md",
+  ".codex/config.firstmate.example.toml",
+  ".codex/agents/boss.toml",
+  ".codex/agents/manager.toml",
+  ".codex/agents/worker.toml",
+  "docs/templates/orchestration/codex-native-firstmate-prompt.txt",
+  "docs/templates/orchestration/codex-native-firstmate-adapter.example.json",
+  "ops/protocols/CODEX-NATIVE-FIRSTMATE.md"
+];
 
 function registryPath() {
   return path.join(CONFIG.repoRoot, REGISTRY_REL_PATH);
@@ -571,6 +582,21 @@ function validateRegistry(registry) {
       blockers.push("bindingAttestation must declare algorithm ed25519 and a non-empty keyId when configured");
     }
   }
+  if (registry.clientAdapter !== undefined && registry.clientAdapter !== null) {
+    const adapter = registry.clientAdapter;
+    if (!isObject(adapter)) blockers.push("clientAdapter must be null or an object");
+    else {
+      if (!isNonEmptyString(adapter.id)) blockers.push("clientAdapter.id must be a non-empty single-line string");
+      if (!isNonEmptyString(adapter.profile)) blockers.push("clientAdapter.profile must be a non-empty single-line string");
+      if (!['inactive', 'active'].includes(adapter.status)) blockers.push("clientAdapter.status must be inactive or active");
+      if (typeof adapter.standingTaskCreationGrant !== "boolean") {
+        blockers.push("clientAdapter.standingTaskCreationGrant must be boolean");
+      }
+      if (registry.status === "active" && adapter.status !== "active") {
+        blockers.push("configured clientAdapter must be active when orchestration is active");
+      }
+    }
+  }
   if (!isObject(registry.trustPolicy)) blockers.push("trustPolicy is required");
   const defaultLevel = registry.trustPolicy?.defaultLevel;
   const maxLevel = registry.trustPolicy?.maxLevel;
@@ -792,6 +818,7 @@ function printHelp(io) {
   io.stdout("");
   io.stdout("Commands:");
   io.stdout("  status             Summarize configured project orchestration");
+  io.stdout("  adapter-status     Inspect Codex-native Firstmate adapter posture");
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
@@ -801,6 +828,56 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("All commands are read-only and never create tasks or mutate external systems.");
+}
+
+function runAdapterStatus(io) {
+  const loaded = loadRegistry();
+  const adapter = isObject(loaded.registry?.clientAdapter) ? loaded.registry.clientAdapter : null;
+  const assets = CODEX_FIRSTMATE_ASSETS.map((relPath) => ({
+    path: relPath,
+    present: fs.existsSync(path.join(CONFIG.repoRoot, relPath))
+  }));
+  const presentCount = assets.filter((asset) => asset.present).length;
+  const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
+  const registryValid = Boolean(loaded.exists && !loaded.error && validateRegistry(loaded.registry).blockers.length === 0);
+
+  io.stdout(`profile: ${toonString(CODEX_FIRSTMATE_PROFILE)}`);
+  io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+  io.stdout(`registry_state: ${toonString(!loaded.exists ? "missing" : loaded.error ? "invalid" : loaded.registry.status)}`);
+  io.stdout(`registry_valid: ${registryValid}`);
+  io.stdout(`adapter_state: ${toonString(!adapter ? "unconfigured" : adapter.status)}`);
+  io.stdout(`adapter_selected: ${selected}`);
+  io.stdout(`repo_local_scope: true`);
+  io.stdout(`assets_present: ${presentCount}`);
+  io.stdout(`assets_expected: ${assets.length}`);
+  io.stdout(`assets[${assets.length}]{path,present}:`);
+  for (const asset of assets) io.stdout(`  ${toonString(asset.path)},${asset.present}`);
+  io.stdout("native_capabilities[9]{capability,detection,status}:");
+  io.stdout('  "persistent tasks","Codex client runtime","verify before activation"');
+  io.stdout('  "managed worktrees","Codex client runtime","verify before activation"');
+  io.stdout('  "task title/pin/archive/handoff","Codex client runtime","verify before activation"');
+  io.stdout('  "Goal mode","Codex client runtime","optional"');
+  io.stdout('  "subagents","Codex client runtime","read-heavy helpers only"');
+  io.stdout('  "automations/heartbeats","Codex client runtime","disabled until configured"');
+  io.stdout('  "hooks","Codex client runtime","optional guardrail adapter"');
+  io.stdout('  "Browser","Codex client runtime","unconfigured"');
+  io.stdout('  "Git UI/integration","Codex client runtime","unconfigured"');
+  io.stdout("required_external_dependencies[0]:");
+  io.stdout("optional_adapters[6]:");
+  io.stdout('  "no-mistakes (repository-merge completion gate)"');
+  io.stdout('  "GitHub connector or CLI"');
+  io.stdout('  "Chrome"');
+  io.stdout('  "Lavish"');
+  io.stdout('  "Treehouse/tmux for non-Codex adapters"');
+  io.stdout('  "Codex app-server headless fallback"');
+  io.stdout(`orchestration_active: ${Boolean(registryValid && loaded.registry?.status === "active")}`);
+  io.stdout(`activation_ready: ${Boolean(registryValid && loaded.registry?.status === "active" && selected && adapter?.status === "active" && presentCount === assets.length)}`);
+  io.stdout(renderHelpBlock([
+    `Read ops/protocols/CODEX-NATIVE-FIRSTMATE.md`,
+    `Configure the repo-local adapter deliberately before activation`,
+    `Run ./${CONFIG.cliName} orchestration validate`
+  ]));
+  return loaded.error ? 1 : 0;
 }
 
 function printFindings(io, findings) {
@@ -831,6 +908,7 @@ function runStatus(io) {
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
+  io.stdout(`client_adapter: ${toonString(loaded.registry.clientAdapter?.profile || "unconfigured")}`);
   io.stdout(`nodes: ${findings.nodes.length}`);
   io.stdout(`bosses: ${findings.nodes.filter((node) => node.role === "boss").length}`);
   io.stdout(`managers: ${findings.nodes.filter((node) => node.role === "manager").length}`);
@@ -1240,6 +1318,9 @@ export async function runOrchestration(argv, io) {
     case "status":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration status", hints: [`Run ./${CONFIG.cliName} orchestration status`] })) return 2;
       return runStatus(io);
+    case "adapter-status":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration adapter-status", hints: [`Run ./${CONFIG.cliName} orchestration adapter-status`] })) return 2;
+      return runAdapterStatus(io);
     case "hierarchy":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration hierarchy", hints: [`Run ./${CONFIG.cliName} orchestration hierarchy`] })) return 2;
       return runHierarchy(io);

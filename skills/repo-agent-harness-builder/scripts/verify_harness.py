@@ -22,6 +22,7 @@ REQUIRED_PROTOCOLS = [
     "SOURCE-OF-TRUTH.md",
     "GOAL-CHAIN.md",
     "AGENT-ORCHESTRATION.md",
+    "CODEX-NATIVE-FIRSTMATE.md",
     "QA-BROWSER.md",
     "PRIVILEGED-DOCUMENTS.md",
     "EXTERNAL-SYSTEMS.md",
@@ -45,6 +46,7 @@ COMMAND_SMOKE_TESTS = [
     ["connections", "status"],
     ["goals", "status"],
     ["orchestration", "status"],
+    ["orchestration", "adapter-status"],
     ["design", "status"],
     ["no-mistakes", "status"],
     ["lavish", "status"],
@@ -97,12 +99,19 @@ def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/orchestration.json",
+        ".agents/skills/codex-native-firstmate/SKILL.md",
+        ".codex/config.firstmate.example.toml",
+        ".codex/agents/boss.toml",
+        ".codex/agents/manager.toml",
+        ".codex/agents/worker.toml",
+        "docs/templates/orchestration/codex-native-firstmate-prompt.txt",
+        "docs/templates/orchestration/codex-native-firstmate-adapter.example.json",
         "ops/precommit-allow.txt",
         ".no-mistakes.yaml",
         "scripts/setup-no-mistakes.sh",
         cli_name,
     }
-    return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/"))
+    return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/", ".codex/agents/"))
 
 
 def validate_evidence_token(target: Path, module: str, token: str, errors: list[str]) -> None:
@@ -217,6 +226,13 @@ def main() -> int:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/orchestration.json",
+        ".agents/skills/codex-native-firstmate/SKILL.md",
+        ".codex/config.firstmate.example.toml",
+        ".codex/agents/boss.toml",
+        ".codex/agents/manager.toml",
+        ".codex/agents/worker.toml",
+        "docs/templates/orchestration/codex-native-firstmate-prompt.txt",
+        "docs/templates/orchestration/codex-native-firstmate-adapter.example.json",
         "scripts/setup-no-mistakes.sh",
         args.cli_name,
         "apps/cli/package.json",
