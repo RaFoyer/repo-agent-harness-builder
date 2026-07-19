@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use this reference when adding structured delegation and progressive autonomy to a repository, project folder, program, or personal-folder harness. The orchestration layer is a control plane for any work domain. Goal chains, research, documentation, operations, design, QA, decisions, and artifact production plug into it through governing protocols and completion profiles.
+Use this reference when adding structured delegation and progressive autonomy to a repository, project folder, program, or personal-folder harness. The orchestration layer is a control plane for any work domain. Goal graphs, research, documentation, operations, design, QA, decisions, and artifact production plug into it through governing protocols and completion profiles.
 
 ## Design Boundary
 

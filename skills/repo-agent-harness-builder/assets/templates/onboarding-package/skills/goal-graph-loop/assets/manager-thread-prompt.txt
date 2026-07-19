@@ -1,4 +1,4 @@
-Goal-chain Manager specialization: <goal / issue / workstream>
+Goal-graph Manager specialization: <goal / issue / workstream>
 
 Title: <exact title from orchestration launch spec>
 Immediate parent task ID: <from orchestration launch spec>

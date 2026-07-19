@@ -27,7 +27,7 @@ Avoid it when the task is a one-off change, exploratory work should not create d
 | Canonical tracker | Owns problem statement, scope, acceptance criteria, verification evidence, and linked PR/commit state. |
 | Integration branch | The shared base for each goal, usually `dev`, `main`, or `trunk`. |
 | Orchestration registry | When present, owns role, title, task parentage, lifecycle, trust, authority, and delegation budgets. |
-| Goal-chain Manager | Owns one bounded workstream graph, applies this repository-merge profile, runs the recurring control loop, records delivery evidence, and sequences fan-in within its orchestration authority. |
+| Goal-graph Manager | Owns one bounded workstream graph, applies this repository-merge profile, runs the recurring control loop, records delivery evidence, and sequences fan-in within its orchestration authority. |
 | Goal | One coherent unit of ticket-backed work with objective, boundaries, exit criteria, and verification. |
 | Subgoal thread | A dedicated work session for one graph node, usually isolated in its own worktree when it edits code. |
 | Dependency edge | A prerequisite relation such as "needs merged API contract," "blocks UI wiring," or "must follow migration." |
@@ -41,7 +41,7 @@ The Boss runs the portfolio loop over Managers: observe, reconcile cross-workstr
 
 Each Manager runs the goal-graph loop below for one bounded workstream. Each Worker runs a bounded node loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal.
 
-## Manager Goal-Chain Loop
+## Manager Goal-Graph Loop
 
 1. Start from the current integration branch and tracker state.
 2. Read repo instructions and protocols.

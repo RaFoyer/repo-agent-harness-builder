@@ -41,9 +41,9 @@ choices, native feature checks, and callback instructions. It must not fork the
 registry schema, weaken authority checks, invent a second lifecycle, or treat a
 visible task as authorized work.
 
-Goal chains remain the Manager-owned `repository-merge` specialization. They
-add ticket, branch, PR, merge, verification, and handoff evidence without
-creating another hierarchy.
+Goal graphs remain the Manager-owned `repository-merge` specialization. A
+strict chain is a linear graph topology. They add ticket, branch, PR, merge,
+verification, and handoff evidence without creating another hierarchy.
 
 ## Presentation Taxonomy
 

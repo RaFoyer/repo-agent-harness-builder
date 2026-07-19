@@ -1,4 +1,4 @@
-# Goal Chain Evidence Ledger
+# Goal Graph Evidence Ledger
 
 `ops/orchestration.json` is authoritative for role, task parentage, lifecycle, trust, authority, dependencies, and delegation budgets. This ledger supplements it with repository-merge evidence.
 

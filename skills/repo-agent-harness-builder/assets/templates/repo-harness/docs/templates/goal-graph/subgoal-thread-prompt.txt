@@ -1,4 +1,4 @@
-Goal-chain Worker specialization <ID>: <Title>
+Goal-graph Worker specialization <ID>: <Title>
 
 Title: <exact title from orchestration launch spec>
 Immediate parent task ID: <from orchestration launch spec>
