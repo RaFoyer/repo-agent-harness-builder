@@ -2703,6 +2703,13 @@ fixtureTest("orchestration accepts explicitly inventoried legacy schema-v2 bindi
   const posture = capture();
   assert.equal(await main(["orchestration", "adapter-status"], posture.io), 0, posture.err.join("\n"));
   assert.match(posture.out.join("\n"), /activation_ready: true/);
+
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.schemaVersion, 2);
+  assert.equal(Object.hasOwn(spec, "requiredSkills"), false);
+  assert.equal(Object.hasOwn(spec.reservation.workContract.payload.node, "requiredSkills"), false);
 });
 
 fixtureTest("orchestration rejects supplied binding titles that do not match the registry", async () => {
@@ -2780,9 +2787,21 @@ fixtureTest("orchestration launch contracts compose goal graph and node skills i
   const launch = capture();
   assert.equal(await main(["orchestration", "launch-spec", manager.id], launch.io), 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.schemaVersion, 3);
   assert.deepEqual(spec.requiredSkills, ["project-orchestration", "goal-graph-loop", "documentation-quality"]);
   assert.deepEqual(spec.workContract, { algorithm: "sha256", hash: spec.reservation.workContract.hash });
   assert.deepEqual(spec.reservation.workContract.payload.node.requiredSkills, spec.requiredSkills);
+});
+
+fixtureTest("orchestration rejects deprecated goal-chain skill aliases in launch contracts", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.requiredSkills = ["goal-chain-loop"];
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 1);
+  assert.match(validation.out.join("\n"), /node manager-docs: requiredSkills must use goal-graph-loop; goal-chain-loop is a compatibility-only alias/);
 });
 
 fixtureTest("orchestration rejects tampered Firstmate title verification evidence", async () => {

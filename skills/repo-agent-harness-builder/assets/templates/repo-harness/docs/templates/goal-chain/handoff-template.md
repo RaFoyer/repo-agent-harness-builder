@@ -1,29 +1,3 @@
-Goal <N> is complete.
+# Goal Chain Compatibility Redirect
 
-Node:
-- ID: <node id>
-- Thread: <thread id or not applicable>
-
-Merged:
-- PR #<pr>: <title>
-- Merge commit: <sha>
-
-Issues:
-- Closed #<issue>
-- Linked #<issue>
-
-Verification:
-- <command>: <result>
-- <command>: <result>
-- Manual QA: <summary or not applicable>
-
-Residual risks:
-- <risk or none>
-
-Graph update:
-- Unblocked nodes: <node IDs or none>
-- Blocked/superseded nodes: <node IDs or none>
-- Fan-in notes: <notes or none>
-
-Next orchestrator action:
-- <start dependent node, merge sibling PR, run validation, or stop>
+This deprecated template is retained for migration only. Use the corresponding [goal-graph template](../goal-graph/handoff-template.md) for all new or active work. A goal chain is a linear goal graph and has no separate workflow.

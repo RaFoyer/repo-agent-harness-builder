@@ -33,6 +33,7 @@ const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
 const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
 const PROJECT_ORCHESTRATION_SKILL = "project-orchestration";
 const GOAL_GRAPH_SKILL = "goal-graph-loop";
+const DEPRECATED_SKILL_ALIASES = new Map([["goal-chain-loop", GOAL_GRAPH_SKILL]]);
 const GOAL_GRAPH_PROTOCOLS = new Set(["GOAL-GRAPH", "GOAL-CHAIN"]);
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRESENTATION_PROFILES = new Set(["portable", "nautical", "executive"]);
@@ -737,6 +738,9 @@ function validateRegistry(registry) {
       if (adapter.requiredSkill !== undefined && (!isNonEmptyString(adapter.requiredSkill) || !SKILL_NAME_RE.test(adapter.requiredSkill))) {
         blockers.push("clientAdapter.requiredSkill must be a lowercase skill slug when configured");
       }
+      if (DEPRECATED_SKILL_ALIASES.has(adapter.requiredSkill)) {
+        blockers.push(`clientAdapter.requiredSkill must use ${DEPRECATED_SKILL_ALIASES.get(adapter.requiredSkill)}; ${adapter.requiredSkill} is a compatibility-only alias`);
+      }
       if (typeof adapter.standingTaskCreationGrant !== "boolean") {
         blockers.push("clientAdapter.standingTaskCreationGrant must be boolean");
       }
@@ -794,6 +798,11 @@ function validateRegistry(registry) {
     else if (!node.governingProtocols.includes(CORE_GOVERNING_PROTOCOL)) blockers.push(`${label}: governingProtocols must include ${CORE_GOVERNING_PROTOCOL}`);
     if (node.requiredSkills !== undefined && (!isStringArray(node.requiredSkills) || !node.requiredSkills.every((skill) => SKILL_NAME_RE.test(skill)))) {
       blockers.push(`${label}: requiredSkills must be an array of lowercase skill slugs`);
+    }
+    for (const skill of arrayOrEmpty(node.requiredSkills)) {
+      if (DEPRECATED_SKILL_ALIASES.has(skill)) {
+        blockers.push(`${label}: requiredSkills must use ${DEPRECATED_SKILL_ALIASES.get(skill)}; ${skill} is a compatibility-only alias`);
+      }
     }
     if (!isNonEmptyString(node.label)) blockers.push(`${label}: label is required`);
     if (!isNonEmptyString(node.objective)) blockers.push(`${label}: objective is required`);
@@ -1489,13 +1498,13 @@ function runLaunchSpec(nodeId, io) {
     validity: reservationValidity
   };
   io.stdout(JSON.stringify({
-    schemaVersion: REGISTRY_SCHEMA_VERSION,
+    schemaVersion: loaded.registry.schemaVersion,
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
     title: node.title,
     parentTaskId: parent?.taskId || null,
-    requiredSkills: requiredSkillsFor(loaded.registry, node),
+    ...(loaded.registry.schemaVersion >= 3 ? { requiredSkills: requiredSkillsFor(loaded.registry, node) } : {}),
     trustLevel: node.trustLevel,
     authority: canonicalAuthority(node.authority),
     workContract: { algorithm: "sha256", hash: workContractHash },
