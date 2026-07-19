@@ -215,7 +215,7 @@ The skill can help with:
   protocol support rather than an implicit runtime dependency; its custom-agent
   profiles are namespaced to preserve existing repository profiles
 - repo-local portable skills under `.agents/skills/project-orchestration/` and
-  `.agents/skills/goal-graph-loop/`, plus the one-release
+  `.agents/skills/goal-graph-loop/`, plus the deprecated
   `.agents/skills/goal-chain-loop/` compatibility redirect
 
 ## Build The Portable Package
