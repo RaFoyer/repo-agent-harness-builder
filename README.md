@@ -50,6 +50,22 @@ worktree, integration, heartbeat, and retention policies. Cross-repository
 fleet orchestration is optional composition above independent repo-local
 Firstmates, never a prerequisite.
 
+## Global Skill Ownership
+
+Shared skills have one fleet-level owner. Downstream repository sync commands
+may manage only their own project-specific skill names; they must not replace,
+link, copy, or back up `repo-agent-harness-builder`, `project-orchestration`,
+`goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` in a global
+client skill directory. Repository-local `.agents/skills/` copies remain part
+of the generated harness contract.
+
+Keep recoverable copies under a non-discoverable archive such as
+`.codex/skill-archives/<owner>/<timestamp>/`, never beside active skills as
+`<name>.backup-*`. Use
+[`REPOSITORY-HARNESS-UPGRADE-PROMPT.md`](skills/repo-agent-harness-builder/assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md)
+to ask another repository for a read-only, customization-aware migration audit
+before approving changes.
+
 ## First Successful Result
 
 After setup, a human or agent should be able to run a local helper command and

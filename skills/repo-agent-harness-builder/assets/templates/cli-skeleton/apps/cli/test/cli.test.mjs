@@ -969,6 +969,17 @@ test("unknown commands fail with help pointer", async () => {
   assert.match(out.join("\n"), /help/);
 });
 
+test("base skill status reserves shared names and keeps backups outside discovery roots", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["skills", "status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  assert.deepEqual(err, []);
+  const text = out.join("\n");
+  assert.match(text, /sync only project-owned names/);
+  assert.match(text, /refuse shared fleet/);
+  assert.match(text, /outside discoverable skills directories/);
+});
+
 test("ergonomics status audits the agent-facing CLI contract", async () => {
   const { io, out, err } = capture();
   const code = await main(["ergonomics", "status"], io);

@@ -7,7 +7,8 @@ export async function runSkills(argv, io) {
   if (subcommand === "status") {
     if (rejectUnexpectedArgs(rest, io, { command: "skills status", hints: [`Run ./${CONFIG.cliName} skills status`] })) return 2;
     io.stdout("No repo-owned skills are configured in the base skeleton.");
-    io.stdout("If you add skills, sync only managed copies and refuse unmanaged local paths.");
+    io.stdout("If you add skills, sync only project-owned names and refuse shared fleet or unmanaged local paths.");
+    io.stdout("Archive recoverable copies outside discoverable skills directories.");
     return 0;
   }
 
@@ -17,7 +18,7 @@ export async function runSkills(argv, io) {
       code: "not-implemented",
       command: "skills sync",
       message: "Skill sync is not implemented in the base skeleton.",
-      hints: ["Implement with explicit approval and managed-copy markers."]
+      hints: ["Implement with explicit approval, a project-owned allowlist, managed-copy markers, and non-discoverable archives."]
     });
     return 2;
   }

@@ -45,6 +45,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - External authority, permanent Drive/email/document/database connections, and role-based permission boundaries: read `references/external-authority-and-connections.md`.
 - Repository-scoped CLI and connector authentication profiles, browser login boundaries, and config-root isolation: read `references/external-authority-and-connections.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
+- Global skill ownership, downstream sync boundaries, non-discoverable backup archives, and local-install repair: read `references/skill-install-ownership.md`.
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
 - Project-wide Boss/Manager/Worker delegation, progressive autonomy, authority envelopes, budgets, lifecycle, completion profiles, and client launch contracts: read `references/project-orchestration.md`.
 - Dependency-light Codex app mapping for the portable hierarchy, including the Firstmate Boss profile, managed worktrees, bounded subagents, native capability gaps, and inactive activation controls: read `references/codex-native-firstmate.md`.
@@ -53,6 +54,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 
 ## Bundled Assets
 
+- `assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md`: preservation-first message for auditing and discussing another repository's harness, CLI, skill provenance, and migration plan before edits.
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, protocol templates, no-mistakes repo policy, and setup script.
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
@@ -99,4 +101,5 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - External systems are auxiliary unless a protocol explicitly makes them authoritative for a named scope.
 - Connector packages may be global, but mutable authentication profiles must be repo-scoped by default unless a protocol explicitly marks a different boundary.
 - Never make Codex, Claude, Gemini, Kimi, Cursor, or any single client the conceptual owner of the harness. Client-specific files and commands are adapters around the shared protocol/CLI contract.
+- Downstream repositories may sync only their own project-specific skill names. They must never install, link, copy, replace, or back up shared fleet skill names; recoverable copies belong outside every discoverable skills root.
 - Advanced Flow-style hooks and artifact hubs are optional modules; do not make them the base harness.
