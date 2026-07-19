@@ -22,7 +22,8 @@ This package is based on generalized patterns from mature repo-agent harnesses:
 - recurring work patterns for heartbeats, scheduled checks, goals, hooks, and noninteractive command loops
 - project-wide orchestration patterns for role hierarchy, lifecycle, progressive autonomy, authority envelopes, delegation budgets, and client launch contracts
 - repo-local Codex-native Firstmate adapter patterns that map the portable Boss to one resident repository task and use native worktrees/subagents without requiring a global project registry
-- goal-chain-loop skill patterns for repository-merge graphs, delivery ledgers, subgoal threads, and PR/merge handoffs
+- project-orchestration skill patterns for portable Boss/Manager/Worker control loops and fail-closed launch composition
+- goal-graph-loop skill patterns for Manager-owned repository-merge DAGs, delivery ledgers, bounded Worker tasks, and PR/merge handoffs; strict chains are linear topology
 
 Public reference surfaces consulted:
 

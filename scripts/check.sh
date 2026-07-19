@@ -142,26 +142,56 @@ spec.loader.exec_module(public_scan)
 assert ".key" in public_scan.FORBIDDEN_SUFFIXES
 PY
 
-echo "== goal-chain Manager prompt mirrors =="
+echo "== orchestration loop prompt contracts =="
 python3 - "$SKILL/assets/templates" <<'PY'
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-paths = [
-    root / "goal-chain" / "MANAGER-THREAD-PROMPT.txt",
-    root / "onboarding-package" / "skills" / "goal-chain-loop" / "assets" / "manager-thread-prompt.txt",
-    root / "repo-harness" / "docs" / "templates" / "goal-chain" / "manager-thread-prompt.txt",
+manager_paths = [
+    root / "goal-graph" / "MANAGER-THREAD-PROMPT.txt",
+    root / "onboarding-package" / "skills" / "goal-graph-loop" / "assets" / "manager-thread-prompt.txt",
+    root / "repo-harness" / "docs" / "templates" / "goal-graph" / "manager-thread-prompt.txt",
 ]
-prompts = [path.read_text(encoding="utf-8") for path in paths]
+manager_prompts = [path.read_text(encoding="utf-8") for path in manager_paths]
 expected_closeout = (
     "Mark the Manager terminal only after every owned node is terminal; a blocked Worker "
     "must first be explicitly reconciled to completed, cancelled, or superseded"
 )
-if any(expected_closeout not in prompt for prompt in prompts):
+if any(expected_closeout not in prompt for prompt in manager_prompts):
     raise SystemExit("Manager prompt closeout must require terminal child reconciliation")
-if len(set(prompts)) != 1:
+if any("Run its recurring goal-graph loop" not in prompt for prompt in manager_prompts):
+    raise SystemExit("Manager prompts must assign the recurring goal-graph loop")
+if any("Reconstruct ticket movements and Git/PR evidence" not in prompt for prompt in manager_prompts):
+    raise SystemExit("Manager prompts must reconstruct evidence before replacing work")
+if len(set(manager_prompts)) != 1:
     raise SystemExit("Manager prompt mirrors have drifted")
+
+role_prompts = {
+    "Boss": [
+        root / "orchestration" / "BOSS-PROMPT.txt",
+        root / "repo-harness" / "docs" / "templates" / "orchestration" / "boss-prompt.txt",
+    ],
+    "Manager": [
+        root / "orchestration" / "MANAGER-PROMPT.txt",
+        root / "repo-harness" / "docs" / "templates" / "orchestration" / "manager-prompt.txt",
+    ],
+    "Worker": [
+        root / "orchestration" / "WORKER-PROMPT.txt",
+        root / "repo-harness" / "docs" / "templates" / "orchestration" / "worker-prompt.txt",
+    ],
+}
+role_contracts = {
+    "Boss": "Run the recurring portfolio loop",
+    "Manager": "Run the recurring workstream loop",
+    "Worker": "Run the bounded execution loop",
+}
+for role, paths in role_prompts.items():
+    prompts = [path.read_text(encoding="utf-8") for path in paths]
+    if any(role_contracts[role] not in prompt for prompt in prompts):
+        raise SystemExit(f"{role} prompt must declare loop ownership")
+    if len(set(prompts)) != 1:
+        raise SystemExit(f"{role} prompt mirrors have drifted")
 PY
 
 echo "== package build =="
@@ -197,6 +227,9 @@ with zipfile.ZipFile(zip_path) as archive:
         "repo-agent-harness-reference/AGENT-HANDOFF.md",
         "repo-agent-harness-reference/references/AGENT-CLIENTS-AND-SKILL-INSTALL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/SKILL.md",
+        "repo-agent-harness-reference/skills/project-orchestration/SKILL.md",
+        "repo-agent-harness-reference/skills/goal-graph-loop/SKILL.md",
+        "repo-agent-harness-reference/skills/goal-chain-loop/SKILL.md",
         "repo-agent-harness-reference/skills/codex-native-firstmate/SKILL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-boss.toml",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-manager.toml",
@@ -316,15 +349,19 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --run-tests
 for required_path in \
   "ops/protocols/AGENT-ORCHESTRATION.md" \
+  "ops/protocols/GOAL-GRAPH.md" \
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md" \
   "ops/orchestration.json" \
+  ".agents/skills/project-orchestration/SKILL.md" \
+  ".agents/skills/goal-graph-loop/SKILL.md" \
+  ".agents/skills/goal-chain-loop/SKILL.md" \
   ".agents/skills/codex-native-firstmate/SKILL.md" \
   ".codex/config.firstmate.example.toml" \
   ".codex/agents/firstmate-boss.toml" \
   ".codex/agents/firstmate-manager.toml" \
   ".codex/agents/firstmate-worker.toml" \
   "apps/cli/src/orchestration/index.mjs"; do
-  damaged="$TMP/generated-repo-missing-$(basename "$required_path")"
+  damaged="$TMP/generated-repo-missing-${required_path//\//__}"
   cp -R "$TMP/generated-repo" "$damaged"
   rm "$damaged/$required_path"
   if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
@@ -591,6 +628,48 @@ python3 "$SKILL/scripts/scaffold_harness.py" \
   --cli-name weird \
   --allow-non-git >/dev/null
 (cd "$TMP/generated-weird" && ./weird help >/dev/null && node --test apps/cli/test/*.test.mjs >/dev/null)
+
+mkdir -p "$TMP/symlinked-skill-root" "$TMP/external-skill-root"
+ln -s "$TMP/external-skill-root" "$TMP/symlinked-skill-root/.agents"
+if python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/symlinked-skill-root" \
+  --project-name "Symlinked Skill Root" \
+  --repo-slug "example/symlinked-skill-root" \
+  --cli-name symlinkh \
+  --allow-non-git \
+  --force >"$TMP/symlinked-skill-root.out" 2>"$TMP/symlinked-skill-root.err"; then
+  cat "$TMP/symlinked-skill-root.out"
+  echo "expected scaffold to refuse a symlinked project skill root" >&2
+  exit 1
+fi
+if [ -e "$TMP/external-skill-root/skills" ]; then
+  echo "scaffold must not write through a symlinked project skill root" >&2
+  exit 1
+fi
+
+python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/recoverable-skill-replacement" \
+  --project-name "Recoverable Skill Replacement" \
+  --repo-slug "example/recoverable-skill-replacement" \
+  --cli-name recoveryh \
+  --allow-non-git >/dev/null
+printf 'custom project skill content\n' > "$TMP/recoverable-skill-replacement/.agents/skills/project-orchestration/CUSTOM.md"
+python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/recoverable-skill-replacement" \
+  --project-name "Recoverable Skill Replacement" \
+  --repo-slug "example/recoverable-skill-replacement" \
+  --cli-name recoveryh \
+  --allow-non-git \
+  --force >"$TMP/recoverable-skill-replacement.out"
+if [ -e "$TMP/recoverable-skill-replacement/.agents/skills/project-orchestration/CUSTOM.md" ]; then
+  echo "forced scaffold must replace, not retain, displaced project skill content" >&2
+  exit 1
+fi
+ARCHIVED_CUSTOM_SKILL="$(find "$TMP/recoverable-skill-replacement/.harness-archives/skills/repo-agent-harness-builder" -type f -name CUSTOM.md -print -quit)"
+if [ -z "$ARCHIVED_CUSTOM_SKILL" ] || ! grep -q 'custom project skill content' "$ARCHIVED_CUSTOM_SKILL"; then
+  echo "forced scaffold must retain displaced project skill content in a non-discoverable archive" >&2
+  exit 1
+fi
 
 mkdir -p "$TMP/conflict-repo"
 printf 'existing\n' > "$TMP/conflict-repo/AGENTS.md"

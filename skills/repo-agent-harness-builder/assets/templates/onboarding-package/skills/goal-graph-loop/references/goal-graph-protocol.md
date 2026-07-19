@@ -1,10 +1,10 @@
 # Goal Implementation Graph Protocol
 
-Use this reference when a request needs more than a short starter prompt: creating a durable goal graph or chain, running an orchestration thread, deciding parallelism, grouping tracker issues, repairing a handoff, or distinguishing foundation completion from product acceptance.
+Use this reference when a request needs more than a short starter prompt: creating a durable goal graph or chain, running a Manager-owned goal-graph loop, deciding parallelism, grouping tracker issues, repairing a handoff, or distinguishing foundation completion from product acceptance.
 
 ## Purpose
 
-A goal implementation graph is a dependency-aware execution plan for agent implementation work. It is a `repository-merge` profile that can be assigned to Boss, Manager, or Worker nodes defined by a general orchestration registry. Each goal starts from an approved base, lands one coherent unit of work, records verification evidence, merges into the integration branch, and unlocks dependent nodes from current shared state.
+A goal implementation graph is a dependency-aware execution plan for agent implementation work. It is a `repository-merge` profile normally owned by one Manager node defined by the general orchestration registry. The Boss owns the outer portfolio loop over Managers; each Worker owns one bounded graph node. Each goal starts from an approved base, lands one coherent unit of work, records verification evidence, merges into the integration branch, and unlocks dependent nodes from current shared state.
 
 A goal chain is the simplest graph: every node depends on the prior node. Prefer a graph whenever some goals can safely run in parallel.
 
@@ -15,7 +15,7 @@ Use the pattern when:
 - independent tickets can run in parallel with disjoint write sets or stable contracts
 - done means merged PR, verification, and evidence rather than only a local patch
 - agents need boundaries between feature threads
-- an orchestrator should track thread status, dependencies, model choices, merge order, and handoffs
+- a Manager should track Worker status, dependencies, model choices, merge order, and handoffs
 - the team wants reproducible AI-assisted fan-out and fan-in
 
 Avoid it when the task is a one-off change, exploratory work should not create durable tracker state, or the project has no integration branch, tracker, or verification gate.
@@ -27,7 +27,7 @@ Avoid it when the task is a one-off change, exploratory work should not create d
 | Canonical tracker | Owns problem statement, scope, acceptance criteria, verification evidence, and linked PR/commit state. |
 | Integration branch | The shared base for each goal, usually `dev`, `main`, or `trunk`. |
 | Orchestration registry | When present, owns role, title, task parentage, lifecycle, trust, authority, and delegation budgets. |
-| Goal-chain controller | Applies this repository-merge profile to the graph, records delivery evidence, and sequences fan-in within its orchestration authority. |
+| Goal-graph Manager | Owns one bounded workstream graph, applies this repository-merge profile, runs the recurring control loop, records delivery evidence, and sequences fan-in within its orchestration authority. |
 | Goal | One coherent unit of ticket-backed work with objective, boundaries, exit criteria, and verification. |
 | Subgoal thread | A dedicated work session for one graph node, usually isolated in its own worktree when it edits code. |
 | Dependency edge | A prerequisite relation such as "needs merged API contract," "blocks UI wiring," or "must follow migration." |
@@ -35,24 +35,31 @@ Avoid it when the task is a one-off change, exploratory work should not create d
 | Fan-in gate | The integration point where completed nodes are reviewed, merged, reconciled, and used to unlock dependents. |
 | Handoff | The closing record that makes dependent goals safe to start. |
 
-## Orchestration Loop
+## Nested Control Loops
+
+The Boss runs the portfolio loop over Managers: observe, reconcile cross-workstream dependencies and authority, select eligible Manager actions, control portfolio fan-in and exceptions, record, and repeat. It does not directly operate every Manager graph.
+
+Each Manager runs the goal-graph loop below for one bounded workstream. Each Worker runs a bounded node loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal.
+
+## Manager Goal-Graph Loop
 
 1. Start from the current integration branch and tracker state.
 2. Read repo instructions and protocols.
-3. Inspect canonical issues, existing PRs, branches, and status docs.
-4. Build or update the goal graph with dependencies and fan-out sets.
-5. Identify prerequisite contract/design nodes before parallel work.
-6. Choose execution mode for each node: orchestrator-only, parallel subgoal thread, sequential subgoal thread, or approval/manual gate.
-7. Create or prepare subgoal thread prompts with scoped write boundaries and expected first plans.
-8. Read child thread status, steer blockers, and prevent scope drift.
-9. Fan in completed PRs with evidence, review, and merge sequencing.
-10. Confirm issue, PR, commit, and verification evidence.
-11. Update the graph ledger and unlock dependent nodes from current integration branch state.
-12. Repeat until the graph reaches success, clean no-op, blocked, approval-required, exhausted, or stagnated state.
+3. Inspect canonical issue movements, Git history, existing PRs, branches, task summaries, and status docs.
+4. For an inherited or restarted graph, classify every old node from corroborated evidence before retaining, replacing, or relaunching it.
+5. Build or update the goal graph with dependencies and fan-out sets.
+6. Identify prerequisite contract/design nodes before parallel work.
+7. Choose execution mode for each node: Manager-only, parallel Worker thread, sequential Worker thread, or approval/manual gate.
+8. Create or prepare Worker prompts with scoped write boundaries and expected first plans.
+9. Read Worker status, steer blockers, and prevent scope drift.
+10. Fan in completed PRs with evidence, review, and merge sequencing.
+11. Confirm issue, PR, commit, and verification evidence.
+12. Update the graph ledger and unlock dependent nodes from current integration branch state.
+13. Repeat until every owned node is terminal or the Manager reaches a named blocked or approval-required state.
 
 ## Codex Thread Control
 
-When the repository has `AGENT-ORCHESTRATION.md`, use its exact registry-derived titles, immediate-parent links, lifecycle, trust, authority, and launch contract. This reference does not create a second hierarchy or status taxonomy. The goal-chain ledger records only ticket, branch, PR, merge, verification, residual-risk, and downstream-unlock evidence.
+When the repository has `AGENT-ORCHESTRATION.md`, use its exact registry-derived titles, immediate-parent links, lifecycle, trust, authority, and launch contract. This reference does not create a second hierarchy or status taxonomy. The goal-graph ledger records only ticket, branch, PR, merge, verification, residual-risk, and downstream-unlock evidence.
 
 Use actual Codex thread tools only when the user explicitly wants durable user-owned threads created or managed. For short-lived helper tasks inside the current request, use available subagent/delegation tools instead of creating persistent Codex threads.
 
@@ -83,7 +90,7 @@ Record every created or reused thread in the orchestration ledger:
 
 ## Model And Effort Allocation
 
-Keep the orchestration thread on the strongest practical reasoning setting because it carries graph state, dependency risk, merge order, and cross-thread consistency.
+Keep the Manager controller task on the strongest practical reasoning setting because it carries graph state, dependency risk, merge order, and cross-Worker consistency. Apply the same posture to the Boss when cross-Manager decisions are comparably risky.
 
 For subgoals, recommend but do not silently enforce model overrides:
 
@@ -166,9 +173,9 @@ Poor clusters include:
 
 Use this test: if tickets would be unsafe or misleading when shipped separately, cluster them. If they can be reviewed, tested, and rolled back independently, split them.
 
-## Orchestrator Prompt Requirements
+## Boss Prompt Requirements
 
-The orchestration thread should receive:
+The Boss specialization should receive:
 
 - repository path and integration branch
 - tracker, epic, project, or issue list
@@ -177,9 +184,13 @@ The orchestration thread should receive:
 - model/effort policy if the user wants overrides
 - verification and merge rules
 - approval boundaries
-- desired first deliverable: graph plan and orchestration ledger
+- desired first deliverable: Manager portfolio graph and orchestration ledger
 
-The first orchestration deliverable should not be implementation. It should be a graph plan that identifies prerequisite nodes, parallel fan-out sets, serialized nodes, risky overlaps, recommended thread/model policy, and the first subgoal prompts to launch.
+The first Boss deliverable should not be implementation. It should identify Manager workstreams, cross-workstream dependencies, risky overlaps, authority boundaries, and the first Manager launch specs.
+
+## Manager Prompt Requirements
+
+The Manager specialization should receive its bounded workstream, canonical tickets, current integration base, graph and ledger paths, Worker policy, verification and merge rules, authority boundaries, and desired first Worker plans. It owns the detailed dependency graph and first Worker prompts.
 
 ## Subgoal Prompt Requirements
 
@@ -243,7 +254,7 @@ Default rule: a node is complete when its PR is merged into the integration bran
 
 Dependent nodes should not begin from an open PR unless the graph explicitly permits speculative work. This prevents a new agent from building on assumptions that are not yet part of the shared branch.
 
-The orchestrator handles fan-in:
+The Manager handles workstream fan-in; the Boss handles fan-in across Managers:
 
 - read child thread status and PR evidence
 - check sibling overlap and merge conflicts
@@ -272,7 +283,7 @@ When QA proves the original graph was too optimistic, add a reality-reset goal:
 - link old issues to successors
 - keep the next thread from starting on false assumptions
 
-In a parallel graph, a reality reset may invalidate multiple queued nodes. The orchestrator should mark affected nodes blocked or superseded instead of letting child threads continue from false assumptions.
+In a parallel graph, a reality reset may invalidate multiple queued nodes. The Manager should mark affected nodes blocked or superseded instead of letting Workers continue from false assumptions, and escalate cross-workstream effects to the Boss.
 
 ## Ticket Design
 
@@ -316,9 +327,10 @@ Useful repo-local CLI commands include:
 | Failure | Repair |
 | --- | --- |
 | Next goal starts from an unmerged feature branch | Require merge commit evidence before queueing the next thread. |
-| Orchestrator creates a linear queue without checking parallelism | Rebuild as a graph with dependency edges, fan-out sets, and fan-in gates. |
+| Manager creates a linear queue without checking parallelism | Rebuild as a graph with dependency edges, fan-out sets, and fan-in gates. |
 | Parallel threads touch the same files or unstable contract | Add a prerequisite contract node or serialize those goals. |
-| Orchestrator loses child thread state | Reconstruct the ledger from thread list, thread summaries, tracker issues, PRs, branches, and handoff notes. |
+| Manager loses Worker state | Reconstruct the ledger from ticket movements, Git/PR history, thread summaries, branches, and handoff notes before creating replacements. |
+| Boss directly operates every goal graph | Assign one bounded graph to each Manager and keep the Boss on the outer portfolio loop. |
 | Child thread runs on an unapproved lighter model for risky work | Escalate to stronger review or rerun the critical design/review step. |
 | Foundation work is closed as product validation | Add successor validation goals with manual QA acceptance. |
 | Scratch context leaks between threads | Move durable decisions into docs or tracker comments, then start fresh from shared state. |

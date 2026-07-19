@@ -1,4 +1,4 @@
-Goal-chain Worker specialization <ID>: <Title>
+Goal-graph Worker specialization <ID>: <Title>
 
 Title: <exact title from orchestration launch spec>
 Immediate parent task ID: <from orchestration launch spec>
@@ -30,6 +30,7 @@ Work boundaries:
 - Do not depend on unmerged sibling PRs unless the orchestrator explicitly says so.
 - Keep secrets out of repo, chat, logs, tickets, commits, and CI.
 - Report progress, risks, test evidence, and handoff packets to the Manager, not directly to the Boss except for material risk.
+- Run the bounded Worker loop: observe the assigned node and approved base, plan the next safe action, execute, verify, report or hand off to the Manager, and repeat until terminal.
 - Follow `AGENT-ORCHESTRATION.md` for role, lifecycle, trust, authority, and delegation limits.
 
 Initial protocol:

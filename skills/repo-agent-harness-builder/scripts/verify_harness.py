@@ -20,6 +20,7 @@ REQUIRED_PROTOCOLS = [
     "DESIGN-SYSTEM.md",
     "LAVISH-REVIEW.md",
     "SOURCE-OF-TRUTH.md",
+    "GOAL-GRAPH.md",
     "GOAL-CHAIN.md",
     "AGENT-ORCHESTRATION.md",
     "CODEX-NATIVE-FIRSTMATE.md",
@@ -100,6 +101,9 @@ def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/orchestration.json",
+        ".agents/skills/project-orchestration/SKILL.md",
+        ".agents/skills/goal-graph-loop/SKILL.md",
+        ".agents/skills/goal-chain-loop/SKILL.md",
         ".agents/skills/codex-native-firstmate/SKILL.md",
         ".codex/config.firstmate.example.toml",
         ".codex/agents/firstmate-boss.toml",
@@ -112,7 +116,7 @@ def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
         "scripts/setup-no-mistakes.sh",
         cli_name,
     }
-    return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/", ".codex/agents/"))
+    return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/", ".codex/agents/", ".agents/skills/"))
 
 
 def validate_evidence_token(target: Path, module: str, token: str, errors: list[str]) -> None:
@@ -146,6 +150,24 @@ def validate_checklist(target: Path, errors: list[str]) -> None:
             errors.append(f"checklist active module {module!r} has no evidence")
         for token in re.findall(r"`([^`]+)`", evidence):
             validate_evidence_token(target, module, token, errors)
+
+
+def validate_skill_composition(target: Path, errors: list[str]) -> None:
+    contracts = {
+        ".agents/skills/project-orchestration/SKILL.md": ["name: project-orchestration", "## Composition Order"],
+        ".agents/skills/goal-graph-loop/SKILL.md": ["name: goal-graph-loop", "$project-orchestration"],
+        ".agents/skills/goal-chain-loop/SKILL.md": ["name: goal-chain-loop", "$goal-graph-loop", "compatibility"],
+        ".agents/skills/codex-native-firstmate/SKILL.md": ["name: codex-native-firstmate", "$project-orchestration"],
+        "apps/cli/src/orchestration/index.mjs": ["requiredSkills", "missing required project-local skills"],
+    }
+    for rel_path, required_fragments in contracts.items():
+        path = target / rel_path
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for fragment in required_fragments:
+            if fragment not in text:
+                errors.append(f"composition contract missing {fragment!r}: {rel_path}")
 
 
 def leading_front_matter(text: str) -> str | None:
@@ -227,7 +249,14 @@ def main() -> int:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/orchestration.json",
+        ".agents/skills/project-orchestration/SKILL.md",
+        ".agents/skills/project-orchestration/agents/openai.yaml",
+        ".agents/skills/goal-graph-loop/SKILL.md",
+        ".agents/skills/goal-graph-loop/agents/openai.yaml",
+        ".agents/skills/goal-chain-loop/SKILL.md",
+        ".agents/skills/goal-chain-loop/agents/openai.yaml",
         ".agents/skills/codex-native-firstmate/SKILL.md",
+        ".agents/skills/codex-native-firstmate/agents/openai.yaml",
         ".codex/config.firstmate.example.toml",
         ".codex/agents/firstmate-boss.toml",
         ".codex/agents/firstmate-manager.toml",
@@ -267,6 +296,7 @@ def main() -> int:
         check_file(target / rel, errors, target)
 
     validate_checklist(target, errors)
+    validate_skill_composition(target, errors)
     validate_no_stale_placeholders(target, args.cli_name, errors)
 
     facade = target / args.cli_name

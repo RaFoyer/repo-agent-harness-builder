@@ -25,7 +25,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `orchestration` | recommended | Inspect project-wide hierarchy, lifecycle, autonomy, authority, budgets, eligibility, prompts, and adapter launch contracts |
-| `goals` | recommended | Inspect ticket-backed goal chains, local closeout evidence, and goal-thread prompts |
+| `goals` | recommended | Inspect ticket-backed goal graphs, strict-chain compatibility paths, local closeout evidence, and goal-thread prompts |
 | `design` | optional | Report design-system governance status and, when activated, inspect safe design-system source pointers |
 | `lavish` | optional | Check optional Lavish review-surface posture, update lavish-axi deliberately, run review sessions, and draft tracker captures |
 | `pm` | optional | Tracker lifecycle wrapper |
@@ -208,17 +208,18 @@ task API idempotency key, and write the returned task ID and working state back
 only with the matching current reservation contract.
 This separates a portable repository contract from client-specific task APIs.
 
-## Goal Chain Command Contract
+## Goal Graph Command Contract
 
 Scaffold `goals` as a read-only helper when the harness includes
-`GOAL-CHAIN.md`, even while the goal-chain workflow itself remains inactive.
-For graph orchestration, pair the read-only CLI with the bundled
-`goal-chain-loop` skill and the goal-chain assets under
-`assets/templates/goal-chain/`.
+`GOAL-GRAPH.md`, even while the goal-graph workflow itself remains inactive.
+Pair the read-only CLI with the bundled `goal-graph-loop` skill and the assets
+under `assets/templates/goal-graph/`. `GOAL-CHAIN.md` and `goal-chain-loop`
+remain deprecated compatibility aliases during migration.
 Minimum behavior:
 
-- `goals status`: show configured goals from the goal-chain document, or report
-  that no goal chain is configured without failing baseline verification.
+- `goals status`: show configured goals from the goal-graph document, including
+  legacy chain paths, or report that no goal graph is configured without
+  failing baseline verification.
 - `goals verify <goal-id>`: block missing linked issue evidence, merged PR,
   merge/squash integration commit, verification result, residual-risk evidence,
   or next-goal evidence; reject placeholders, negated verification, negated PR
@@ -230,7 +231,7 @@ Minimum behavior:
   default branch and `origin`, requires `Issues:` and `Residual risks:` through
   `requiredGoalCloseoutFields`, and accepts common GitHub/Jira/Linear/Azure-style
   issue references with or without a trailing colon. Repos with a different
-  integration branch, remote, tracker shape, or migrated goal-chain schema
+  integration branch, remote, tracker shape, or migrated goal schema
   should update `integrationBranch`, `integrationRemote`, `trackerIssuePattern`,
   or `requiredGoalCloseoutFields`. Invalid tracker patterns should be reported
   as configuration blockers, not silently ignored.

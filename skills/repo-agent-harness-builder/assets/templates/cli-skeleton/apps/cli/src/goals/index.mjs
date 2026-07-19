@@ -5,6 +5,10 @@ import { renderUsageError, truncateText } from "../util/agent-output.mjs";
 import { runCommand } from "../util/exec.mjs";
 
 const GOAL_CHAIN_CANDIDATES = [
+  "docs/reference/implementation-goal-graph.md",
+  "docs/engineering/goal-graph.md",
+  "docs/reference/goal-graph.md",
+  "ops/goal-graph.md",
   "docs/reference/implementation-goal-chain.md",
   "docs/engineering/goal-chain.md",
   "docs/reference/goal-chain.md",
@@ -22,13 +26,14 @@ function findGoalChain() {
 }
 
 function parseGoals(text) {
-  const matches = [...text.matchAll(/^##\s+Goal\s+([A-Za-z0-9._-]+)\s*:\s*(.+?)\s*$/gm)];
+  const matches = [...text.matchAll(/^##\s+(Goal|Node)\s+([A-Za-z0-9._-]+)\s*:\s*(.+?)\s*$/gm)];
   return matches.map((match, index) => {
     const bodyStart = match.index + match[0].length;
     const bodyEnd = index + 1 < matches.length ? matches[index + 1].index : text.length;
     return {
-      id: match[1],
-      title: match[2].trim(),
+      kind: match[1].toLowerCase(),
+      id: match[2],
+      title: match[3].trim(),
       body: text.slice(bodyStart, bodyEnd).trim()
     };
   });
@@ -49,6 +54,7 @@ const KNOWN_FIELD_LABELS = [
   "Out of scope",
   "Exit criteria",
   "Verification",
+  "Blocks",
   "Sequencing",
   "Merged PR",
   "Merge commit",
@@ -379,7 +385,16 @@ function hasGenericCloseoutEvidence(value) {
 function hasValidNextGoal(value) {
   if (isTerminalMarker(value)) return true;
   if (!hasUsableEvidence(value) || isRejectedTerminalMarker(value)) return false;
-  return /^Goal\s+[A-Za-z0-9._-]+\s*:/i.test(value.trim()) || /(?:^|\s)#\d+\b/.test(value);
+  return /^(?:Goal|Node)\s+[A-Za-z0-9._-]+\s*:/i.test(value.trim()) || /(?:^|\s)#\d+\b/.test(value);
+}
+
+function hasValidDownstreamNodes(value) {
+  if (isTerminalMarker(value)) return true;
+  if (!hasUsableEvidence(value) || isRejectedTerminalMarker(value)) return false;
+  return value
+    .split(/\r?\n/)
+    .map(normalizeBullet)
+    .every((line) => /^(?:Node\s+)?[A-Za-z0-9._-]+(?:\s*:\s*.+)?$/i.test(line));
 }
 
 function closeoutBlockers(goal) {
@@ -415,15 +430,20 @@ function closeoutBlockers(goal) {
     blockers.push(failedLine ? `Verification result (${failedLine})` : "Verification result");
   }
 
-  const nextGoal = fieldBlock(goal.body, "Next goal");
-  if (!hasValidNextGoal(nextGoal)) blockers.push("Next goal");
+  if (goal.kind === "node") {
+    const downstreamNodes = fieldBlock(goal.body, "Blocks");
+    if (!hasValidDownstreamNodes(downstreamNodes)) blockers.push("Downstream nodes");
+  } else {
+    const nextGoal = fieldBlock(goal.body, "Next goal");
+    if (!hasValidNextGoal(nextGoal)) blockers.push("Next goal");
+  }
   return blockers;
 }
 
 function loadGoals(io) {
   const chain = findGoalChain();
   if (!chain) {
-    io.stderr(`Missing goal-chain document. Expected one of: ${GOAL_CHAIN_CANDIDATES.join(", ")}`);
+    io.stderr(`Missing goal-graph document. Expected one of: ${GOAL_CHAIN_CANDIDATES.join(", ")}`);
     return null;
   }
   const goals = parseGoals(chain.text);
@@ -434,7 +454,7 @@ function printHelp(io) {
   io.stdout("Usage: ./{{CLI_NAME}} goals <command> [goal-id] [--full]");
   io.stdout("");
   io.stdout("Commands:");
-  io.stdout("  status              List goals from the implementation goal chain");
+  io.stdout("  status              List goals from the implementation goal graph");
   io.stdout("  verify <goal-id>    Check merge, verification, and next-goal evidence");
   io.stdout("  start-prompt <id>   Print a bounded prompt for a goal thread");
   io.stdout("");
@@ -475,21 +495,21 @@ function rejectGoalArgDrift(parsed, io, { command, maxPositionals = 0, hints = [
 function runStatus(io) {
   const chain = findGoalChain();
   if (!chain) {
-    io.stdout("No goal chain document found.");
+    io.stdout("No goal graph document found.");
     io.stdout(`Expected one of: ${GOAL_CHAIN_CANDIDATES.join(", ")}`);
     return 0;
   }
 
   const goals = parseGoals(chain.text);
-  io.stdout(`Goal chain: ${chain.relPath}`);
+  io.stdout(`Goal graph: ${chain.relPath}`);
   if (goals.length === 0) {
-    io.stdout("No goal headings found. Use headings like `## Goal 1: Title`.");
+    io.stdout("No goal headings found. Use headings like `## Goal 1: Title` or `## Node G1: Title`.");
     return 0;
   }
 
   for (const goal of goals) {
     const status = closeoutBlockers(goal).length === 0 ? "matching local closeout evidence" : "open, incomplete, or locally unverifiable";
-    io.stdout(`- Goal ${goal.id}: ${goal.title} (${status})`);
+    io.stdout(`- ${goal.kind === "node" ? "Node" : "Goal"} ${goal.id}: ${goal.title} (${status})`);
   }
   return 0;
 }
@@ -549,7 +569,7 @@ function runStartPrompt(goalId, io, { full = false } = {}) {
     return 1;
   }
 
-  const objective = fieldBlock(goal.body, "Objective") || "Complete the scoped goal from the goal-chain document.";
+  const objective = fieldBlock(goal.body, "Objective") || "Complete the scoped goal from the goal-graph document.";
   const objectivePreview = full ? { text: objective, truncated: false, shown: objective.length, total: objective.length } : truncateText(objective, { limit: 1200 });
 
   io.stdout(`Goal ${goal.id}: ${goal.title}`);

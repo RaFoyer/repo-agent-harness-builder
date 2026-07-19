@@ -7,7 +7,7 @@ import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, safeLine, toon
 
 const LAVISH_PROTOCOL = "ops/protocols/LAVISH-REVIEW.md";
 const TRACKER_PROTOCOL = "ops/protocols/PROJECT-TRACKING.md";
-const GOAL_PROTOCOL = "ops/protocols/GOAL-CHAIN.md";
+const GOAL_PROTOCOL = "ops/protocols/GOAL-GRAPH.md";
 const LOCAL_PATH_RE = /(?:\/(?:Users|home|tmp|private\/var|var\/folders|Volumes)\/[^\s"'()]+|[A-Za-z]:\\Users\\[^\r\n"'()]+|~\/[^\s"'()]+)/g;
 
 function repoPath(relPath) {
@@ -376,7 +376,7 @@ function trackerReconcile(argv, io) {
   io.stdout("  \"run no-mistakes when initialized\",\"strongly recommended before merge\"");
   io.stdout(renderHelpBlock([
     `Use ./${CONFIG.cliName} lavish tracker capture --issue ${issue} to draft the ticket update`,
-    `Use ./${CONFIG.cliName} goals status to inspect configured goal chains`
+    `Use ./${CONFIG.cliName} goals status to inspect configured goal graphs`
   ]));
   return 0;
 }

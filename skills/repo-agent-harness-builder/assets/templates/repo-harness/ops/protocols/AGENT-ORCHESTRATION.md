@@ -2,7 +2,7 @@
 protocol_id: AGENT-ORCHESTRATION
 title: Agent Orchestration
 status: inactive
-version: 0.2.0
+version: 0.3.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines project-wide Boss, Manager, and Worker coordination with explicit trust, authority, state, and evidence boundaries.
@@ -10,7 +10,7 @@ related_protocols:
   - AUTOMATIONS
   - CLI-INTERFACE
   - CODEX-NATIVE-FIRSTMATE
-  - GOAL-CHAIN
+  - GOAL-GRAPH
   - PROJECT-TRACKING
 ---
 
@@ -18,7 +18,7 @@ related_protocols:
 
 ## Purpose
 
-Provide one agent-agnostic control plane for structured work across the whole project. The hierarchy applies to engineering, research, documentation, operations, planning, QA, and other work; ticket-backed goal chains are one execution profile, not the owner of the hierarchy.
+Provide one agent-agnostic control plane for structured work across the whole project. The hierarchy applies to engineering, research, documentation, operations, planning, QA, and other work; ticket-backed goal graphs are one execution profile, not the owner of the hierarchy.
 
 ## Source Of Truth
 
@@ -58,7 +58,15 @@ Every node records:
 - `workRef`: a stable project-local identifier; a tracker ticket is recommended when one exists, but is not required
 - `workKind`: an extensible lowercase slug such as `engineering`, `research`, `documentation`, `design`, `qa`, `operations`, `planning`, `decision`, or `governance`
 - `governingProtocols`: the orchestration protocol plus the domain rules that define permitted actions and acceptable evidence
+- optional `requiredSkills`: node-specific lowercase skill slugs; the CLI
+  prepends the portable orchestration skill, selected adapter, and applicable
+  domain-loop skill in deterministic order
 - `completionProfile`: the evidence shape that makes the node terminal
+
+Schema version 3 seals the ordered `requiredSkills` composition into new work-
+contract hashes. Version 2 remains readable so existing externally attested
+bindings keep their original hash; migrate a v2 registry deliberately before
+relying on required skills as immutable binding data.
 
 This keeps the control plane universal without pretending that all work is software delivery.
 
@@ -68,17 +76,21 @@ Boss:
 
 - one logical Boss per repository or project
 - owns portfolio health, dependency graph, Manager boundaries, escalation, and fan-in order
+- runs the recurring portfolio loop over Managers: observe, reconcile, select eligible Manager actions, control cross-Manager fan-in and exceptions, record, and repeat
+- does not own every Manager's internal goal graph
 - does not absorb implementation that belongs to a Manager or Worker
 
 Manager:
 
-- owns one bounded workstream and its child graph
+- owns one bounded workstream and its dependency graph/control loop
+- runs the recurring workstream loop: observe tracker, base, Worker, and evidence state; audit or rewrite the graph; select eligible Workers; monitor and review; fan in and reconcile; report material exceptions; and repeat until every owned node is terminal
 - creates or activates Workers only when its trust level and authority envelope permit delegation
 - reviews Worker evidence, manages fan-in, and escalates decisions, external blockers, scope collisions, and integration gates
 
 Worker:
 
 - owns one bounded, independently verifiable outcome
+- runs the bounded execution loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal
 - reports to its immediate parent
 - may create a child Worker only when delegation is authorized and contracts and write sets are safely independent
 
@@ -142,7 +154,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 
 1. Configure the project prefix, trust policy, and inactive registry.
 2. Define the Boss at an explicit trust level and authority envelope.
-3. Map portfolios, workstreams, dependencies, completion profiles, and approval gates before creating live tasks.
+3. Map the Boss portfolio, Manager-owned workstreams and goal graphs, Worker nodes, dependencies, completion profiles, and approval gates before creating live tasks.
 4. Validate the registry with `./{{CLI_NAME}} orchestration validate`.
 5. Use `orchestration next` to identify dependency-eligible work.
 6. Inspect a bounded prompt with `orchestration prompt <node-id>`, then emit `orchestration launch-spec <node-id>` when a client is authorized to create the task.
@@ -177,9 +189,14 @@ task-creation authority.
 
 The repository harness is agent-agnostic, so task creation belongs to a thin client adapter. The CLI remains read-only; the adapter performs the compare-and-set operations described by the launch spec.
 
-1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`.
+The inactive scaffold may keep `clientAdapter` null. A configured adapter names
+its client ID, profile, status, project-local `requiredSkill`, and task-creation
+grant posture. Active schema-version-3 adapters must declare their required
+skill explicitly; installation alone does not select or activate an adapter.
+
+1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`. Its ordered `requiredSkills` must begin with `project-orchestration`, then the selected client adapter, then `goal-graph-loop` for nodes governed by `GOAL-GRAPH` or its deprecated `GOAL-CHAIN` alias, followed by node-specific skills. Missing project-local skills block materialization.
 2. The active client verifies that the current user request or recorded scope grant authorizes task creation.
-3. Configure a complete Boss node, including its intended delegation authority and budgets, before its first launch; the empty inactive scaffold is not a launchable placeholder. Before any external side effect, atomically compare the registry revision, expected registry status, target node state/task identity/trust/entire canonical authority envelope, immediate parent state/task ID/trust/entire canonical authority envelope, capacity preconditions, and the `workContract.hash` from `reservation`. Canonical authority arrays are stable sorted and deduplicated for reads, writes, external actions, approval gates, and stop conditions. The SHA-256 work-contract hash canonically covers the scope, project budgets, node title/objective/work reference and kind/governing protocols/completion profile/dependencies/trust/authority, and the immediate parent task/trust/authority launch envelope. On a match, add the exact `launchReservation` key with its complete `validity` snapshot, advance the registry revision by one, and reserve capacity. For every Boss bootstrap, also set `status` to `active` in that transaction.
+3. Configure a complete Boss node, including its intended delegation authority and budgets, before its first launch; the empty inactive scaffold is not a launchable placeholder. Before any external side effect, atomically compare the registry revision, expected registry status, target node state/task identity/trust/entire canonical authority envelope, immediate parent state/task ID/trust/entire canonical authority envelope, capacity preconditions, and the `workContract.hash` from `reservation`. Canonical authority arrays are stable sorted and deduplicated for reads, writes, external actions, approval gates, and stop conditions. The SHA-256 work-contract hash canonically covers the scope, project budgets, node title/objective/work reference and kind/governing protocols/ordered required skills/completion profile/dependencies/trust/authority, and the immediate parent task/trust/authority launch envelope. On a match, add the exact `launchReservation` key with its complete `validity` snapshot, advance the registry revision by one, and reserve capacity. For every Boss bootstrap, also set `status` to `active` in that transaction.
 4. If the compare-and-set fails, do not create a task. Re-read the registry and generate a new launch spec; an old spec or duplicate reservation is never reusable.
 5. Immediately before task creation, atomically compare the reserved registry against `preCreate`: its revision, status, target task identity/reservation key/trust/entire authority envelope including approval gates/work-contract hash, parent state/task ID/trust/entire authority envelope including approval gates, and project/parent capacity must still match. A changed status, target or parent trust/authority/approval gate, work contract, task identity, capacity, or revision invalidates the reservation before the side effect.
 6. Create or adopt the task with the exact title, prompt, and immediate parent from the launch spec, using `externalTask.idempotencyKey` (the contract-derived `launchKey`) as the task API's durable idempotency key and `externalTask.reconciliationKey` for lookup. Read back and verify the exact title before bind; a title failure keeps the reservation quarantined for reconciliation and never permits another create.
@@ -199,13 +216,17 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - A child may not drop an approval gate required by its parent.
 - Do not fan out overlapping write sets or unstable contracts.
 - Do not create a task from a launch spec whose parent task is missing or whose dependencies are unsatisfied.
+- Do not create a task when any ordered `requiredSkills` entry is missing from
+  the repository-local skill installation.
 - Never create a task before the launch spec's atomic reservation and immediate `preCreate` comparison succeed; a stale revision, changed status, parent authority or approval gate, task identity, occupied reservation, or exhausted reserved capacity is a pre-side-effect failure.
 - Use `launchKey` as the durable external idempotency and reconciliation key. An indeterminate create or bind result keeps its reservation until lookup proves no external task exists.
 - Create child tasks only while the parent is `working`, `waiting`, or `blocked`; a `ready-for-parent` node must not acquire new unfinished responsibility.
 - Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
 - Do not let Managers silently become Workers.
+- Do not let the Boss directly operate every goal graph or leave a graph without exactly one Manager owner.
 - Do not let a Worker report around its parent except for material safety risk.
+- Do not create a replacement Worker merely because an earlier task or thread is unavailable; first reconcile tracker movements with Git/PR and orchestration evidence and prove the outcome is incomplete and unowned.
 - Do not leave a live task idle without a named reason and next control action.
 - Do not activate external writes, deployments, schedules, destructive actions, or messages without their domain protocol and approval gate.
 - Preserve unrelated user work and keep secrets out of repo, chat, logs, trackers, and artifacts.
@@ -224,4 +245,4 @@ This adapter boundary makes worker launch easy without hiding external writes in
 
 ## Update Rules
 
-When this protocol changes, update `ops/orchestration.json`, `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help and tests, orchestration templates, and composing domain protocols such as `GOAL-CHAIN.md`.
+When this protocol changes, update `ops/orchestration.json`, `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help and tests, orchestration templates, and composing domain protocols such as `GOAL-GRAPH.md`.

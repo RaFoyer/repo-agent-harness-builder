@@ -72,6 +72,18 @@ Treat `--list` as source-discovery evidence. Do not claim a destination adapter
 is fully installed until the local installer proves that client's skill location
 or the client can read the skill through its documented direct-read path.
 
+## Global Skill Ownership
+
+Shared fleet skills keep one authoritative distribution. A downstream repository
+must not add `repo-agent-harness-builder`, `project-orchestration`,
+`goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` to its own
+global skill-sync allowlist, even when it carries a snapshot for reference.
+
+Repository sync commands may manage only project-owned, preferably namespaced
+skills. Keep backups outside discoverable `skills/` directories so clients do
+not load stale duplicates. See `skill-install-ownership.md` for the ownership,
+archive, repair, and verification contract.
+
 ## Adapter Rules
 
 - Do not duplicate core instructions into client-specific files.
@@ -88,3 +100,4 @@ Before publishing:
 2. Run a local install dry-run from the packaged archive.
 3. Confirm `SKILL.md` does not require one client to understand the harness.
 4. Confirm all client-specific examples are labeled as examples, not required infrastructure.
+5. Confirm downstream sync examples manage only project-owned names and archive recoverable copies outside discoverable skill roots.

@@ -15,7 +15,7 @@ A repo-agent harness gives future agents a reliable operating environment inside
 | CLI facade | `./{{CLI_NAME}}`, `apps/cli/*` | Deterministic repeatable tasks |
 | Agent CLI ergonomics | `AGENT-CLI-ERGONOMICS.md` | Content-first, token-aware CLI output contract |
 | Connection registry | `ops/connections.json` | Value-safe metadata for external authorities and repo-scoped connector auth profiles |
-| Orchestration registry | `ops/orchestration.json` | Optional project-wide hierarchy, lifecycle, trust, authority, and evidence state |
+| Orchestration registry | `ops/orchestration.json` | Optional project-wide hierarchy, lifecycle, trust, authority, required-skill composition, and evidence state |
 | Onboarding package | `START-HERE.md`, `AGENT-HANDOFF.md`, `skills/*` | Pre-clone and first-use bridge |
 | Guardrails | preflight, precommit, no-mistakes, CI, secrets, tracker | Safety and consistency checks |
 | Advanced modules | hooks, intent authority, evidence maps | Scale patterns for complex repos |
@@ -32,10 +32,13 @@ A repo-agent harness gives future agents a reliable operating environment inside
   `ops/orchestration.json`, the read-only `orchestration` CLI, and generic
   Boss/Manager/Worker prompt and ledger templates. The role hierarchy stays
   independent from trust, authority, lifecycle, and work domain.
-- Repos with ticket-backed implementation graphs can carry `GOAL-CHAIN.md`,
-  the read-only `goals` CLI, and bundled `goal-chain-loop` skill templates for
-  repository-merge handoffs. Goal chains compose with project orchestration;
-  they do not own the universal hierarchy.
+- Repos with ticket-backed implementation graphs carry `GOAL-GRAPH.md`, the
+  read-only `goals` CLI, and the bundled `goal-graph-loop` project-local skill
+  for repository-merge handoffs. A strict chain is a linear graph topology;
+  goal graphs compose with project orchestration and do not own the hierarchy.
+- Generated repositories install `project-orchestration`, `goal-graph-loop`,
+  the deprecated `goal-chain-loop` compatibility alias, and the inactive
+  `codex-native-firstmate` adapter under `.agents/skills/`.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.
 

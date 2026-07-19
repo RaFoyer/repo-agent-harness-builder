@@ -1,6 +1,6 @@
 ---
 name: repo-agent-harness-builder
-description: Use when creating, auditing, extending, packaging, or explaining a repository or personal-folder agent harness with AGENTS.md, protocol documentation, deterministic CLI commands, onboarding packages, safe file stewardship, goal chains, automations, heartbeats, preflight/precommit checks, skills, or portable agent handoff archives.
+description: Use when creating, auditing, extending, packaging, or explaining a repository or personal-folder agent harness with AGENTS.md, protocol documentation, deterministic CLI commands, project orchestration, goal graphs, automations, heartbeats, preflight/precommit checks, skills, or portable agent handoff archives.
 ---
 
 # Repo Agent Harness Builder
@@ -8,6 +8,12 @@ description: Use when creating, auditing, extending, packaging, or explaining a 
 ## Overview
 
 Build repository and personal-folder harnesses that give coding agents one durable source of truth, lazy-loaded protocols, and deterministic CLI commands for repeatable work. Keep the harness agent-agnostic: repo docs, protocols, and CLI behavior are the portable core; Codex, Claude Code, Gemini CLI, Kimi, Cursor, and similar clients are adapters.
+
+This builder installs, migrates, and verifies the harness; it is not the
+runtime project controller. Generated repositories use `$project-orchestration`
+for the portable control plane, then a selected client adapter such as
+`$codex-native-firstmate`, then a domain loop such as `$goal-graph-loop`, then
+node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 
 ## Core Workflow
 
@@ -39,22 +45,24 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - External authority, permanent Drive/email/document/database connections, and role-based permission boundaries: read `references/external-authority-and-connections.md`.
 - Repository-scoped CLI and connector authentication profiles, browser login boundaries, and config-root isolation: read `references/external-authority-and-connections.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
+- Global skill ownership, downstream sync boundaries, non-discoverable backup archives, and local-install repair: read `references/skill-install-ownership.md`.
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
 - Project-wide Boss/Manager/Worker delegation, progressive autonomy, authority envelopes, budgets, lifecycle, completion profiles, and client launch contracts: read `references/project-orchestration.md`.
 - Dependency-light Codex app mapping for the portable hierarchy, including the Firstmate Boss profile, managed worktrees, bounded subagents, native capability gaps, and inactive activation controls: read `references/codex-native-firstmate.md`.
-- Ticket-backed implementation goal chains with merge, verification, and handoff evidence: read `references/goal-chain-loop.md`.
+- Manager-owned ticket-backed implementation graphs, strict-chain topology, merge evidence, fan-in, and handoff: read `references/goal-graph-loop.md`.
 - Hooks, intent authority, generated artifacts, and evidence/provenance maps: read `references/advanced-patterns.md`.
 
 ## Bundled Assets
 
+- `assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md`: preservation-first message for auditing and discussing another repository's harness, CLI, skill provenance, and migration plan before edits.
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, protocol templates, no-mistakes repo policy, and setup script.
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
-- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust and authority envelopes.
+- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust, authority, and loop ownership.
 - `assets/templates/client-adapters/codex-native-firstmate/`: opt-in Codex config examples, role profiles, Firstmate Boss overlay, protocol, and project-local adapter skill around the portable orchestration core.
-- `assets/templates/goal-chain/`: ticket-backed implementation goal-chain/graph, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
-- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, and goal-chain-loop skill templates plus agent-client install guidance.
+- `assets/templates/goal-graph/`: ticket-backed implementation DAGs, strict-chain topology, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
+- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, project-orchestration, goal-graph-loop, and compatibility skill templates plus agent-client install guidance.
 
 Use placeholders consistently:
 
@@ -93,4 +101,5 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - External systems are auxiliary unless a protocol explicitly makes them authoritative for a named scope.
 - Connector packages may be global, but mutable authentication profiles must be repo-scoped by default unless a protocol explicitly marks a different boundary.
 - Never make Codex, Claude, Gemini, Kimi, Cursor, or any single client the conceptual owner of the harness. Client-specific files and commands are adapters around the shared protocol/CLI contract.
+- Downstream repositories may sync only their own project-specific skill names. They must never install, link, copy, replace, or back up shared fleet skill names; recoverable copies belong outside every discoverable skills root.
 - Advanced Flow-style hooks and artifact hubs are optional modules; do not make them the base harness.

@@ -1,18 +1,20 @@
 ---
 name: codex-native-firstmate
-description: Use when operating or configuring the inactive Codex-native Firstmate adapter for a repository harness, mapping portable Boss/Manager/Worker orchestration to Codex tasks, managed worktrees, subagents, hooks, Browser, automations, and retention controls.
+description: Use after project-orchestration when operating or configuring the inactive Codex-native Firstmate adapter for a repository harness, mapping portable Boss/Manager/Worker launch contracts to Codex tasks, managed worktrees, subagents, hooks, Browser, automations, and retention controls.
 ---
 
 # Codex-Native Firstmate
 
 ## Boundary
 
-Firstmate is the Codex-facing Boss profile, not a new role. The repository's
+Load `$project-orchestration` first. Firstmate is the Codex-facing Boss profile,
+not a new role or portable control plane. The repository's
 `ops/protocols/AGENT-ORCHESTRATION.md` and `ops/orchestration.json` own roles,
 parentage, lifecycle, trust, authority, budgets, reservations, task bindings,
 and completion. Read them before using this adapter. For ticket-backed
-repository delivery, also read `ops/protocols/GOAL-CHAIN.md`; goal chains remain
-a Manager-owned `repository-merge` specialization.
+repository delivery, also load `$goal-graph-loop` and read
+`ops/protocols/GOAL-GRAPH.md`; strict chains remain a linear topology inside
+that Manager-owned `repository-merge` specialization.
 
 Treat this repository as the default complete scope: one resident
 Firstmate/Boss task, repo-local Managers, and repo-local Workers backed by this
@@ -38,7 +40,8 @@ independent repository Firstmates.
   presentation. Canonical roles and authority remain unchanged.
 - **Launch durable work:** use persistent Codex tasks and managed worktrees for
   Managers and write-capable Workers. Bind every task to its immediate parent
-  through the portable launch contract.
+  through the portable launch contract. Refuse materialization if its ordered
+  `requiredSkills` are missing locally.
 - **Use transient help:** use subagents only for bounded read-heavy help in the
   current worktree. Do not assume subagents have isolated filesystems.
 - **Close or archive:** require the configured completion evidence and landed-

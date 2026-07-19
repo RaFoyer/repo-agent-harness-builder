@@ -6,7 +6,7 @@ This document defines the implementation sequence, goal boundaries, verification
 
 ## Goal Thread Rule
 
-If this chain uses delegated tasks, configure its nodes in `ops/orchestration.json` with `GOAL-CHAIN` as a governing protocol and `repository-merge` as the completion profile. Role, title, parentage, lifecycle, trust, and authority come from `AGENT-ORCHESTRATION.md` rather than this document.
+If this linear graph uses delegated tasks, configure its nodes in `ops/orchestration.json` with `GOAL-GRAPH` as a governing protocol and `repository-merge` as the completion profile. Role, title, parentage, lifecycle, trust, and authority come from `AGENT-ORCHESTRATION.md` rather than this document.
 
 Each goal finishes only after:
 

@@ -13,7 +13,7 @@ The durable contract lives in ordinary files in the target repo or folder:
 - lifecycle and maintenance docs for protocols
 - a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
   `verify`, `checklist`, `qa`, `secrets`, connection checks, Lavish review
-  posture, project-orchestration inspection, and goal-chain inspection
+  posture, project-orchestration inspection, and goal-graph inspection
 - strongly recommended no-mistakes setup and branch-aware status commands for
   branch-to-PR validation, with optional user-local agent pinning
 - AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
@@ -25,9 +25,10 @@ The durable contract lives in ordinary files in the target repo or folder:
 - repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
-  trust, authority, budgets, and completion evidence
-- bundled orchestration and goal-chain-loop templates for general delegation,
-  implementation graphs, and subgoal orchestration
+  trust, authority, budgets, completion evidence, and nested portfolio,
+  goal-graph, and bounded execution loops
+- project-local `project-orchestration`, `goal-graph-loop`, and
+  `codex-native-firstmate` skills with a deprecated `goal-chain-loop` alias
 - an inactive-by-default Codex-native Firstmate adapter that gives each
   generated repository its own resident Boss capability, native task/worktree
   mapping, and project-local skill without requiring a global project registry
@@ -35,6 +36,9 @@ The durable contract lives in ordinary files in the target repo or folder:
 
 Codex, Claude Code, Gemini CLI, Kimi, Cursor, and future coding agents are
 adapters around that shared contract. No one agent client owns the harness.
+The launch contract composes skills in a fixed order: portable project
+orchestration, the selected client adapter, an applicable domain loop such as
+the goal graph, then node-specific skills. Missing required skills fail closed.
 
 For Codex-heavy teams, the generated harness includes an opt-in
 `codex-native-firstmate` profile. Firstmate is the client-facing Boss persona,
@@ -45,6 +49,22 @@ configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository
 fleet orchestration is optional composition above independent repo-local
 Firstmates, never a prerequisite.
+
+## Global Skill Ownership
+
+Shared skills have one fleet-level owner. Downstream repository sync commands
+may manage only their own project-specific skill names; they must not replace,
+link, copy, or back up `repo-agent-harness-builder`, `project-orchestration`,
+`goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` in a global
+client skill directory. Repository-local `.agents/skills/` copies remain part
+of the generated harness contract.
+
+Keep recoverable copies under a non-discoverable archive such as
+`.codex/skill-archives/<owner>/<timestamp>/`, never beside active skills as
+`<name>.backup-*`. Use
+[`REPOSITORY-HARNESS-UPGRADE-PROMPT.md`](skills/repo-agent-harness-builder/assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md)
+to ask another repository for a read-only, customization-aware migration audit
+before approving changes.
 
 ## First Successful Result
 
@@ -182,17 +202,21 @@ The skill can help with:
   commands, connector auth-profile planning, design status, optional Lavish
   review/tracker-capture commands, branch-aware no-mistakes status/setup with
   optional local agent pinning, skill/self checks, project orchestration
-  validation/launch contracts, and goal-chain helpers
+  validation/launch contracts, and goal-graph helpers
 - project-wide Boss/Manager/Worker orchestration with independent lifecycle,
-  trust, authority, budget, and completion-profile controls
-- goal chains and recurring work definitions that compose with the general
-  orchestration layer instead of defining a software-only hierarchy
-- bundled orchestration and goal-chain assets for prompts, registries, ledgers,
+  trust, authority, budget, completion-profile, and loop-ownership controls
+- goal graphs and recurring work definitions that compose with the general
+  orchestration layer: Bosses manage Managers, Managers own goal-graph loops,
+  and Workers own bounded node loops; a strict chain is a linear graph topology
+- bundled orchestration and goal-graph assets for prompts, registries, ledgers,
   graph templates, and handoff records
 - repo-local Codex-native Firstmate assets under `.codex/` and
   `.agents/skills/codex-native-firstmate/`, scaffolded as examples and inactive
   protocol support rather than an implicit runtime dependency; its custom-agent
   profiles are namespaced to preserve existing repository profiles
+- repo-local portable skills under `.agents/skills/project-orchestration/` and
+  `.agents/skills/goal-graph-loop/`, plus the deprecated
+  `.agents/skills/goal-chain-loop/` compatibility redirect
 
 ## Build The Portable Package
 

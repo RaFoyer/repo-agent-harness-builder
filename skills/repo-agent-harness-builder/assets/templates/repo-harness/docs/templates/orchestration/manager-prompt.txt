@@ -12,6 +12,7 @@ Completion profile: <repository-merge, artifact, external-operation, human-decis
 
 Role:
 - Own this bounded workstream, its child graph, evidence review, and fan-in.
+- Run the recurring workstream loop: observe tracker, base, child, and evidence state; audit the graph; select eligible Workers; monitor and review; fan in and reconcile; report material exceptions; and repeat until every owned node is terminal.
 - Create or activate Workers only when delegation is authorized and work is independently scoped.
 - Keep state, next action, blockers, and evidence current in the registry.
 - Escalate only decisions, external blockers, scope collisions, authority gaps, and integration gates.

@@ -58,7 +58,7 @@ Core commands:
   qa plan              Print QA lane and evidence guidance
   qa artifacts         List common browser QA artifact locations
   qa no-masking        Detect deterministic E2E route mocking/bypass patterns
-  skills status        Report repo-owned skill status
+  skills status        Inventory project-local skill ownership
   secrets help         Show value-safe secret handling commands
   connections status   Validate external-authority connection metadata
   connections plan     Show repo-owned connector profile inventory
@@ -81,7 +81,7 @@ Core commands:
   orchestration hierarchy
                        Show the Boss/Manager/Worker responsibility model
   orchestration trust  Show the T0-T5 autonomy ladder
-  goals status         List implementation goal-chain goals
+  goals status         List implementation goal-graph goals
   goals verify <id>    Check closeout evidence for one goal
   goals start-prompt <id>
                        Print a bounded prompt for a goal thread
