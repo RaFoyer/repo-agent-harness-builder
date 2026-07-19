@@ -19,6 +19,14 @@ Keep these control dimensions distinct. Coordination role intentionally carries 
 
 Do not infer permissions from role, completion from task visibility, or work domain from title. A Boss can be proposal-only. A Worker can have bounded integration authority. A terminal task can be completed, cancelled, or superseded.
 
+Coordination roles own nested control loops:
+
+- the Boss owns the portfolio loop over Managers, cross-workstream dependencies, exceptions, and fan-in
+- each Manager owns one bounded workstream loop and its goal chain or dependency graph
+- each Worker owns one bounded execution loop and reports to its immediate parent
+
+The Boss must not become the controller for every internal goal chain. The Manager is the normal goal-chain controller. A Worker may delegate a smaller Worker loop only when its explicit authority envelope permits delegation.
+
 ## Scope Model
 
 One `ops/orchestration.json` governs one explicit scope. Record:
@@ -150,6 +158,7 @@ Reject designs that:
 - bind durable project semantics to one agent vendor's task API
 - promote trust globally from narrow evidence
 - let Managers silently absorb Worker implementation or Workers bypass their immediate parent for routine updates
+- let a Boss directly operate every goal chain, leave a goal chain without exactly one Manager owner, or create replacement Workers merely because previous task context is unavailable
 
 ## Activation And Tests
 

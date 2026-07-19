@@ -25,7 +25,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
-  trust, authority, budgets, and completion evidence
+  trust, authority, budgets, completion evidence, and nested portfolio,
+  goal-chain, and bounded execution loops
 - bundled orchestration and goal-chain-loop templates for general delegation,
   implementation graphs, and subgoal orchestration
 - an inactive-by-default Codex-native Firstmate adapter that gives each
@@ -184,9 +185,10 @@ The skill can help with:
   optional local agent pinning, skill/self checks, project orchestration
   validation/launch contracts, and goal-chain helpers
 - project-wide Boss/Manager/Worker orchestration with independent lifecycle,
-  trust, authority, budget, and completion-profile controls
+  trust, authority, budget, completion-profile, and loop-ownership controls
 - goal chains and recurring work definitions that compose with the general
-  orchestration layer instead of defining a software-only hierarchy
+  orchestration layer: Bosses manage Managers, Managers own goal-chain loops,
+  and Workers own bounded node loops
 - bundled orchestration and goal-chain assets for prompts, registries, ledgers,
   graph templates, and handoff records
 - repo-local Codex-native Firstmate assets under `.codex/` and

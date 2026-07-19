@@ -1,6 +1,6 @@
 ---
 name: repo-agent-harness-builder
-description: Use when creating, auditing, extending, packaging, or explaining a repository or personal-folder agent harness with AGENTS.md, protocol documentation, deterministic CLI commands, onboarding packages, safe file stewardship, goal chains, automations, heartbeats, preflight/precommit checks, skills, or portable agent handoff archives.
+description: Use when creating, auditing, extending, packaging, or explaining a repository or personal-folder agent harness with AGENTS.md, protocol documentation, deterministic CLI commands, project orchestration, goal graphs, automations, heartbeats, preflight/precommit checks, skills, or portable agent handoff archives.
 ---
 
 # Repo Agent Harness Builder
@@ -51,7 +51,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
-- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust and authority envelopes.
+- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust, authority, and loop ownership.
 - `assets/templates/client-adapters/codex-native-firstmate/`: opt-in Codex config examples, role profiles, Firstmate Boss overlay, protocol, and project-local adapter skill around the portable orchestration core.
 - `assets/templates/goal-chain/`: ticket-backed implementation goal-chain/graph, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
 - `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, and goal-chain-loop skill templates plus agent-client install guidance.

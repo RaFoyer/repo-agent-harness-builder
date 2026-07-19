@@ -142,26 +142,56 @@ spec.loader.exec_module(public_scan)
 assert ".key" in public_scan.FORBIDDEN_SUFFIXES
 PY
 
-echo "== goal-chain Manager prompt mirrors =="
+echo "== orchestration loop prompt contracts =="
 python3 - "$SKILL/assets/templates" <<'PY'
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-paths = [
+manager_paths = [
     root / "goal-chain" / "MANAGER-THREAD-PROMPT.txt",
     root / "onboarding-package" / "skills" / "goal-chain-loop" / "assets" / "manager-thread-prompt.txt",
     root / "repo-harness" / "docs" / "templates" / "goal-chain" / "manager-thread-prompt.txt",
 ]
-prompts = [path.read_text(encoding="utf-8") for path in paths]
+manager_prompts = [path.read_text(encoding="utf-8") for path in manager_paths]
 expected_closeout = (
     "Mark the Manager terminal only after every owned node is terminal; a blocked Worker "
     "must first be explicitly reconciled to completed, cancelled, or superseded"
 )
-if any(expected_closeout not in prompt for prompt in prompts):
+if any(expected_closeout not in prompt for prompt in manager_prompts):
     raise SystemExit("Manager prompt closeout must require terminal child reconciliation")
-if len(set(prompts)) != 1:
+if any("Run its recurring goal-chain loop" not in prompt for prompt in manager_prompts):
+    raise SystemExit("Manager prompts must assign the recurring goal-chain loop")
+if any("Reconstruct ticket movements and Git/PR evidence" not in prompt for prompt in manager_prompts):
+    raise SystemExit("Manager prompts must reconstruct evidence before replacing work")
+if len(set(manager_prompts)) != 1:
     raise SystemExit("Manager prompt mirrors have drifted")
+
+role_prompts = {
+    "Boss": [
+        root / "orchestration" / "BOSS-PROMPT.txt",
+        root / "repo-harness" / "docs" / "templates" / "orchestration" / "boss-prompt.txt",
+    ],
+    "Manager": [
+        root / "orchestration" / "MANAGER-PROMPT.txt",
+        root / "repo-harness" / "docs" / "templates" / "orchestration" / "manager-prompt.txt",
+    ],
+    "Worker": [
+        root / "orchestration" / "WORKER-PROMPT.txt",
+        root / "repo-harness" / "docs" / "templates" / "orchestration" / "worker-prompt.txt",
+    ],
+}
+role_contracts = {
+    "Boss": "Run the recurring portfolio loop",
+    "Manager": "Run the recurring workstream loop",
+    "Worker": "Run the bounded execution loop",
+}
+for role, paths in role_prompts.items():
+    prompts = [path.read_text(encoding="utf-8") for path in paths]
+    if any(role_contracts[role] not in prompt for prompt in prompts):
+        raise SystemExit(f"{role} prompt must declare loop ownership")
+    if len(set(prompts)) != 1:
+        raise SystemExit(f"{role} prompt mirrors have drifted")
 PY
 
 echo "== package build =="

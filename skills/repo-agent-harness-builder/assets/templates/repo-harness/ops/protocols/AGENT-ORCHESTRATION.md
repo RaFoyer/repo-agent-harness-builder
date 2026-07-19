@@ -2,7 +2,7 @@
 protocol_id: AGENT-ORCHESTRATION
 title: Agent Orchestration
 status: inactive
-version: 0.2.0
+version: 0.3.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines project-wide Boss, Manager, and Worker coordination with explicit trust, authority, state, and evidence boundaries.
@@ -68,17 +68,21 @@ Boss:
 
 - one logical Boss per repository or project
 - owns portfolio health, dependency graph, Manager boundaries, escalation, and fan-in order
+- runs the recurring portfolio loop over Managers: observe, reconcile, select eligible Manager actions, control cross-Manager fan-in and exceptions, record, and repeat
+- does not own every Manager's internal goal chain
 - does not absorb implementation that belongs to a Manager or Worker
 
 Manager:
 
-- owns one bounded workstream and its child graph
+- owns one bounded workstream and its goal chain or dependency graph
+- runs the recurring workstream loop: observe tracker, base, Worker, and evidence state; audit or rewrite the graph; select eligible Workers; monitor and review; fan in and reconcile; report material exceptions; and repeat until every owned node is terminal
 - creates or activates Workers only when its trust level and authority envelope permit delegation
 - reviews Worker evidence, manages fan-in, and escalates decisions, external blockers, scope collisions, and integration gates
 
 Worker:
 
 - owns one bounded, independently verifiable outcome
+- runs the bounded execution loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal
 - reports to its immediate parent
 - may create a child Worker only when delegation is authorized and contracts and write sets are safely independent
 
@@ -142,7 +146,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 
 1. Configure the project prefix, trust policy, and inactive registry.
 2. Define the Boss at an explicit trust level and authority envelope.
-3. Map portfolios, workstreams, dependencies, completion profiles, and approval gates before creating live tasks.
+3. Map the Boss portfolio, Manager-owned workstreams and goal graphs, Worker nodes, dependencies, completion profiles, and approval gates before creating live tasks.
 4. Validate the registry with `./{{CLI_NAME}} orchestration validate`.
 5. Use `orchestration next` to identify dependency-eligible work.
 6. Inspect a bounded prompt with `orchestration prompt <node-id>`, then emit `orchestration launch-spec <node-id>` when a client is authorized to create the task.
@@ -205,7 +209,9 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
 - Do not let Managers silently become Workers.
+- Do not let the Boss directly operate every goal chain or leave a goal chain without exactly one Manager owner.
 - Do not let a Worker report around its parent except for material safety risk.
+- Do not create a replacement Worker merely because an earlier task or thread is unavailable; first reconcile tracker movements with Git/PR and orchestration evidence and prove the outcome is incomplete and unowned.
 - Do not leave a live task idle without a named reason and next control action.
 - Do not activate external writes, deployments, schedules, destructive actions, or messages without their domain protocol and approval gate.
 - Preserve unrelated user work and keep secrets out of repo, chat, logs, trackers, and artifacts.

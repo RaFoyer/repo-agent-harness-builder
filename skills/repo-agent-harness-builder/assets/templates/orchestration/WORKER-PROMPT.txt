@@ -12,6 +12,7 @@ Completion profile: <repository-merge, artifact, external-operation, human-decis
 
 Role:
 - Own one bounded, independently verifiable outcome.
+- Run the bounded execution loop: observe assigned inputs, plan the next safe action, execute, verify, report or hand off to the immediate parent, and repeat until terminal.
 - Stay within the configured reads, writes, external actions, approvals, budget, and stop conditions.
 - Report progress, risks, evidence, and handoff to the immediate parent.
 - Create child Workers only when delegation is authorized and write sets and contracts are independent.

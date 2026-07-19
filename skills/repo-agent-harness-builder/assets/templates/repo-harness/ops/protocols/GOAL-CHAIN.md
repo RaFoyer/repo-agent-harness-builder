@@ -2,7 +2,7 @@
 protocol_id: GOAL-CHAIN
 title: Goal Chain Workflow
 status: inactive
-version: 0.1.0
+version: 0.2.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines ticket-backed implementation goal chains with merge, verification, and handoff evidence.
@@ -21,7 +21,7 @@ related_protocols:
 
 Run product and engineering work through ticket-backed goals that each start from the current integration branch, land one coherent unit of work, record evidence, merge, and queue dependent work from shared repository state.
 
-This protocol defines a `repository-merge` completion profile. When work uses delegated tasks, compose it with `AGENT-ORCHESTRATION.md`; that protocol owns role, title, parentage, lifecycle, trust, authority, and delegation budgets.
+This protocol defines a `repository-merge` completion profile. When work uses delegated tasks, compose it with `AGENT-ORCHESTRATION.md`; that protocol owns role, title, parentage, lifecycle, trust, authority, and delegation budgets. The Boss owns the portfolio loop over Managers, each Manager owns one bounded goal-chain or goal-graph loop, and each Worker owns one bounded node execution loop.
 
 ## When To Use
 
@@ -39,18 +39,20 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 ## Required Sequence
 
 1. Confirm the canonical tracker, integration branch, and verification commands.
-2. Build a dependency graph before creating a linear queue. Cluster related tickets only when they share a system boundary or acceptance evidence.
-3. Start each goal from the current integration branch, not an old feature branch.
-4. If decisions were made in a Lavish artifact, capture them in the tracker with `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` before implementation starts. Add `--decisions <file>` when decisions are recorded separately.
-5. Create one ticket-backed branch for the goal.
-6. Produce a concise implementation plan before large edits.
-7. Implement only the scoped goal.
-8. Run local verification and record commands/results.
-9. Open a PR with evidence and resolve review.
-10. When no-mistakes is initialized for the repository, run the PR gate before merge.
-11. Merge the PR into the integration branch.
-12. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
-13. Start dependent work only after prerequisite merge or squash integration commits are visible from the integration branch unless the goal chain or graph explicitly allows speculative work.
+2. When inheriting or re-auditing a graph, cross-reference ticket movements with Git/PR and orchestration evidence. Classify every existing node before retaining, replacing, or relaunching it.
+3. Assign exactly one Manager owner to each bounded goal chain or graph.
+4. Build a dependency graph before creating a linear queue. Cluster related tickets only when they share a system boundary or acceptance evidence.
+5. Start each goal from the current integration branch, not an old feature branch.
+6. If decisions were made in a Lavish artifact, capture them in the tracker with `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` before implementation starts. Add `--decisions <file>` when decisions are recorded separately.
+7. Create one ticket-backed branch for the goal.
+8. Produce a concise implementation plan before large edits.
+9. Implement only the scoped goal.
+10. Run local verification and record commands/results.
+11. Open a PR with evidence and resolve review.
+12. When no-mistakes is initialized for the repository, run the PR gate before merge.
+13. Merge the PR into the integration branch.
+14. Record merged PR, merge or squash integration commit, closed or linked issues, verification evidence, residual risks, and next goal.
+15. Start dependent work only after prerequisite merge or squash integration commits are visible from the integration branch unless the goal chain or graph explicitly allows speculative work.
 
 ## Graph And Orchestration Templates
 
@@ -76,6 +78,8 @@ For delegated goal chains, declare goal nodes in `ops/orchestration.json` with:
 
 Use `./{{CLI_NAME}} orchestration next`, `orchestration prompt`, and `orchestration launch-spec` for hierarchy and task launch. Use `goals status`, `goals verify`, and `goals start-prompt` for goal-chain-specific local evidence. Do not maintain a second role or lifecycle taxonomy in this protocol.
 
+The Manager repeatedly observes tracker, integration, Worker, PR, and ledger state; audits or rewrites its graph; selects dependency-eligible Workers; monitors and reviews; controls fan-in; reconciles evidence and downstream unlocks; and repeats until every owned node is terminal. The Boss handles dependencies and fan-in across Managers, not the Manager's internal loop.
+
 ## Guardrails
 
 - Keep secrets out of repo, chat, logs, tickets, commits, and CI.
@@ -83,6 +87,7 @@ Use `./{{CLI_NAME}} orchestration next`, `orchestration prompt`, and `orchestrat
 - Do not carry scratch context into the next goal. Put durable decisions in repo docs or tracker comments.
 - Do not treat Lavish feedback as implementation scope until the decision has been captured in the canonical tracker or an approved repository decision record.
 - Do not broaden a goal into unrelated tickets.
+- Do not create a replacement Worker solely because an earlier thread is unavailable; first prove from tracker and Git/PR evidence that the outcome is incomplete and unowned.
 - Preserve unrelated user work and require approval for destructive, production, financial, privacy-sensitive, or external-message actions.
 
 ## CLI Support
