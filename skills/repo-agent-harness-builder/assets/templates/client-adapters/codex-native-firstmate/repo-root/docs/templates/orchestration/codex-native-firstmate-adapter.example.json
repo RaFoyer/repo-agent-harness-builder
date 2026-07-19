@@ -6,6 +6,12 @@
   "standingTaskCreationGrant": false,
   "taskCreationApprovalGate": null,
   "completionProfiles": null,
+  "presentationTaxonomy": {
+    "profile": "portable",
+    "repositoryIdentity": null,
+    "managerCatalog": ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"],
+    "workerCatalog": ["Director", "Lead", "Contributor"]
+  },
   "baseRef": null,
   "worktreePolicy": {
     "mode": "managed",

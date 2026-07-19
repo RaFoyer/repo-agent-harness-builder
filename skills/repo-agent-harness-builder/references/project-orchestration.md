@@ -46,7 +46,8 @@ Every node should declare:
 - role and immediate parent node
 - extensible `workKind` slug
 - governing protocol IDs
-- exact registry-derived title
+- exact registry-derived title; a client presentation taxonomy may change only
+  its display role and title grammar, never the canonical role or authority
 - dependency node IDs
 - lifecycle state and its required control fields
 - trust level and promotion evidence when above the default

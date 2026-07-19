@@ -59,6 +59,7 @@ see a read-only readiness result, such as:
 ./harness lavish status
 ./harness orchestration status
 ./harness orchestration adapter-status
+./harness orchestration taxonomy
 ./harness context
 ./harness preflight
 ```

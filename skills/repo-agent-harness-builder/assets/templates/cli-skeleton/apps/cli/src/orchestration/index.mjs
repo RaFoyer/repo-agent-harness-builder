@@ -30,6 +30,13 @@ const BINDING_ATTESTATION_ALGORITHM = "ed25519";
 const BINDING_PUBLIC_KEY_ENV = "ORCHESTRATION_BINDING_PUBLIC_KEY";
 const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
 const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
+const PRESENTATION_PROFILES = new Set(["portable", "nautical", "executive"]);
+const PRESENTATION_ROLE_LABELS = {
+  portable: { boss: "Boss", manager: "Manager", worker: "Worker" },
+  nautical: { boss: "Firstmate", manager: "Secondmate", worker: "Crewmate" }
+};
+const DEFAULT_EXECUTIVE_MANAGER_CATALOG = ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"];
+const DEFAULT_EXECUTIVE_WORKER_CATALOG = ["Director", "Lead", "Contributor"];
 const CODEX_FIRSTMATE_ASSETS = [
   ".agents/skills/codex-native-firstmate/SKILL.md",
   ".codex/config.firstmate.example.toml",
@@ -97,7 +104,27 @@ function isUtcRfc3339Timestamp(value) {
     && isApprovalTimestamp(value);
 }
 
-function titleForNode(node, nodesById, prefix) {
+function presentationTaxonomy(adapter) {
+  const taxonomy = adapter?.presentationTaxonomy;
+  if (!isObject(taxonomy) || !PRESENTATION_PROFILES.has(taxonomy.profile)) return null;
+  return taxonomy;
+}
+
+function displayRoleForNode(node, taxonomy) {
+  if (!taxonomy) return null;
+  if (taxonomy.profile !== "executive") return PRESENTATION_ROLE_LABELS[taxonomy.profile][node.role] || null;
+  if (node.role === "boss") return "CEO";
+  return isNonEmptyString(node.displayRole) ? node.displayRole : null;
+}
+
+function titleForNode(node, nodesById, prefix, adapter, scope) {
+  const taxonomy = presentationTaxonomy(adapter);
+  if (taxonomy) {
+    const identity = taxonomy.repositoryIdentity || "<repository-identity>";
+    const displayRole = displayRoleForNode(node, taxonomy) || `<${node.role}-display-role>`;
+    const boundedScope = node.role === "boss" ? scope?.id || "<scope>" : node.workRef || "<WORK-REF>";
+    return `${identity} - ${displayRole} - ${boundedScope}/${node.id || "<node-id>"}`;
+  }
   const label = node.label || "<label>";
   const workRef = node.workRef || "<WORK-REF>";
   if (node.role === "boss") return `${prefix} - Boss`;
@@ -207,6 +234,7 @@ function bindingAttestationPayload(registry, binding) {
       workContractHash: binding.workContractHash,
       nodeId: binding.nodeId,
       taskId: binding.taskId,
+      externalTitle: binding.externalTitle,
       parentNodeId: binding.parentNodeId ?? null,
       parentTaskId: binding.parentTaskId ?? null,
       boundRevision: binding.boundRevision,
@@ -353,6 +381,7 @@ function taskBindingBlockers(registry, node, parent) {
   else if (binding.workContractHash !== workContractHash) blockers.push(`${label}: taskBinding.workContractHash must match the immutable materialized work contract`);
   if (binding.nodeId !== node.id) blockers.push(`${label}: taskBinding.nodeId must match node identity`);
   if (binding.taskId !== node.taskId) blockers.push(`${label}: taskBinding.taskId must match taskId`);
+  if (binding.externalTitle !== node.title) blockers.push(`${label}: taskBinding.externalTitle must match the verified task title`);
   if (node.role === "boss") {
     if ((binding.parentNodeId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentNodeId must be null`);
     if ((binding.parentTaskId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentTaskId must be null`);
@@ -376,6 +405,7 @@ function taskBindingUpdate({ registry, launchKey, workContractHash, node, parent
     workContractHash,
     nodeId: node.id,
     taskId: "external task ID returned by the adapter",
+    externalTitle: node.title,
     parentNodeId: node.parentId ?? null,
     parentTaskId: parent?.taskId ?? null,
     boundRevision,
@@ -652,7 +682,7 @@ function validateRegistry(registry) {
     if (node.role !== "boss" && !isNonEmptyString(node.parentId)) blockers.push(`${label}: non-Boss nodes require parentId`);
     if (node.role !== "boss" && isNonEmptyString(node.parentId) && !parent) blockers.push(`${label}: parent ${node.parentId} does not exist`);
     if (node.role === "manager" && parent?.role !== "boss") blockers.push(`${label}: Manager parent must be the Boss`);
-    const expectedTitle = titleForNode(node, nodesById, registry.prefix || "<PREFIX>");
+    const expectedTitle = titleForNode(node, nodesById, registry.prefix || "<PREFIX>", registry.clientAdapter, registry.scope);
     if (!isNonEmptyString(node.title) || (expectedTitle && node.title !== expectedTitle)) {
       blockers.push(`${label}: title must equal ${expectedTitle || "the registry-derived title"}`);
     }
@@ -819,6 +849,7 @@ function printHelp(io) {
   io.stdout("Commands:");
   io.stdout("  status             Summarize configured project orchestration");
   io.stdout("  adapter-status     Inspect Codex-native Firstmate adapter posture");
+  io.stdout("  taxonomy           Preview presentation profiles and task-title grammar");
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
@@ -828,6 +859,65 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("All commands are read-only and never create tasks or mutate external systems.");
+}
+
+function completionProfileCoverageBlockers(nodes, completionProfiles) {
+  const blockers = [];
+  const expectedByType = new Map();
+  for (const node of nodes) {
+    if (node.role === "boss" || !isObject(node.completionProfile)) continue;
+    const { type, requiredEvidence } = node.completionProfile;
+    if (!COMPLETION_TYPES.has(type) || !isStringArray(requiredEvidence, { nonEmpty: true })) continue;
+    const expected = expectedByType.get(type) || new Set();
+    for (const evidence of requiredEvidence) expected.add(evidence);
+    expectedByType.set(type, expected);
+  }
+  for (const [type, expected] of expectedByType) {
+    const configured = completionProfiles[type];
+    if (!isStringArray(configured, { nonEmpty: true })
+      || !isDeepStrictEqual(canonicalValues(configured), [...expected].sort())) {
+      blockers.push(`clientAdapter.completionProfiles.${type} must exactly cover registry required evidence`);
+    }
+  }
+  return blockers;
+}
+
+function presentationTaxonomyBlockers(registry, adapter) {
+  const blockers = [];
+  const taxonomy = presentationTaxonomy(adapter);
+  if (!taxonomy) {
+    blockers.push("clientAdapter.presentationTaxonomy must select portable, nautical, or executive");
+    return blockers;
+  }
+  if (!isNonEmptyString(taxonomy.repositoryIdentity)) {
+    blockers.push("clientAdapter.presentationTaxonomy.repositoryIdentity is required");
+  }
+  if (taxonomy.profile === "executive") {
+    if (!isStringArray(taxonomy.managerCatalog, { nonEmpty: true })) {
+      blockers.push("clientAdapter.presentationTaxonomy.managerCatalog must be a non-empty C-suite title catalog");
+    }
+    if (!isStringArray(taxonomy.workerCatalog, { nonEmpty: true })) {
+      blockers.push("clientAdapter.presentationTaxonomy.workerCatalog must be a non-empty Worker title catalog");
+    }
+  }
+  for (const node of arrayOrEmpty(registry.nodes)) {
+    if (!isObject(node) || !ROLES.has(node.role)) continue;
+    const displayRole = displayRoleForNode(node, taxonomy);
+    if (taxonomy.profile === "executive") {
+      if (node.role === "boss" && node.displayRole !== undefined && node.displayRole !== "CEO") {
+        blockers.push(`node ${node.id || "<missing-id>"}: executive Boss displayRole must be CEO when configured`);
+      }
+      if (node.role === "manager" && !arrayOrEmpty(taxonomy.managerCatalog).includes(displayRole)) {
+        blockers.push(`node ${node.id || "<missing-id>"}: executive Manager displayRole must be in managerCatalog`);
+      }
+      if (node.role === "worker" && !arrayOrEmpty(taxonomy.workerCatalog).includes(displayRole)) {
+        blockers.push(`node ${node.id || "<missing-id>"}: executive Worker displayRole must be in workerCatalog`);
+      }
+    } else if (node.displayRole !== undefined && node.displayRole !== displayRole) {
+      blockers.push(`node ${node.id || "<missing-id>"}: ${taxonomy.profile} displayRole must remain ${displayRole}`);
+    }
+  }
+  return blockers;
 }
 
 function firstmateActivationBlockers(registry, adapter) {
@@ -856,7 +946,10 @@ function firstmateActivationBlockers(registry, adapter) {
     || Object.keys(adapter.completionProfiles).length === 0
     || Object.entries(adapter.completionProfiles).some(([type, evidence]) => !COMPLETION_TYPES.has(type) || !isStringArray(evidence, { nonEmpty: true }))) {
     blockers.push("clientAdapter.completionProfiles must configure supported profiles with required evidence");
+  } else {
+    blockers.push(...completionProfileCoverageBlockers(arrayOrEmpty(registry.nodes), adapter.completionProfiles));
   }
+  blockers.push(...presentationTaxonomyBlockers(registry, adapter));
   if (!isNonEmptyString(adapter.baseRef)) blockers.push("clientAdapter.baseRef is required");
 
   const worktreePolicy = adapter.worktreePolicy;
@@ -954,6 +1047,29 @@ function runAdapterStatus(io) {
     `Run ./${CONFIG.cliName} orchestration validate`
   ]));
   return loaded.error ? 1 : 0;
+}
+
+function runTaxonomy(io) {
+  const loaded = loadRegistry();
+  const taxonomy = presentationTaxonomy(loaded.registry?.clientAdapter);
+  const managerCatalog = arrayOrEmpty(taxonomy?.managerCatalog || DEFAULT_EXECUTIVE_MANAGER_CATALOG);
+  const workerCatalog = arrayOrEmpty(taxonomy?.workerCatalog || DEFAULT_EXECUTIVE_WORKER_CATALOG);
+  io.stdout(`selected_profile: ${toonString(taxonomy?.profile || "portable")}`);
+  io.stdout(`repository_identity: ${toonString(taxonomy?.repositoryIdentity || "configure before activation")}`);
+  io.stdout("profiles[3]{profile,boss,manager,worker}:");
+  io.stdout('  "portable","Boss","Manager","Worker"');
+  io.stdout('  "nautical","Firstmate","Secondmate","Crewmate"');
+  io.stdout('  "executive","CEO","configured C-suite title","configured Director, Lead, or Contributor title"');
+  io.stdout(`executive_manager_catalog[${managerCatalog.length}]:`);
+  for (const title of managerCatalog) io.stdout(`  ${toonString(title)}`);
+  io.stdout(`executive_worker_catalog[${workerCatalog.length}]:`);
+  for (const title of workerCatalog) io.stdout(`  ${toonString(title)}`);
+  io.stdout('title_grammar: "<repository identity> - <display role> - <scope-or-workstream>/<node id>"');
+  io.stdout("rules[3]:");
+  io.stdout('  "Canonical registry roles remain boss, manager, and worker"');
+  io.stdout('  "Display labels never grant authority"');
+  io.stdout('  "Create or adopt, rename, and verify the exact title before binding; title failure quarantines the reservation"');
+  return 0;
 }
 
 function printFindings(io, findings) {
@@ -1257,7 +1373,9 @@ function runLaunchSpec(nodeId, io) {
     externalTask: {
       idempotencyKey: launchKey,
       reconciliationKey: launchKey,
-      requiredCreateBehavior: "Use launchKey as the external task API idempotency key.",
+      requiredTitle: node.title,
+      requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
+      requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title.",
       indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
     prompt: buildPromptLines(node, parent).join("\n"),
@@ -1287,6 +1405,7 @@ function runLaunchSpec(nodeId, io) {
         ...reservationValidity,
         requiredUpdates: [
           "taskId",
+          "verified externalTitle matching the registry title",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
@@ -1302,7 +1421,7 @@ function runLaunchSpec(nodeId, io) {
           boundRevision: reservationValidity.expectedRegistryRevision + 1
         }),
         mustAdvanceRegistryRevision: true,
-        onFailure: "Keep the reservation and reconcile the external task by launchKey; do not create another task."
+        onFailure: "Keep the reservation quarantined and reconcile the external task by launchKey; do not create another task after a title or bind failure."
       },
       reconcile: {
         operation: "compare-and-set-reconcile-bind",
@@ -1310,7 +1429,9 @@ function runLaunchSpec(nodeId, io) {
           reconciliationKey: launchKey,
           idempotencyKey: launchKey,
           requireExistingTask: true,
-          createAllowed: false
+          createAllowed: false,
+          requiredTitle: node.title,
+          renameAndVerifyBeforeBind: true
         },
         requiredReservation: {
           key: launchKey,
@@ -1351,6 +1472,7 @@ function runLaunchSpec(nodeId, io) {
         },
         requiredUpdates: [
           "taskId from reconciled external task",
+          "verified externalTitle matching the registry title",
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
@@ -1397,6 +1519,9 @@ export async function runOrchestration(argv, io) {
     case "adapter-status":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration adapter-status", hints: [`Run ./${CONFIG.cliName} orchestration adapter-status`] })) return 2;
       return runAdapterStatus(io);
+    case "taxonomy":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration taxonomy", hints: [`Run ./${CONFIG.cliName} orchestration taxonomy`] })) return 2;
+      return runTaxonomy(io);
     case "hierarchy":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration hierarchy", hints: [`Run ./${CONFIG.cliName} orchestration hierarchy`] })) return 2;
       return runHierarchy(io);

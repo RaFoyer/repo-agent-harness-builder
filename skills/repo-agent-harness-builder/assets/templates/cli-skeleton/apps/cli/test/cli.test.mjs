@@ -127,6 +127,7 @@ function taskBindingForTest(registry, node, { boundRevision = registry.revision,
     workContractHash,
     nodeId: node.id,
     taskId: node.taskId,
+    externalTitle: node.title,
     parentNodeId: node.parentId,
     parentTaskId: parent?.taskId || null,
     boundRevision,
@@ -283,9 +284,9 @@ function validOrchestrationRegistry() {
   return registry;
 }
 
-function configuredFirstmateAdapter(registry) {
+function configuredFirstmateAdapter(registry, profile = "portable") {
   const boss = registry.nodes.find((node) => node.role === "boss");
-  return {
+  const adapter = {
     id: "codex-app",
     profile: "codex-native-firstmate",
     status: "active",
@@ -293,7 +294,14 @@ function configuredFirstmateAdapter(registry) {
     standingTaskCreationGrant: false,
     taskCreationApprovalGate: "per-task-human-approval",
     completionProfiles: {
-      artifact: ["approved artifact"]
+      artifact: ["approved documentation artifact"],
+      "human-decision": ["downstream disposition", "recorded human decision"]
+    },
+    presentationTaxonomy: {
+      profile,
+      repositoryIdentity: CONFIG.repoSlug,
+      managerCatalog: ["CTO", "COO"],
+      workerCatalog: ["Director", "Lead", "Contributor"]
     },
     baseRef: "{{DEFAULT_BRANCH}}",
     worktreePolicy: {
@@ -317,6 +325,17 @@ function configuredFirstmateAdapter(registry) {
     },
     reconciliationPolicy: "quarantine-and-human-reconcile"
   };
+  const displayRoles = profile === "portable"
+    ? { boss: "Boss", manager: "Manager", worker: "Worker" }
+    : profile === "nautical"
+      ? { boss: "Firstmate", manager: "Secondmate", worker: "Crewmate" }
+      : { boss: "CEO", manager: "CTO", worker: "Lead" };
+  for (const node of registry.nodes) {
+    if (profile === "executive" && node.role !== "boss") node.displayRole = displayRoles[node.role];
+    node.title = `${CONFIG.repoSlug} - ${displayRoles[node.role]} - ${(node.role === "boss" ? registry.scope.id : node.workRef)}/${node.id}`;
+  }
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  return adapter;
 }
 
 function createFixtureCommit(message = "fixture commit", branch = "{{DEFAULT_BRANCH}}") {
@@ -492,6 +511,7 @@ test("help lists core commands", () => {
   assert.match(help, /connections env/);
   assert.match(help, /orchestration status/);
   assert.match(help, /orchestration adapter-status/);
+  assert.match(help, /orchestration taxonomy/);
   assert.match(help, /orchestration validate/);
   assert.match(help, /orchestration prompt/);
   assert.match(help, /orchestration launch-spec/);
@@ -556,6 +576,9 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["Boss task identity", (registry) => { registry.clientAdapter.bossTaskId = null; }, /bossTaskId/],
     ["task-creation decision", (registry) => { registry.clientAdapter.taskCreationApprovalGate = null; }, /taskCreationApprovalGate/],
     ["completion profiles", (registry) => { registry.clientAdapter.completionProfiles = {}; }, /completionProfiles/],
+    ["completion profile coverage", (registry) => { delete registry.clientAdapter.completionProfiles["human-decision"]; }, /completionProfiles\.human-decision must exactly cover registry required evidence/],
+    ["completion evidence coverage", (registry) => { registry.clientAdapter.completionProfiles.artifact = ["wrong evidence"]; }, /completionProfiles\.artifact must exactly cover registry required evidence/],
+    ["presentation taxonomy", (registry) => { registry.nodes.find((node) => node.id === "boss").displayRole = "Captain"; }, /portable displayRole must remain Boss/],
     ["base ref", (registry) => { registry.clientAdapter.baseRef = null; }, /baseRef/],
     ["worktree policy", (registry) => { registry.clientAdapter.worktreePolicy.mode = "unmanaged"; }, /worktreePolicy/],
     ["Browser choice", (registry) => { registry.clientAdapter.browserIntegration = "unconfigured"; }, /browserIntegration/],
@@ -600,6 +623,39 @@ fixtureTest("active orchestration rejects an explicitly configured inactive clie
   const code = await main(["orchestration", "validate"], io);
   assert.equal(code, 1);
   assert.match(out.join("\n"), /configured clientAdapter must be active when orchestration is active/);
+});
+
+fixtureTest("Codex-native Firstmate taxonomy preserves canonical roles and exact titles", async () => {
+  const expectedDisplayRoles = {
+    portable: ["Boss", "Manager", "Worker"],
+    nautical: ["Firstmate", "Secondmate", "Crewmate"],
+    executive: ["CEO", "CTO", "Lead"]
+  };
+  for (const [profile, displayRoles] of Object.entries(expectedDisplayRoles)) {
+    const registry = validOrchestrationRegistry();
+    registry.clientAdapter = configuredFirstmateAdapter(registry, profile);
+    writeOrchestrationRegistry(registry);
+    const validation = capture();
+    assert.equal(await main(["orchestration", "validate"], validation.io), 0, `${profile}: ${validation.out.concat(validation.err).join("\n")}`);
+    const posture = capture();
+    assert.equal(await main(["orchestration", "adapter-status"], posture.io), 0, `${profile}: ${posture.err.join("\n")}`);
+    assert.match(posture.out.join("\n"), /activation_ready: true/);
+    assert.deepEqual(registry.nodes.map((node) => node.role), ["boss", "manager", "worker"]);
+    assert.deepEqual(registry.nodes.map((node) => node.title), [
+      `${CONFIG.repoSlug} - ${displayRoles[0]} - knowledge-refresh/boss`,
+      `${CONFIG.repoSlug} - ${displayRoles[1]} - DOCS-4/manager-docs`,
+      `${CONFIG.repoSlug} - ${displayRoles[2]} - RES-2/worker-research`
+    ]);
+  }
+
+  const taxonomy = capture();
+  assert.equal(await main(["orchestration", "taxonomy"], taxonomy.io), 0, taxonomy.err.join("\n"));
+  const taxonomyText = taxonomy.out.join("\n");
+  assert.match(taxonomyText, /profiles\[3\]\{profile,boss,manager,worker\}/);
+  assert.match(taxonomyText, /"portable","Boss","Manager","Worker"/);
+  assert.match(taxonomyText, /"nautical","Firstmate","Secondmate","Crewmate"/);
+  assert.match(taxonomyText, /"executive","CEO","configured C-suite title","configured Director, Lead, or Contributor title"/);
+  assert.match(taxonomyText, /Display labels never grant authority/);
 });
 
 test("no args renders content-first agent home view", async () => {
@@ -2587,13 +2643,20 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   assert.equal(spec.taskBinding.launchKey, spec.reservation.launchKey);
   assert.equal(spec.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.taskBinding.nodeId, "manager-docs");
+  assert.equal(spec.taskBinding.externalTitle, spec.title);
   assert.equal(spec.taskBinding.parentNodeId, "boss");
   assert.equal(spec.taskBinding.parentTaskId, "task-boss");
   assert.equal(spec.taskBinding.attestation.algorithm, "ed25519");
   assert.equal(spec.taskBinding.attestation.keyId, BINDING_ATTESTOR_KEY_ID);
   assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("Ed25519-attested taskBinding")));
+  assert.ok(spec.callback.bind.requiredUpdates.includes("verified externalTitle matching the registry title"));
   assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
+  assert.equal(spec.externalTask.requiredTitle, spec.title);
+  assert.match(spec.externalTask.requiredCreateBehavior, /set and verify the exact requiredTitle before binding/);
+  assert.match(spec.externalTask.requiredAdoptBehavior, /rename it to requiredTitle and verify/);
+  assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, true);
+  assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
 
   delete registry.nodes.find((node) => node.id === "boss").taskBinding;
   writeOrchestrationRegistry(registry);

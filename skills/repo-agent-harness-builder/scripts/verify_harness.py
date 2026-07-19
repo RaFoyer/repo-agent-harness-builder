@@ -47,6 +47,7 @@ COMMAND_SMOKE_TESTS = [
     ["goals", "status"],
     ["orchestration", "status"],
     ["orchestration", "adapter-status"],
+    ["orchestration", "taxonomy"],
     ["design", "status"],
     ["no-mistakes", "status"],
     ["lavish", "status"],

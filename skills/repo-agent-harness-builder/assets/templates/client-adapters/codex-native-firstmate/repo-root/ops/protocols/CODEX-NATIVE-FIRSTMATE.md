@@ -22,6 +22,21 @@ Codex-facing Boss profile, not a new role or competing control plane.
 `ops/orchestration.json` remains authoritative. Goal chains remain a
 Manager-owned `repository-merge` specialization.
 
+## Presentation Taxonomy
+
+The canonical registry roles remain `boss`, `manager`, and `worker`. Select
+`portable` to display Boss/Manager/Worker, `nautical` to display
+Firstmate/Secondmate/Crewmate, or `executive` to display CEO plus configured
+Manager C-suite and Worker Director/Lead/Contributor titles. The human Board,
+Founder, or Principal remains outside the agent tree. Display labels do not
+grant authority, alter parentage, or change lifecycle state.
+
+For a selected profile, title grammar is
+`<repository identity> - <display role> - <scope-or-workstream>/<node id>`.
+The adapter must set or adopt, rename, and verify that exact external task title
+before binding. A title failure keeps the reservation quarantined for
+reconciliation; it never authorizes another create.
+
 Each generated repository carries its own resident capability and registry.
 The default active shape is one Firstmate/Boss task for this repository, with
 Managers and Workers bounded to it. No external or global project registry is
@@ -102,6 +117,12 @@ evidence and the repository-scoped authentication boundary for each selected
 integration. Without a standing creation grant, record the per-task human
 approval gate. A trusted external Ed25519 binding attestor and its repo-selected
 public-key trust anchor must also be available.
+
+`completionProfiles` must exactly cover every completion profile used by the
+registry, including every required evidence identifier. Configure a presentation
+taxonomy and repository identity; for `executive`, configure the allowed
+Manager and Worker title catalogs and choose each non-Boss node's display role
+from the relevant catalog.
 
 ## Update Rule
 

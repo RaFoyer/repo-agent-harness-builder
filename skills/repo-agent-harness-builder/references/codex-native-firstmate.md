@@ -45,6 +45,31 @@ Goal chains remain the Manager-owned `repository-merge` specialization. They
 add ticket, branch, PR, merge, verification, and handoff evidence without
 creating another hierarchy.
 
+## Presentation Taxonomy
+
+Canonical registry roles remain `boss`, `manager`, and `worker`. A selected
+presentation taxonomy changes only the display role and deterministic task
+title; it never changes lifecycle, authority, trust, parentage, budgets, or
+completion rules.
+
+| Profile | Boss display | Manager display | Worker display |
+| --- | --- | --- | --- |
+| `portable` | Boss | Manager | Worker |
+| `nautical` | Firstmate | Secondmate | Crewmate |
+| `executive` | CEO | selected C-suite title | selected Director, Lead, or Contributor title |
+
+For the executive profile, the human Board, Founder, or Principal remains
+outside the agent tree. The adapter configuration supplies the permitted
+Manager C-suite and Worker title catalogs, and each Manager or Worker records a
+selected display role from its applicable catalog. A title is not an authority
+grant.
+
+The selected adapter derives every task title as
+`<repository identity> - <display role> - <scope-or-workstream>/<node id>`.
+Creation and adoption must set that exact title and read it back before binding
+or activation. A rename or title-verification failure quarantines the existing
+reservation and requires reconciliation; it never permits a second create.
+
 ## Native Mapping
 
 | Portable role | Codex-native shape | Responsibility |
@@ -136,7 +161,9 @@ activation, a human must deliberately configure:
 1. repo-local scope, stable root reference, objective, and one logical Firstmate/Boss task identity
 2. a standing task-creation grant or an approval gate for every creation
 3. trust policy, authority envelopes, delegation limits, and project budgets
-4. completion profiles and any optional repository-merge gate
+4. completion profiles and any optional repository-merge gate; the adapter
+   must cover every profile used by registry nodes with the exact required
+   evidence identifiers
 5. `codex-native-firstmate` as the client adapter
 6. base-ref and managed-worktree policy, including overlapping-write rules
 7. Browser and GitHub integration choices and authentication boundaries
@@ -144,6 +171,8 @@ activation, a human must deliberately configure:
 9. retention, pin, handoff, archive, and landed-work proof policy
 10. binding attestation and reconciliation behavior required by the project's
     assurance level
+11. one presentation taxonomy, repository identity, and any executive title
+    catalogs and per-node display-role selections
 
 Do not infer this activation from installed files, available tools, task
 visibility, or a Boss/Firstmate title.
@@ -169,3 +198,5 @@ The adapter template installs:
 Inspect posture with `./{{CLI_NAME}} orchestration adapter-status`. The command
 is read-only; it does not edit Codex configuration, create tasks, launch
 workers, update the registry, schedule a heartbeat, or archive anything.
+Run `./{{CLI_NAME}} orchestration taxonomy` to preview the presentation
+profiles and title grammar without changing configuration or tasks.

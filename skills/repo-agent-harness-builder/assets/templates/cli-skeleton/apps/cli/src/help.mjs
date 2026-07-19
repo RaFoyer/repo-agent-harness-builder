@@ -69,6 +69,8 @@ Core commands:
   orchestration status Summarize project-wide structured delegation
   orchestration adapter-status
                        Inspect Codex-native Firstmate adapter posture
+  orchestration taxonomy
+                       Preview presentation profiles and task-title grammar
   orchestration validate
                        Validate hierarchy, lifecycle, trust, and authority
   orchestration next   List dependency-eligible work across the project

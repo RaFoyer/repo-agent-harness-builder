@@ -22,9 +22,9 @@ independent repository Firstmates.
 
 ## Route The Work
 
-- **Inspect posture:** run `./{{CLI_NAME}} orchestration adapter-status`, then
-  `orchestration status` and `orchestration validate`. These commands are
-  read-only.
+- **Inspect posture:** run `./{{CLI_NAME}} orchestration adapter-status`,
+  `orchestration taxonomy`, then `orchestration status` and `orchestration
+  validate`. These commands are read-only.
 - **Configure the adapter:** start from
   `docs/templates/orchestration/codex-native-firstmate-adapter.example.json` and
   `.codex/config.firstmate.example.toml`. The namespaced `firstmate-boss`,
@@ -33,6 +33,9 @@ independent repository Firstmates.
   orchestration.
 - **Operate as Firstmate/Boss:** combine the validated Boss launch prompt with
   `docs/templates/orchestration/codex-native-firstmate-prompt.txt`.
+- **Select presentation:** use portable Boss/Manager/Worker, nautical
+  Firstmate/Secondmate/Crewmate, or executive display labels only as configured
+  presentation. Canonical roles and authority remain unchanged.
 - **Launch durable work:** use persistent Codex tasks and managed worktrees for
   Managers and write-capable Workers. Bind every task to its immediate parent
   through the portable launch contract.
