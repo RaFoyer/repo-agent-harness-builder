@@ -2418,7 +2418,7 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   assert.deepEqual(refreshedSpec.callback.preCreate.expectedParent, validity.expectedParent);
   assert.deepEqual(refreshedSpec.callback.bind.capacity, validity.capacity);
   assert.equal(refreshedSpec.externalTask.idempotencyKey, refreshedSpec.reservation.launchKey);
-  assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation and reconcile/);
+  assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation quarantined and reconcile/);
   assert.equal(refreshedSpec.callback.reconcile.operation, "compare-and-set-reconcile-bind");
   assert.deepEqual(refreshedSpec.callback.reconcile.requiredReservation, {
     key: refreshedSpec.reservation.launchKey,
