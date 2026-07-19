@@ -119,7 +119,11 @@ function canonicalAuthorityForTest(authority) {
   };
 }
 
-function taskBindingForTest(registry, node, { boundRevision = registry.revision, boundAt = "2026-07-16T12:00:00Z" } = {}) {
+function taskBindingForTest(registry, node, {
+  boundRevision = registry.revision,
+  boundAt = "2026-07-16T12:00:00Z",
+  requiresVerifiedTitle = registry.clientAdapter?.profile === "codex-native-firstmate"
+} = {}) {
   const parent = node.parentId ? registry.nodes.find((candidate) => candidate.id === node.parentId) : null;
   const workContractHash = materializedWorkContractHash(registry, node, parent);
   const binding = {
@@ -127,7 +131,13 @@ function taskBindingForTest(registry, node, { boundRevision = registry.revision,
     workContractHash,
     nodeId: node.id,
     taskId: node.taskId,
-    externalTitle: node.title,
+    ...(requiresVerifiedTitle ? {
+      externalTitle: node.title,
+      titleVerification: {
+        method: "rename-and-readback",
+        verified: true
+      }
+    } : {}),
     parentNodeId: node.parentId,
     parentTaskId: parent?.taskId || null,
     boundRevision,
@@ -334,7 +344,7 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
     if (profile === "executive" && node.role !== "boss") node.displayRole = displayRoles[node.role];
     node.title = `${CONFIG.repoSlug} - ${displayRoles[node.role]} - ${(node.role === "boss" ? registry.scope.id : node.workRef)}/${node.id}`;
   }
-  boss.taskBinding = taskBindingForTest(registry, boss);
+  boss.taskBinding = taskBindingForTest(registry, boss, { requiresVerifiedTitle: true });
   return adapter;
 }
 
@@ -2643,19 +2653,17 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   assert.equal(spec.taskBinding.launchKey, spec.reservation.launchKey);
   assert.equal(spec.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.taskBinding.nodeId, "manager-docs");
-  assert.equal(spec.taskBinding.externalTitle, spec.title);
+  assert.equal(spec.taskBinding.externalTitle, undefined);
   assert.equal(spec.taskBinding.parentNodeId, "boss");
   assert.equal(spec.taskBinding.parentTaskId, "task-boss");
   assert.equal(spec.taskBinding.attestation.algorithm, "ed25519");
   assert.equal(spec.taskBinding.attestation.keyId, BINDING_ATTESTOR_KEY_ID);
   assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("Ed25519-attested taskBinding")));
-  assert.ok(spec.callback.bind.requiredUpdates.includes("verified externalTitle matching the registry title"));
+  assert.ok(!spec.callback.bind.requiredUpdates.some((update) => update.includes("externalTitle")));
   assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
-  assert.equal(spec.externalTask.requiredTitle, spec.title);
-  assert.match(spec.externalTask.requiredCreateBehavior, /set and verify the exact requiredTitle before binding/);
-  assert.match(spec.externalTask.requiredAdoptBehavior, /rename it to requiredTitle and verify/);
-  assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, true);
+  assert.equal(spec.externalTask.requiredTitle, undefined);
+  assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, undefined);
   assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
 
   delete registry.nodes.find((node) => node.id === "boss").taskBinding;
@@ -2663,6 +2671,55 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   const missing = capture();
   assert.equal(await main(["orchestration", "validate"], missing.io), 1);
   assert.match(missing.out.join("\n"), /node boss: task-backed node requires immutable taskBinding metadata/);
+});
+
+fixtureTest("orchestration accepts legacy schema-v2 bindings without external title evidence", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  const valid = capture();
+  assert.equal(await main(["orchestration", "validate"], valid.io), 0, valid.out.concat(valid.err).join("\n"));
+});
+
+fixtureTest("orchestration rejects supplied binding titles that do not match the registry", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding.externalTitle = "Wrong external title";
+  boss.taskBinding.attestation.signature = signPayload(
+    null,
+    Buffer.from(taskBindingAttestationPayload(registry, boss.taskBinding)),
+    bindingAttestor.privateKey
+  ).toString("base64");
+  writeOrchestrationRegistry(registry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "validate"], invalid.io), 1);
+  assert.match(invalid.out.join("\n"), /node boss: taskBinding\.externalTitle must match the verified task title/);
+});
+
+fixtureTest("orchestration requires verified titles for new Firstmate bindings", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  delete boss.taskBinding.externalTitle;
+  boss.taskBinding.attestation.signature = signPayload(
+    null,
+    Buffer.from(taskBindingAttestationPayload(registry, boss.taskBinding)),
+    bindingAttestor.privateKey
+  ).toString("base64");
+  writeOrchestrationRegistry(registry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "validate"], invalid.io), 1);
+  assert.match(invalid.out.join("\n"), /node boss: taskBinding\.titleVerification requires externalTitle matching the verified task title/);
+
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.taskBinding.externalTitle, spec.title);
+  assert.deepEqual(spec.taskBinding.titleVerification, { method: "rename-and-readback", verified: true });
+  assert.ok(spec.callback.bind.requiredUpdates.includes("verified externalTitle and titleVerification matching the registry title"));
+  assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, true);
+  assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
 });
 
 fixtureTest("orchestration requires an external attestation for immutable task bindings", async () => {

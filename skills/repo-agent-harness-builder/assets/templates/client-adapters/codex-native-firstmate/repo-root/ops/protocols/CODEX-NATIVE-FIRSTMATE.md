@@ -36,6 +36,10 @@ For a selected profile, title grammar is
 The adapter must set or adopt, rename, and verify that exact external task title
 before binding. A title failure keeps the reservation quarantined for
 reconciliation; it never authorizes another create.
+New Firstmate bindings record the exact observed `externalTitle` and signed
+`titleVerification` evidence. Legacy schema-v2 bindings that lack this optional
+Firstmate extension remain valid; any binding that supplies an `externalTitle`
+must match its registry-derived title exactly.
 
 Each generated repository carries its own resident capability and registry.
 The default active shape is one Firstmate/Boss task for this repository, with

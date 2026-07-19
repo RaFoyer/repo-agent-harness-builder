@@ -66,6 +66,10 @@ function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isCodexNativeFirstmateAdapter(adapter) {
+  return isObject(adapter) && adapter.profile === CODEX_FIRSTMATE_PROFILE;
+}
+
 function isNonEmptyString(value) {
   return typeof value === "string" && Boolean(value.trim()) && !/[\r\n]/.test(value);
 }
@@ -235,6 +239,7 @@ function bindingAttestationPayload(registry, binding) {
       nodeId: binding.nodeId,
       taskId: binding.taskId,
       externalTitle: binding.externalTitle,
+      titleVerification: binding.titleVerification,
       parentNodeId: binding.parentNodeId ?? null,
       parentTaskId: binding.parentTaskId ?? null,
       boundRevision: binding.boundRevision,
@@ -381,7 +386,18 @@ function taskBindingBlockers(registry, node, parent) {
   else if (binding.workContractHash !== workContractHash) blockers.push(`${label}: taskBinding.workContractHash must match the immutable materialized work contract`);
   if (binding.nodeId !== node.id) blockers.push(`${label}: taskBinding.nodeId must match node identity`);
   if (binding.taskId !== node.taskId) blockers.push(`${label}: taskBinding.taskId must match taskId`);
-  if (binding.externalTitle !== node.title) blockers.push(`${label}: taskBinding.externalTitle must match the verified task title`);
+  if (binding.externalTitle !== undefined && binding.externalTitle !== node.title) {
+    blockers.push(`${label}: taskBinding.externalTitle must match the verified task title`);
+  }
+  if (binding.titleVerification !== undefined) {
+    const verification = binding.titleVerification;
+    if (!isObject(verification) || verification.method !== "rename-and-readback" || verification.verified !== true) {
+      blockers.push(`${label}: taskBinding.titleVerification must prove rename-and-readback verification`);
+    }
+    if (binding.externalTitle !== node.title) {
+      blockers.push(`${label}: taskBinding.titleVerification requires externalTitle matching the verified task title`);
+    }
+  }
   if (node.role === "boss") {
     if ((binding.parentNodeId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentNodeId must be null`);
     if ((binding.parentTaskId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentTaskId must be null`);
@@ -405,7 +421,13 @@ function taskBindingUpdate({ registry, launchKey, workContractHash, node, parent
     workContractHash,
     nodeId: node.id,
     taskId: "external task ID returned by the adapter",
-    externalTitle: node.title,
+    ...(isCodexNativeFirstmateAdapter(registry.clientAdapter) ? {
+      externalTitle: node.title,
+      titleVerification: {
+        method: "rename-and-readback",
+        verified: true
+      }
+    } : {}),
     parentNodeId: node.parentId ?? null,
     parentTaskId: parent?.taskId ?? null,
     boundRevision,
@@ -1306,6 +1328,7 @@ function runLaunchSpec(nodeId, io) {
     return 1;
   }
   const configured = findings.nodesById.has(node.id);
+  const firstmate = isCodexNativeFirstmateAdapter(loaded.registry.clientAdapter);
   const workContract = materializedWorkContract(loaded.registry, node, parent);
   const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
   const launchKey = launchKeyFor(loaded.registry, node, parent);
@@ -1373,9 +1396,11 @@ function runLaunchSpec(nodeId, io) {
     externalTask: {
       idempotencyKey: launchKey,
       reconciliationKey: launchKey,
-      requiredTitle: node.title,
-      requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
-      requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title.",
+      ...(firstmate ? {
+        requiredTitle: node.title,
+        requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
+        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title."
+      } : {}),
       indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
     prompt: buildPromptLines(node, parent).join("\n"),
@@ -1405,7 +1430,7 @@ function runLaunchSpec(nodeId, io) {
         ...reservationValidity,
         requiredUpdates: [
           "taskId",
-          "verified externalTitle matching the registry title",
+          ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
@@ -1430,8 +1455,10 @@ function runLaunchSpec(nodeId, io) {
           idempotencyKey: launchKey,
           requireExistingTask: true,
           createAllowed: false,
-          requiredTitle: node.title,
-          renameAndVerifyBeforeBind: true
+          ...(firstmate ? {
+            requiredTitle: node.title,
+            renameAndVerifyBeforeBind: true
+          } : {})
         },
         requiredReservation: {
           key: launchKey,
@@ -1472,7 +1499,7 @@ function runLaunchSpec(nodeId, io) {
         },
         requiredUpdates: [
           "taskId from reconciled external task",
-          "verified externalTitle matching the registry title",
+          ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
