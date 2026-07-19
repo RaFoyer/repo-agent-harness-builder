@@ -91,9 +91,10 @@ function arrayOrEmpty(value) {
 
 function requiredSkillsFor(registry, node) {
   const ordered = [PROJECT_ORCHESTRATION_SKILL];
-  if (isCodexNativeFirstmateAdapter(registry.clientAdapter)) ordered.push(CODEX_FIRSTMATE_PROFILE);
-  else if (registry.clientAdapter?.status === "active" && isNonEmptyString(registry.clientAdapter.requiredSkill)) {
+  if (registry.clientAdapter?.status === "active" && isNonEmptyString(registry.clientAdapter.requiredSkill)) {
     ordered.push(registry.clientAdapter.requiredSkill);
+  } else if (isCodexNativeFirstmateAdapter(registry.clientAdapter)) {
+    ordered.push(CODEX_FIRSTMATE_PROFILE);
   }
   if (arrayOrEmpty(node.governingProtocols).some((protocol) => GOAL_GRAPH_PROTOCOLS.has(protocol))) {
     ordered.push(GOAL_GRAPH_SKILL);

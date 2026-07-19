@@ -58,7 +58,7 @@ Core commands:
   qa plan              Print QA lane and evidence guidance
   qa artifacts         List common browser QA artifact locations
   qa no-masking        Detect deterministic E2E route mocking/bypass patterns
-  skills status        Report repo-owned skill status
+  skills status        Inventory project-local skill ownership
   secrets help         Show value-safe secret handling commands
   connections status   Validate external-authority connection metadata
   connections plan     Show repo-owned connector profile inventory

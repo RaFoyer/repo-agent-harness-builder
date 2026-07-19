@@ -537,6 +537,20 @@ test("help lists core commands", () => {
   assert.match(help, /checklist/);
 });
 
+fixtureTest("skills status inventories project-local skills and keeps sync fail-closed", async () => {
+  const status = capture();
+  assert.equal(await main(["skills", "status"], status.io), 0, status.err.join("\n"));
+  const statusText = status.out.join("\n");
+  assert.match(statusText, /project-orchestration: \.agents\/skills\/project-orchestration/);
+  assert.match(statusText, /goal-graph-loop: \.agents\/skills\/goal-graph-loop/);
+  assert.match(statusText, /codex-native-firstmate: \.agents\/skills\/codex-native-firstmate/);
+  assert.match(statusText, /skills sync is disabled/i);
+
+  const sync = capture();
+  assert.equal(await main(["skills", "sync"], sync.io), 2);
+  assert.match(sync.out.join("\n"), /no project-owned sync allowlist/i);
+});
+
 fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-light, and read-only by default", async () => {
   const registryPath = path.join(repoRoot, "ops", "orchestration.json");
   const before = fs.readFileSync(registryPath, "utf-8");
@@ -2781,6 +2795,24 @@ fixtureTest("orchestration requires verified titles for new Firstmate bindings",
   assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
 });
 
+fixtureTest("orchestration seals the configured Firstmate adapter skill into launch contracts", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  registry.clientAdapter.requiredSkill = "firstmate-fork";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  const skillPath = path.join(repoRoot, ".agents", "skills", "firstmate-fork");
+  fs.mkdirSync(skillPath, { recursive: true });
+  fs.writeFileSync(path.join(skillPath, "SKILL.md"), "---\nname: firstmate-fork\ndescription: Fixture adapter skill.\n---\n", "utf-8");
+  writeOrchestrationRegistry(registry);
+
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration", "firstmate-fork"]);
+  assert.deepEqual(spec.reservation.workContract.payload.node.requiredSkills, spec.requiredSkills);
+});
+
 fixtureTest("orchestration launch contracts compose goal graph and node skills in order and fail closed when missing", async () => {
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
@@ -2993,6 +3025,41 @@ Objective: prove generated repositories can inspect goal-chain evidence.
   assert.match(out.join("\n"), /Goal graph: docs\/reference\/implementation-goal-chain\.md/);
   assert.match(out.join("\n"), /Goal 1: Establish Harness Surface/);
   assert.match(out.join("\n"), /Goal 2: Validate Generated CLI/);
+});
+
+fixtureTest("goals commands parse and verify graph node headings", async () => {
+  const mergeCommit = createFixtureMergeCommit(46, "graph node");
+  writeGoalChain(`# Implementation Goal Graph
+
+## Node G1: Land graph parser support
+
+Objective: make the generated CLI understand graph nodes.
+
+Issues:
+- #124
+
+Blocks: none
+
+Verification:
+- node --test apps/cli/test/*.test.mjs: passed
+
+Merged PR: #46
+Merge commit: ${mergeCommit}
+
+Residual risks: none
+`);
+
+  const status = capture();
+  assert.equal(await main(["goals", "status"], status.io), 0, status.err.join("\n"));
+  assert.match(status.out.join("\n"), /Node G1: Land graph parser support/);
+
+  const verify = capture();
+  assert.equal(await main(["goals", "verify", "G1"], verify.io), 0, verify.err.join("\n"));
+  assert.match(verify.out.join("\n"), /Goal G1 has matching local closeout evidence/);
+
+  const prompt = capture();
+  assert.equal(await main(["goals", "start-prompt", "G1"], prompt.io), 0, prompt.err.join("\n"));
+  assert.match(prompt.out.join("\n"), /Goal G1: Land graph parser support/);
 });
 
 fixtureTest("goals verify blocks closing a goal without merge and handoff evidence", async () => {

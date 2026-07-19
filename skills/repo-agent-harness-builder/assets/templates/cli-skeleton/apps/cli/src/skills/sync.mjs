@@ -1,14 +1,23 @@
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 
+const PROJECT_LOCAL_SKILLS = ["project-orchestration", "goal-graph-loop", "goal-chain-loop", "codex-native-firstmate"];
+const SHARED_FLEET_SKILLS = ["repo-agent-harness-builder", ...PROJECT_LOCAL_SKILLS];
+
+function skillInventory() {
+  return PROJECT_LOCAL_SKILLS.map((name) => ({ name, path: `.agents/skills/${name}` }));
+}
+
 export async function runSkills(argv, io) {
   const [subcommand = "status", ...rest] = argv;
 
   if (subcommand === "status") {
     if (rejectUnexpectedArgs(rest, io, { command: "skills status", hints: [`Run ./${CONFIG.cliName} skills status`] })) return 2;
-    io.stdout("No repo-owned skills are configured in the base skeleton.");
-    io.stdout("If you add skills, sync only project-owned names and refuse shared fleet or unmanaged local paths.");
-    io.stdout("Archive recoverable copies outside discoverable skills directories.");
+    io.stdout("Project-local skill inventory (not sync targets):");
+    for (const skill of skillInventory()) io.stdout(`- ${skill.name}: ${skill.path}`);
+    io.stdout(`Reserved shared fleet names: ${SHARED_FLEET_SKILLS.join(", ")}`);
+    io.stdout("skills sync is disabled in the base skeleton; it never writes, links, replaces, backs up, or archives skills.");
+    io.stdout("A repository-specific sync command must sync only project-owned names, refuse shared fleet names and unmanaged paths, and archive displaced copies outside discoverable skills directories.");
     return 0;
   }
 
@@ -17,8 +26,12 @@ export async function runSkills(argv, io) {
     renderUsageError(io, {
       code: "not-implemented",
       command: "skills sync",
-      message: "Skill sync is not implemented in the base skeleton.",
-      hints: ["Implement with explicit approval, a project-owned allowlist, managed-copy markers, and non-discoverable archives."]
+      message: "Skill sync is disabled because the base skeleton has no project-owned sync allowlist.",
+      details: [
+        `Reserved shared fleet names: ${SHARED_FLEET_SKILLS.join(", ")}`,
+        "No files, links, backups, or archives were changed."
+      ],
+      hints: ["Implement only after defining project-owned names, managed-copy markers, symlink checks, explicit approval, and non-discoverable archives."]
     });
     return 2;
   }

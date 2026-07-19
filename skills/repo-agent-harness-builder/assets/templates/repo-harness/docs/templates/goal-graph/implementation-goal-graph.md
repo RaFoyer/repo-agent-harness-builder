@@ -86,6 +86,12 @@ Exit criteria:
 
 Verification:
 
+Merged PR:
+
+Merge commit:
+
+Residual risks:
+
 Fan-in / handoff:
 
 ## Node G2: <Title>
@@ -117,5 +123,11 @@ Non-goals:
 Exit criteria:
 
 Verification:
+
+Merged PR:
+
+Merge commit:
+
+Residual risks:
 
 Fan-in / handoff:

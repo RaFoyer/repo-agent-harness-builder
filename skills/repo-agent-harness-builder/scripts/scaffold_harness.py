@@ -9,7 +9,7 @@ import re
 import shutil
 import stat
 import tempfile
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 
@@ -18,6 +18,8 @@ TEMPLATE_DIR = SKILL_DIR / "assets" / "templates"
 CODEX_FIRSTMATE_TEMPLATE_DIR = TEMPLATE_DIR / "client-adapters" / "codex-native-firstmate"
 PROJECT_SKILL_TEMPLATE_DIR = TEMPLATE_DIR / "onboarding-package" / "skills"
 PROJECT_LOCAL_SKILLS = ("project-orchestration", "goal-graph-loop", "goal-chain-loop")
+SKILL_ROOT = Path(".agents") / "skills"
+SKILL_ARCHIVE_ROOT = Path(".harness-archives") / "skills" / "repo-agent-harness-builder"
 
 
 def parse_args() -> argparse.Namespace:
@@ -217,12 +219,44 @@ def plan_writes(entries: list[tuple[Path, Path, str]], target: Path, force: bool
     return planned
 
 
+def symlinked_path(dest: Path, target: Path) -> Path | None:
+    current = dest
+    while current != target:
+        if current.is_symlink():
+            return current
+        current = current.parent
+    return target if target.is_symlink() else None
+
+
+def validate_no_symlinked_destinations(entries: list[tuple[Path, Path, str]], target: Path) -> None:
+    symlinks = sorted({link for _source, dest, _content in entries if (link := symlinked_path(dest, target)) is not None})
+    if not symlinks:
+        return
+    sample = "\n".join(f"- {path}" for path in symlinks[:10])
+    extra = "" if len(symlinks) <= 10 else f"\n... and {len(symlinks) - 10} more"
+    raise SystemExit(f"Refusing to scaffold through symlinked destination paths. No files were written.\n{sample}{extra}")
+
+
+def project_skill_roots(entries: list[tuple[Path, Path, str]], target: Path) -> list[Path]:
+    skill_root = target / SKILL_ROOT
+    roots: set[Path] = set()
+    for _source, dest, _content in entries:
+        try:
+            rel = dest.relative_to(skill_root)
+        except ValueError:
+            continue
+        if rel.parts:
+            roots.add(skill_root / rel.parts[0])
+    return sorted(roots)
+
+
 class WriteTransaction:
     def __init__(self) -> None:
         self.backup_dir = Path(tempfile.mkdtemp(prefix="repo-harness-scaffold-backup-"))
         self.backups: dict[Path, Path | None] = {}
         self.original_modes: dict[Path, int] = {}
         self.created_dirs: list[Path] = []
+        self.archived_dirs: list[tuple[Path, Path]] = []
         self.closed = False
 
     def mkdir(self, path: Path) -> None:
@@ -248,6 +282,11 @@ class WriteTransaction:
         self.mkdir(path.parent)
         self.remember_file(path)
         path.write_text(content, encoding="utf-8")
+
+    def archive_directory(self, path: Path, archive: Path) -> None:
+        self.mkdir(archive.parent)
+        path.rename(archive)
+        self.archived_dirs.append((path, archive))
 
     def chmod_executable(self, path: Path) -> None:
         if not path.exists():
@@ -275,6 +314,14 @@ class WriteTransaction:
                 directory.rmdir()
             except OSError:
                 pass
+        for path, archive in reversed(self.archived_dirs):
+            if archive.exists() and not path.exists():
+                archive.rename(path)
+        for directory in reversed(self.created_dirs):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
         shutil.rmtree(self.backup_dir, ignore_errors=True)
         self.closed = True
 
@@ -289,6 +336,27 @@ def write_planned(planned: list[tuple[Path, str]], transaction: WriteTransaction
         transaction.write_text(dest, content)
         written.append(dest)
     return written
+
+
+def archive_existing_project_skills(entries: list[tuple[Path, Path, str]], target: Path, force: bool, transaction: WriteTransaction) -> list[Path]:
+    if not force:
+        return []
+    existing = [path for path in project_skill_roots(entries, target) if path.exists()]
+    if not existing:
+        return []
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_base = target / SKILL_ARCHIVE_ROOT / timestamp
+    archive_symlink = symlinked_path(archive_base, target)
+    if archive_symlink is not None:
+        raise SystemExit(f"Refusing to archive through symlinked destination path: {archive_symlink}")
+    if archive_base.exists() or archive_base.is_symlink():
+        raise SystemExit(f"Refusing to reuse skill archive destination: {archive_base}")
+    archived: list[Path] = []
+    for skill_root in existing:
+        archive = archive_base / skill_root.name
+        transaction.archive_directory(skill_root, archive)
+        archived.append(archive)
+    return archived
 
 
 def make_executable(path: Path) -> None:
@@ -324,11 +392,13 @@ def main() -> int:
                 args.cli_name,
             )
         )
+    validate_no_symlinked_destinations(entries, target)
     planned = plan_writes(entries, target, args.force)
 
     transaction = WriteTransaction()
     try:
         transaction.mkdir(target)
+        archived = archive_existing_project_skills(entries, target, args.force, transaction)
         written = write_planned(planned, transaction)
 
         facade = target / args.cli_name
@@ -343,6 +413,8 @@ def main() -> int:
         raise
 
     print(f"Scaffolded {len(written)} files into {target}")
+    for archive in archived:
+        print(f"Archived replaced project-local skill at {archive}")
     print(f"Next: run ./{args.cli_name} help, ./{args.cli_name} preflight, and node --test apps/cli/test/*.test.mjs")
     return 0
 

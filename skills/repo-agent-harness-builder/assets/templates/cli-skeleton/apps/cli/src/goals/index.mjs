@@ -26,13 +26,14 @@ function findGoalChain() {
 }
 
 function parseGoals(text) {
-  const matches = [...text.matchAll(/^##\s+Goal\s+([A-Za-z0-9._-]+)\s*:\s*(.+?)\s*$/gm)];
+  const matches = [...text.matchAll(/^##\s+(Goal|Node)\s+([A-Za-z0-9._-]+)\s*:\s*(.+?)\s*$/gm)];
   return matches.map((match, index) => {
     const bodyStart = match.index + match[0].length;
     const bodyEnd = index + 1 < matches.length ? matches[index + 1].index : text.length;
     return {
-      id: match[1],
-      title: match[2].trim(),
+      kind: match[1].toLowerCase(),
+      id: match[2],
+      title: match[3].trim(),
       body: text.slice(bodyStart, bodyEnd).trim()
     };
   });
@@ -53,6 +54,7 @@ const KNOWN_FIELD_LABELS = [
   "Out of scope",
   "Exit criteria",
   "Verification",
+  "Blocks",
   "Sequencing",
   "Merged PR",
   "Merge commit",
@@ -383,7 +385,16 @@ function hasGenericCloseoutEvidence(value) {
 function hasValidNextGoal(value) {
   if (isTerminalMarker(value)) return true;
   if (!hasUsableEvidence(value) || isRejectedTerminalMarker(value)) return false;
-  return /^Goal\s+[A-Za-z0-9._-]+\s*:/i.test(value.trim()) || /(?:^|\s)#\d+\b/.test(value);
+  return /^(?:Goal|Node)\s+[A-Za-z0-9._-]+\s*:/i.test(value.trim()) || /(?:^|\s)#\d+\b/.test(value);
+}
+
+function hasValidDownstreamNodes(value) {
+  if (isTerminalMarker(value)) return true;
+  if (!hasUsableEvidence(value) || isRejectedTerminalMarker(value)) return false;
+  return value
+    .split(/\r?\n/)
+    .map(normalizeBullet)
+    .every((line) => /^(?:Node\s+)?[A-Za-z0-9._-]+(?:\s*:\s*.+)?$/i.test(line));
 }
 
 function closeoutBlockers(goal) {
@@ -419,8 +430,13 @@ function closeoutBlockers(goal) {
     blockers.push(failedLine ? `Verification result (${failedLine})` : "Verification result");
   }
 
-  const nextGoal = fieldBlock(goal.body, "Next goal");
-  if (!hasValidNextGoal(nextGoal)) blockers.push("Next goal");
+  if (goal.kind === "node") {
+    const downstreamNodes = fieldBlock(goal.body, "Blocks");
+    if (!hasValidDownstreamNodes(downstreamNodes)) blockers.push("Downstream nodes");
+  } else {
+    const nextGoal = fieldBlock(goal.body, "Next goal");
+    if (!hasValidNextGoal(nextGoal)) blockers.push("Next goal");
+  }
   return blockers;
 }
 
@@ -487,13 +503,13 @@ function runStatus(io) {
   const goals = parseGoals(chain.text);
   io.stdout(`Goal graph: ${chain.relPath}`);
   if (goals.length === 0) {
-    io.stdout("No goal headings found. Use headings like `## Goal 1: Title`.");
+    io.stdout("No goal headings found. Use headings like `## Goal 1: Title` or `## Node G1: Title`.");
     return 0;
   }
 
   for (const goal of goals) {
     const status = closeoutBlockers(goal).length === 0 ? "matching local closeout evidence" : "open, incomplete, or locally unverifiable";
-    io.stdout(`- Goal ${goal.id}: ${goal.title} (${status})`);
+    io.stdout(`- ${goal.kind === "node" ? "Node" : "Goal"} ${goal.id}: ${goal.title} (${status})`);
   }
   return 0;
 }

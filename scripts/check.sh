@@ -629,6 +629,48 @@ python3 "$SKILL/scripts/scaffold_harness.py" \
   --allow-non-git >/dev/null
 (cd "$TMP/generated-weird" && ./weird help >/dev/null && node --test apps/cli/test/*.test.mjs >/dev/null)
 
+mkdir -p "$TMP/symlinked-skill-root" "$TMP/external-skill-root"
+ln -s "$TMP/external-skill-root" "$TMP/symlinked-skill-root/.agents"
+if python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/symlinked-skill-root" \
+  --project-name "Symlinked Skill Root" \
+  --repo-slug "example/symlinked-skill-root" \
+  --cli-name symlinkh \
+  --allow-non-git \
+  --force >"$TMP/symlinked-skill-root.out" 2>"$TMP/symlinked-skill-root.err"; then
+  cat "$TMP/symlinked-skill-root.out"
+  echo "expected scaffold to refuse a symlinked project skill root" >&2
+  exit 1
+fi
+if [ -e "$TMP/external-skill-root/skills" ]; then
+  echo "scaffold must not write through a symlinked project skill root" >&2
+  exit 1
+fi
+
+python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/recoverable-skill-replacement" \
+  --project-name "Recoverable Skill Replacement" \
+  --repo-slug "example/recoverable-skill-replacement" \
+  --cli-name recoveryh \
+  --allow-non-git >/dev/null
+printf 'custom project skill content\n' > "$TMP/recoverable-skill-replacement/.agents/skills/project-orchestration/CUSTOM.md"
+python3 "$SKILL/scripts/scaffold_harness.py" \
+  --target "$TMP/recoverable-skill-replacement" \
+  --project-name "Recoverable Skill Replacement" \
+  --repo-slug "example/recoverable-skill-replacement" \
+  --cli-name recoveryh \
+  --allow-non-git \
+  --force >"$TMP/recoverable-skill-replacement.out"
+if [ -e "$TMP/recoverable-skill-replacement/.agents/skills/project-orchestration/CUSTOM.md" ]; then
+  echo "forced scaffold must replace, not retain, displaced project skill content" >&2
+  exit 1
+fi
+ARCHIVED_CUSTOM_SKILL="$(find "$TMP/recoverable-skill-replacement/.harness-archives/skills/repo-agent-harness-builder" -type f -name CUSTOM.md -print -quit)"
+if [ -z "$ARCHIVED_CUSTOM_SKILL" ] || ! grep -q 'custom project skill content' "$ARCHIVED_CUSTOM_SKILL"; then
+  echo "forced scaffold must retain displaced project skill content in a non-discoverable archive" >&2
+  exit 1
+fi
+
 mkdir -p "$TMP/conflict-repo"
 printf 'existing\n' > "$TMP/conflict-repo/AGENTS.md"
 if python3 "$SKILL/scripts/scaffold_harness.py" \
