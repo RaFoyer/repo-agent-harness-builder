@@ -33,5 +33,6 @@
     "handoffPolicy": null
   },
   "reconciliationPolicy": null,
+  "legacyTaskBindings": [],
   "headlessFallback": "disabled"
 }

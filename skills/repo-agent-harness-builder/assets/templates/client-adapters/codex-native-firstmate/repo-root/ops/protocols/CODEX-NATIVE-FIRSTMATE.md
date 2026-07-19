@@ -37,9 +37,13 @@ The adapter must set or adopt, rename, and verify that exact external task title
 before binding. A title failure keeps the reservation quarantined for
 reconciliation; it never authorizes another create.
 New Firstmate bindings record the exact observed `externalTitle` and signed
-`titleVerification` evidence. Legacy schema-v2 bindings that lack this optional
-Firstmate extension remain valid; any binding that supplies an `externalTitle`
-must match its registry-derived title exactly.
+`titleVerification` evidence. Before activating Firstmate around an otherwise
+valid pre-Firstmate schema-v2 binding, explicitly inventory that binding in
+`clientAdapter.legacyTaskBindings` with its node ID, task ID, and SHA-256
+attestation-payload digest. This durable inventory is a migration record, not a
+binding option: every binding not matched exactly by it must carry both title
+proof fields, and any supplied `externalTitle` must match its registry-derived
+title exactly.
 
 Each generated repository carries its own resident capability and registry.
 The default active shape is one Firstmate/Boss task for this repository, with

@@ -256,6 +256,63 @@ export function taskBindingAttestationPayload(registry, binding) {
   return bindingAttestationPayload(registry, binding);
 }
 
+export function taskBindingLegacyAttestationDigest(registry, binding) {
+  return createHash("sha256").update(bindingAttestationPayload(registry, binding)).digest("hex");
+}
+
+function explicitLegacyFirstmateBinding(registry, node, binding) {
+  const adapter = registry.clientAdapter;
+  if (!isCodexNativeFirstmateAdapter(adapter)
+    || binding.externalTitle !== undefined
+    || binding.titleVerification !== undefined
+    || !Array.isArray(adapter.legacyTaskBindings)) {
+    return false;
+  }
+  const attestationDigest = taskBindingLegacyAttestationDigest(registry, binding);
+  return adapter.legacyTaskBindings.some((entry) => isObject(entry)
+    && entry.nodeId === node.id
+    && entry.taskId === node.taskId
+    && entry.attestationDigest === attestationDigest);
+}
+
+function legacyTaskBindingInventoryBlockers(registry, adapter, nodesById) {
+  const blockers = [];
+  if (!Array.isArray(adapter.legacyTaskBindings)) {
+    blockers.push("clientAdapter.legacyTaskBindings must explicitly inventory legacy bindings or be an empty array");
+    return blockers;
+  }
+  const seenNodeIds = new Set();
+  for (const entry of adapter.legacyTaskBindings) {
+    if (!isObject(entry)
+      || !isNonEmptyString(entry.nodeId)
+      || !isNonEmptyString(entry.taskId)
+      || typeof entry.attestationDigest !== "string"
+      || !/^[a-f0-9]{64}$/.test(entry.attestationDigest)) {
+      blockers.push("clientAdapter.legacyTaskBindings entries require nodeId, taskId, and a SHA-256 attestationDigest");
+      continue;
+    }
+    if (seenNodeIds.has(entry.nodeId)) {
+      blockers.push(`clientAdapter.legacyTaskBindings may list node ${entry.nodeId} only once`);
+      continue;
+    }
+    seenNodeIds.add(entry.nodeId);
+    const node = nodesById.get(entry.nodeId);
+    const binding = node?.taskBinding;
+    if (!isTaskBackedNode(node) || node.taskId !== entry.taskId || !isObject(binding)) {
+      blockers.push(`clientAdapter.legacyTaskBindings entry ${entry.nodeId} must identify its current task-backed node`);
+      continue;
+    }
+    if (binding.externalTitle !== undefined || binding.titleVerification !== undefined) {
+      blockers.push(`clientAdapter.legacyTaskBindings entry ${entry.nodeId} may not classify a title-proof binding as legacy`);
+      continue;
+    }
+    if (taskBindingLegacyAttestationDigest(registry, binding) !== entry.attestationDigest) {
+      blockers.push(`clientAdapter.legacyTaskBindings entry ${entry.nodeId} must match the immutable binding attestation digest`);
+    }
+  }
+  return blockers;
+}
+
 function taskBindingAttestationBlockers(registry, node, binding) {
   const blockers = [];
   const label = `node ${node.id || "<missing-id>"}`;
@@ -386,10 +443,15 @@ function taskBindingBlockers(registry, node, parent) {
   else if (binding.workContractHash !== workContractHash) blockers.push(`${label}: taskBinding.workContractHash must match the immutable materialized work contract`);
   if (binding.nodeId !== node.id) blockers.push(`${label}: taskBinding.nodeId must match node identity`);
   if (binding.taskId !== node.taskId) blockers.push(`${label}: taskBinding.taskId must match taskId`);
+  const firstmateBindingRequiresTitleProof = isCodexNativeFirstmateAdapter(registry.clientAdapter)
+    && !explicitLegacyFirstmateBinding(registry, node, binding);
   if (binding.externalTitle !== undefined && binding.externalTitle !== node.title) {
     blockers.push(`${label}: taskBinding.externalTitle must match the verified task title`);
   }
-  if (binding.titleVerification !== undefined) {
+  if (firstmateBindingRequiresTitleProof && binding.externalTitle !== node.title) {
+    blockers.push(`${label}: non-legacy Firstmate taskBinding requires externalTitle matching the verified task title`);
+  }
+  if (binding.titleVerification !== undefined || firstmateBindingRequiresTitleProof) {
     const verification = binding.titleVerification;
     if (!isObject(verification) || verification.method !== "rename-and-readback" || verification.verified !== true) {
       blockers.push(`${label}: taskBinding.titleVerification must prove rename-and-readback verification`);
@@ -683,6 +745,9 @@ function validateRegistry(registry) {
   if (bosses.length > 1) blockers.push("only one Boss is allowed");
   if (registry.status === "active" && bosses.length !== 1) blockers.push("active orchestration requires exactly one Boss");
   if (registry.status === "inactive" && nodes.length === 0) warnings.push("orchestration is scaffolded but inactive; configure a Boss and nodes before activation");
+  if (isCodexNativeFirstmateAdapter(registry.clientAdapter) && registry.clientAdapter.status === "active") {
+    blockers.push(...legacyTaskBindingInventoryBlockers(registry, registry.clientAdapter, nodesById));
+  }
 
   for (const node of nodes) {
     const label = `node ${node.id}`;
@@ -951,6 +1016,11 @@ function firstmateActivationBlockers(registry, adapter) {
     blockers.push("clientAdapter must select an active codex-native-firstmate profile");
     return blockers;
   }
+
+  blockers.push(...legacyTaskBindingInventoryBlockers(registry, adapter, new Map(arrayOrEmpty(registry.nodes)
+    .filter(isObject)
+    .filter((node) => isNonEmptyString(node.id))
+    .map((node) => [node.id, node]))));
 
   const bosses = arrayOrEmpty(registry.nodes).filter((node) => isObject(node) && node.role === "boss");
   if (bosses.length !== 1 || !isTaskBackedNode(bosses[0])) {

@@ -70,9 +70,13 @@ Creation and adoption must set that exact title and read it back before binding
 or activation. A rename or title-verification failure quarantines the existing
 reservation and requires reconciliation; it never permits a second create.
 New Firstmate bindings record the exact observed `externalTitle` and signed
-`titleVerification` evidence. Legacy schema-v2 bindings that lack this optional
-Firstmate extension remain valid; any binding that supplies an `externalTitle`
-must match its registry-derived title exactly.
+`titleVerification` evidence. Before activating Firstmate around an otherwise
+valid pre-Firstmate schema-v2 binding, explicitly inventory that binding in
+`clientAdapter.legacyTaskBindings` with its node ID, task ID, and SHA-256
+attestation-payload digest. This durable inventory is a migration record, not a
+binding option: every binding not matched exactly by it must carry both title
+proof fields, and any supplied `externalTitle` must match its registry-derived
+title exactly.
 
 ## Native Mapping
 
