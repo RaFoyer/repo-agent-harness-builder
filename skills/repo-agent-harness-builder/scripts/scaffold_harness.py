@@ -16,6 +16,8 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 TEMPLATE_DIR = SKILL_DIR / "assets" / "templates"
 CODEX_FIRSTMATE_TEMPLATE_DIR = TEMPLATE_DIR / "client-adapters" / "codex-native-firstmate"
+PROJECT_SKILL_TEMPLATE_DIR = TEMPLATE_DIR / "onboarding-package" / "skills"
+PROJECT_LOCAL_SKILLS = ("project-orchestration", "goal-graph-loop", "goal-chain-loop")
 
 
 def parse_args() -> argparse.Namespace:
@@ -313,6 +315,15 @@ def main() -> int:
             args.cli_name,
         )
     )
+    for skill_name in PROJECT_LOCAL_SKILLS:
+        entries.extend(
+            collect_tree(
+                PROJECT_SKILL_TEMPLATE_DIR / skill_name,
+                target / ".agents" / "skills" / skill_name,
+                mapping,
+                args.cli_name,
+            )
+        )
     planned = plan_writes(entries, target, args.force)
 
     transaction = WriteTransaction()

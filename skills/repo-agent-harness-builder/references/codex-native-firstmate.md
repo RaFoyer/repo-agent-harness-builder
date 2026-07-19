@@ -83,7 +83,7 @@ title exactly.
 | Portable role | Codex-native shape | Responsibility |
 | --- | --- | --- |
 | Boss (`Firstmate` profile) | one persistent task for this repository by default | recurring repo-local portfolio loop over Managers, budgets, exceptions, and fan-in |
-| Manager | one persistent task per bounded workstream | one goal chain or goal graph, Worker boundaries, evidence review, and Boss handoff |
+| Manager | one persistent task per bounded workstream | one goal graph/control loop, Worker boundaries, evidence review, and Boss handoff |
 | Worker | one persistent task and managed worktree for durable write work | one bounded execution loop and immediate-parent report |
 | Helper | transient subagent inside the parent's current worktree | bounded read-heavy research, inspection, or review only |
 

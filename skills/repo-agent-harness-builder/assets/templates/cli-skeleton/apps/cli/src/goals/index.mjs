@@ -5,6 +5,10 @@ import { renderUsageError, truncateText } from "../util/agent-output.mjs";
 import { runCommand } from "../util/exec.mjs";
 
 const GOAL_CHAIN_CANDIDATES = [
+  "docs/reference/implementation-goal-graph.md",
+  "docs/engineering/goal-graph.md",
+  "docs/reference/goal-graph.md",
+  "ops/goal-graph.md",
   "docs/reference/implementation-goal-chain.md",
   "docs/engineering/goal-chain.md",
   "docs/reference/goal-chain.md",
@@ -423,7 +427,7 @@ function closeoutBlockers(goal) {
 function loadGoals(io) {
   const chain = findGoalChain();
   if (!chain) {
-    io.stderr(`Missing goal-chain document. Expected one of: ${GOAL_CHAIN_CANDIDATES.join(", ")}`);
+    io.stderr(`Missing goal-graph document. Expected one of: ${GOAL_CHAIN_CANDIDATES.join(", ")}`);
     return null;
   }
   const goals = parseGoals(chain.text);
@@ -434,7 +438,7 @@ function printHelp(io) {
   io.stdout("Usage: ./{{CLI_NAME}} goals <command> [goal-id] [--full]");
   io.stdout("");
   io.stdout("Commands:");
-  io.stdout("  status              List goals from the implementation goal chain");
+  io.stdout("  status              List goals from the implementation goal graph");
   io.stdout("  verify <goal-id>    Check merge, verification, and next-goal evidence");
   io.stdout("  start-prompt <id>   Print a bounded prompt for a goal thread");
   io.stdout("");
@@ -475,13 +479,13 @@ function rejectGoalArgDrift(parsed, io, { command, maxPositionals = 0, hints = [
 function runStatus(io) {
   const chain = findGoalChain();
   if (!chain) {
-    io.stdout("No goal chain document found.");
+    io.stdout("No goal graph document found.");
     io.stdout(`Expected one of: ${GOAL_CHAIN_CANDIDATES.join(", ")}`);
     return 0;
   }
 
   const goals = parseGoals(chain.text);
-  io.stdout(`Goal chain: ${chain.relPath}`);
+  io.stdout(`Goal graph: ${chain.relPath}`);
   if (goals.length === 0) {
     io.stdout("No goal headings found. Use headings like `## Goal 1: Title`.");
     return 0;
@@ -549,7 +553,7 @@ function runStartPrompt(goalId, io, { full = false } = {}) {
     return 1;
   }
 
-  const objective = fieldBlock(goal.body, "Objective") || "Complete the scoped goal from the goal-chain document.";
+  const objective = fieldBlock(goal.body, "Objective") || "Complete the scoped goal from the goal-graph document.";
   const objectivePreview = full ? { text: objective, truncated: false, shown: objective.length, total: objective.length } : truncateText(objective, { limit: 1200 });
 
   io.stdout(`Goal ${goal.id}: ${goal.title}`);

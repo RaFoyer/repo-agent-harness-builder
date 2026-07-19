@@ -1,6 +1,7 @@
 {
   "id": "codex-app",
   "profile": "codex-native-firstmate",
+  "requiredSkill": "codex-native-firstmate",
   "status": "inactive",
   "bossTaskId": null,
   "standingTaskCreationGrant": false,

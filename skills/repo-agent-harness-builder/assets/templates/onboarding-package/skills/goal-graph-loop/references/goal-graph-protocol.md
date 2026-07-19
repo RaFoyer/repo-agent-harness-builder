@@ -1,6 +1,6 @@
 # Goal Implementation Graph Protocol
 
-Use this reference when a request needs more than a short starter prompt: creating a durable goal graph or chain, running a Manager-owned goal-chain loop, deciding parallelism, grouping tracker issues, repairing a handoff, or distinguishing foundation completion from product acceptance.
+Use this reference when a request needs more than a short starter prompt: creating a durable goal graph or chain, running a Manager-owned goal-graph loop, deciding parallelism, grouping tracker issues, repairing a handoff, or distinguishing foundation completion from product acceptance.
 
 ## Purpose
 
@@ -39,7 +39,7 @@ Avoid it when the task is a one-off change, exploratory work should not create d
 
 The Boss runs the portfolio loop over Managers: observe, reconcile cross-workstream dependencies and authority, select eligible Manager actions, control portfolio fan-in and exceptions, record, and repeat. It does not directly operate every Manager graph.
 
-Each Manager runs the goal-chain loop below for one bounded workstream. Each Worker runs a bounded node loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal.
+Each Manager runs the goal-graph loop below for one bounded workstream. Each Worker runs a bounded node loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal.
 
 ## Manager Goal-Chain Loop
 
@@ -59,7 +59,7 @@ Each Manager runs the goal-chain loop below for one bounded workstream. Each Wor
 
 ## Codex Thread Control
 
-When the repository has `AGENT-ORCHESTRATION.md`, use its exact registry-derived titles, immediate-parent links, lifecycle, trust, authority, and launch contract. This reference does not create a second hierarchy or status taxonomy. The goal-chain ledger records only ticket, branch, PR, merge, verification, residual-risk, and downstream-unlock evidence.
+When the repository has `AGENT-ORCHESTRATION.md`, use its exact registry-derived titles, immediate-parent links, lifecycle, trust, authority, and launch contract. This reference does not create a second hierarchy or status taxonomy. The goal-graph ledger records only ticket, branch, PR, merge, verification, residual-risk, and downstream-unlock evidence.
 
 Use actual Codex thread tools only when the user explicitly wants durable user-owned threads created or managed. For short-lived helper tasks inside the current request, use available subagent/delegation tools instead of creating persistent Codex threads.
 
@@ -330,7 +330,7 @@ Useful repo-local CLI commands include:
 | Manager creates a linear queue without checking parallelism | Rebuild as a graph with dependency edges, fan-out sets, and fan-in gates. |
 | Parallel threads touch the same files or unstable contract | Add a prerequisite contract node or serialize those goals. |
 | Manager loses Worker state | Reconstruct the ledger from ticket movements, Git/PR history, thread summaries, branches, and handoff notes before creating replacements. |
-| Boss directly operates every goal chain | Assign one bounded graph to each Manager and keep the Boss on the outer portfolio loop. |
+| Boss directly operates every goal graph | Assign one bounded graph to each Manager and keep the Boss on the outer portfolio loop. |
 | Child thread runs on an unapproved lighter model for risky work | Escalate to stronger review or rerun the critical design/review step. |
 | Foundation work is closed as product validation | Add successor validation goals with manual QA acceptance. |
 | Scratch context leaks between threads | Move durable decisions into docs or tracker comments, then start fresh from shared state. |

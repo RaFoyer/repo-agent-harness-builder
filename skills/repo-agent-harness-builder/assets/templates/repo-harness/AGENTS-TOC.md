@@ -30,7 +30,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |
 | Structuring any project work as Boss/Manager/Worker delegation | `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} orchestration status` |
 | Configuring or operating the opt-in Codex-native Firstmate Boss profile | `ops/protocols/AGENT-ORCHESTRATION.md`, `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`, then `./{{CLI_NAME}} orchestration adapter-status` and `orchestration taxonomy` |
-| Planning ticket-backed implementation goal chains | `ops/protocols/GOAL-CHAIN.md`, `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} goals status` |
+| Planning ticket-backed implementation dependency graphs or strict linear chains | `ops/protocols/GOAL-GRAPH.md`, `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} goals status` |
 | Capturing Lavish review decisions before implementation | `ops/protocols/LAVISH-REVIEW.md`, tracker protocol if active, then `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` |
 | Changing CI, deploy, or branches | `ops/protocols/CICD.md` or `ops/protocols/BRANCH-PROMOTION.md` if present |
 | Using, discovering, installing, or authenticating external connectors | `ops/protocols/EXTERNAL-SYSTEMS.md`, `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, then `./{{CLI_NAME}} connections plan` |

@@ -58,7 +58,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Preparing a commit | `PRE-COMMIT.md` |
 | Preparing a PR or validating a branch through no-mistakes | `NO-MISTAKES-GATE.md` |
 | Reviewing complex plans, diagrams, QA packets, or PR summaries as HTML artifacts | `LAVISH-REVIEW.md` if present |
-| Capturing reviewed Lavish decisions before implementation | `LAVISH-REVIEW.md`, plus `PROJECT-TRACKING.md` or `GOAL-CHAIN.md` if active |
+| Capturing reviewed Lavish decisions before implementation | `LAVISH-REVIEW.md`, plus `PROJECT-TRACKING.md` or `GOAL-GRAPH.md` if active |
 | Changing UI, UX, design systems, components, tokens, brand surfaces, adaptive UI, or generated UI | `DESIGN-SYSTEM.md` if present |
 | Working with tickets | `PROJECT-TRACKING.md` |
 | Handling credentials | `SECRETS.md` |

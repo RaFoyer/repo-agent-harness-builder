@@ -1,4 +1,4 @@
-# Goal Chain Loop
+# Goal Graph Loop
 
 Use this when a repository needs ticket-backed implementation work where each
 goal must land with merge evidence before dependent work starts. The simplest
@@ -8,7 +8,7 @@ ledger, and fan-in gates.
 
 ## Fit Check
 
-Use a goal chain when:
+Use a goal graph when:
 
 - work depends on prior merged code or decisions
 - a tracker is canonical for scope and acceptance criteria
@@ -25,18 +25,18 @@ lacks a tracker, integration branch, or verification gate.
 
 1. Confirm tracker, integration branch, first verification commands, PR gate
    expectations, and whether parallel work is allowed.
-2. When resuming an existing chain, reconstruct ticket movements and Git/PR
+2. When inheriting or re-auditing an existing graph, reconstruct ticket movements and Git/PR
    evidence before retaining, replacing, or relaunching any node.
-3. Assign exactly one Manager to own each bounded goal chain or graph. The Boss
+3. Assign exactly one Manager to own each bounded goal graph. The Boss
    owns the portfolio loop over Managers; it does not operate each Manager's
-   internal chain. Each Worker owns one bounded node execution loop.
+   internal graph. Each Worker owns one bounded node execution loop.
 4. Cluster tickets by shared system boundary or acceptance evidence.
-5. Create or update a goal-chain document from
-   `assets/templates/goal-chain/IMPLEMENTATION-GOAL-CHAIN.md`, or a dependency
-   graph from `assets/templates/goal-chain/IMPLEMENTATION-GOAL-GRAPH.md` when
-   parallel work is safe. Generated harnesses also carry these under
-   `docs/templates/goal-chain/` for repo-local use.
-6. Add or activate `ops/protocols/GOAL-CHAIN.md`.
+5. Create or update a dependency graph from
+   `assets/templates/goal-graph/IMPLEMENTATION-GOAL-GRAPH.md`. Use
+   `IMPLEMENTATION-GOAL-CHAIN.md` only when every node is sequential. Generated
+   harnesses also carry these under
+   `docs/templates/goal-graph/` for repo-local use.
+6. Add or activate `ops/protocols/GOAL-GRAPH.md`.
 7. Route `AGENTS-TOC.md` to the protocol and mark the checklist row active only
    after tracker, integration branch, and verification gates exist.
 8. If review decisions were made in Lavish, capture them in the tracker or an
@@ -46,14 +46,14 @@ lacks a tracker, integration branch, or verification gate.
 9. When project orchestration is active, define nodes in
    `ops/orchestration.json`, validate with `orchestration validate`, and use
    `orchestration launch-spec <node-id>` as the authority-bounded base prompt.
-10. Add `assets/templates/goal-chain/ORCHESTRATOR-THREAD-PROMPT.txt`,
+10. Add `assets/templates/goal-graph/ORCHESTRATOR-THREAD-PROMPT.txt`,
    `MANAGER-THREAD-PROMPT.txt`, or `SUBGOAL-THREAD-PROMPT.txt` only as the
    repository-merge specialization for that launch spec. Track goal-specific
-   merge evidence with `assets/templates/goal-chain/ORCHESTRATION-LEDGER.md`.
+   merge evidence with `assets/templates/goal-graph/ORCHESTRATION-LEDGER.md`.
    Require the first
    deliverable to be a concise implementation plan naming files, integration
    points, verification commands, risks, and PR exit criteria.
-11. Use `./{{CLI_NAME}} goals status` to inspect the chain and
+11. Use `./{{CLI_NAME}} goals status` to inspect the graph and
    `goals start-prompt <goal-id>` for a bounded goal-specific prompt. If the
    objective is truncated, rerun with `--full` only when the complete objective
    is needed.
@@ -94,13 +94,13 @@ Completed goals should additionally include:
 - `AGENT-ORCHESTRATION.md` owns roles, title grammar, immediate-parent links,
   lifecycle, trust, authority, and delegation budgets. This workflow must not
   redefine or expand them.
-- The goal-chain ledger supplements the orchestration registry with delivery
+- The goal-graph ledger supplements the orchestration registry with delivery
   evidence; it does not replace it.
-- Each goal chain or graph has exactly one Manager owner. The Manager runs its
+- Each goal graph has exactly one Manager owner. The Manager runs its
   observe, audit, delegate, monitor, fan-in, reconcile, and repeat loop. The
   Boss runs the outer portfolio loop; Workers run bounded node loops.
 
-- Do not start the next goal from an unmerged feature branch unless the chain
+- Do not start the next goal from an unmerged feature branch unless the graph
   explicitly allows parallel work.
 - Do not start dependent graph nodes until prerequisite PRs are merged and
   visible from the integration branch unless the graph explicitly allows
@@ -125,7 +125,7 @@ Completed goals should additionally include:
 
 ## Bundled Skill
 
-The portable onboarding package includes a `goal-chain-loop` skill. Use that
+The portable onboarding package includes a `goal-graph-loop` skill. Use that
 skill when a human asks for Manager-owned graph orchestration, durable Worker
 tasks, orchestration ledgers, or
 fan-out/fan-in planning. Use the generated repository `goals` CLI for read-only

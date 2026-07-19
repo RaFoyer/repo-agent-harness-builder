@@ -9,7 +9,7 @@ summary: Maps portable Boss, Manager, and Worker orchestration to native Codex t
 related_protocols:
   - AGENT-ORCHESTRATION
   - AUTOMATIONS
-  - GOAL-CHAIN
+  - GOAL-GRAPH
   - NO-MISTAKES-GATE
 ---
 
@@ -19,8 +19,10 @@ related_protocols:
 
 This is an inactive client adapter for `AGENT-ORCHESTRATION`. Firstmate is the
 Codex-facing Boss profile, not a new role or competing control plane.
-`ops/orchestration.json` remains authoritative. Goal chains remain a
-Manager-owned `repository-merge` specialization.
+`ops/orchestration.json` remains authoritative. Load `$project-orchestration`
+before this adapter. Goal graphs remain a Manager-owned `repository-merge`
+specialization implemented through `$goal-graph-loop`; strict chains are a
+linear graph topology.
 
 ## Presentation Taxonomy
 
@@ -87,6 +89,10 @@ materialization. A timeout, crash, ambiguous create, title failure, or failed
 bind keeps the reservation quarantined. Reconcile the observed task identity
 against the launch key before retry. If absence cannot be proven, require human
 reconciliation rather than creating a duplicate.
+
+Before materialization, require the launch contract's ordered `requiredSkills`
+to be installed locally: `$project-orchestration`, then this adapter, then any
+domain loop such as `$goal-graph-loop`, followed by node-specific skills.
 
 Do not archive a task or remove its worktree until the completion profile's
 landed-work evidence is recorded. A restorable app snapshot is not landed-work

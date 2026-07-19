@@ -29,6 +29,7 @@ export const CONFIG = {
     "CONNECTOR-AUTH-PROFILES.md",
     "NO-MISTAKES-GATE.md",
     "AGENT-ORCHESTRATION.md",
+    "GOAL-GRAPH.md",
     "CODEX-NATIVE-FIRSTMATE.md",
     "SESSION-PREFLIGHT.md",
     "PRE-COMMIT.md"

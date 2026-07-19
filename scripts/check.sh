@@ -149,9 +149,9 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 manager_paths = [
-    root / "goal-chain" / "MANAGER-THREAD-PROMPT.txt",
-    root / "onboarding-package" / "skills" / "goal-chain-loop" / "assets" / "manager-thread-prompt.txt",
-    root / "repo-harness" / "docs" / "templates" / "goal-chain" / "manager-thread-prompt.txt",
+    root / "goal-graph" / "MANAGER-THREAD-PROMPT.txt",
+    root / "onboarding-package" / "skills" / "goal-graph-loop" / "assets" / "manager-thread-prompt.txt",
+    root / "repo-harness" / "docs" / "templates" / "goal-graph" / "manager-thread-prompt.txt",
 ]
 manager_prompts = [path.read_text(encoding="utf-8") for path in manager_paths]
 expected_closeout = (
@@ -160,8 +160,8 @@ expected_closeout = (
 )
 if any(expected_closeout not in prompt for prompt in manager_prompts):
     raise SystemExit("Manager prompt closeout must require terminal child reconciliation")
-if any("Run its recurring goal-chain loop" not in prompt for prompt in manager_prompts):
-    raise SystemExit("Manager prompts must assign the recurring goal-chain loop")
+if any("Run its recurring goal-graph loop" not in prompt for prompt in manager_prompts):
+    raise SystemExit("Manager prompts must assign the recurring goal-graph loop")
 if any("Reconstruct ticket movements and Git/PR evidence" not in prompt for prompt in manager_prompts):
     raise SystemExit("Manager prompts must reconstruct evidence before replacing work")
 if len(set(manager_prompts)) != 1:
@@ -227,6 +227,9 @@ with zipfile.ZipFile(zip_path) as archive:
         "repo-agent-harness-reference/AGENT-HANDOFF.md",
         "repo-agent-harness-reference/references/AGENT-CLIENTS-AND-SKILL-INSTALL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/SKILL.md",
+        "repo-agent-harness-reference/skills/project-orchestration/SKILL.md",
+        "repo-agent-harness-reference/skills/goal-graph-loop/SKILL.md",
+        "repo-agent-harness-reference/skills/goal-chain-loop/SKILL.md",
         "repo-agent-harness-reference/skills/codex-native-firstmate/SKILL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-boss.toml",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-manager.toml",
@@ -346,15 +349,19 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --run-tests
 for required_path in \
   "ops/protocols/AGENT-ORCHESTRATION.md" \
+  "ops/protocols/GOAL-GRAPH.md" \
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md" \
   "ops/orchestration.json" \
+  ".agents/skills/project-orchestration/SKILL.md" \
+  ".agents/skills/goal-graph-loop/SKILL.md" \
+  ".agents/skills/goal-chain-loop/SKILL.md" \
   ".agents/skills/codex-native-firstmate/SKILL.md" \
   ".codex/config.firstmate.example.toml" \
   ".codex/agents/firstmate-boss.toml" \
   ".codex/agents/firstmate-manager.toml" \
   ".codex/agents/firstmate-worker.toml" \
   "apps/cli/src/orchestration/index.mjs"; do
-  damaged="$TMP/generated-repo-missing-$(basename "$required_path")"
+  damaged="$TMP/generated-repo-missing-${required_path//\//__}"
   cp -R "$TMP/generated-repo" "$damaged"
   rm "$damaged/$required_path"
   if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then

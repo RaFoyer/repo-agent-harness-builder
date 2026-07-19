@@ -74,7 +74,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Connector auth profiles | `CONNECTOR-AUTH-PROFILES.md`, auth profile metadata, `connections auth-plan`, `connections env` | Browser login or provider CLIs can mutate account/session state |
 | Automations/heartbeats | `AUTOMATIONS.md`, run log, scheduler notes | recurring checks or reminders are useful |
 | Project orchestration | `AGENT-ORCHESTRATION.md`, `ops/orchestration.json`, `orchestration` CLI, prompts and ledger | any project needs structured Boss/Manager/Worker delegation with progressive autonomy |
-| Goal-chain workflow | `GOAL-CHAIN.md`, `goals` CLI, goal-chain templates | sequential tracker-backed implementation needs merge and handoff evidence |
+| Goal-graph workflow | `GOAL-GRAPH.md`, `goals` CLI, `goal-graph-loop`, goal-graph templates | tracker-backed implementation needs dependencies, merge evidence, and fan-in; strict chains are linear graphs |
 | Project tracker | tracker protocol and CLI wrapper | GitHub Issues, Linear, Jira, or similar is canonical |
 | No-mistakes customization | `.no-mistakes.yaml`, `NO-MISTAKES-GATE.md`, setup script, `no-mistakes` CLI | the repo needs a concrete agent, command set, or fork URL beyond the generated default |
 | Lavish review surface | `LAVISH-REVIEW.md`, `lavish` CLI | complex plans, audits, diagrams, QA packets, or PR reviews benefit from HTML artifact feedback and tracker-decision capture |

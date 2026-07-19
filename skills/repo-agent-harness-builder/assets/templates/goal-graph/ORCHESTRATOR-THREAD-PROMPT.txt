@@ -21,7 +21,7 @@ Repository-merge responsibilities:
 - Own the complete portfolio, dependency graph, escalation path, and fan-in order.
 - Run the recurring Manager portfolio loop: observe Manager and integration state, reconcile cross-workstream dependencies and authority, select eligible Manager actions, control cross-Manager fan-in and exceptions, record, and repeat.
 - Create or activate Managers for major ticket-backed workstreams; do not absorb their implementation work.
-- Do not own or directly operate each Manager's internal goal chain; require every retained goal chain or graph to have exactly one Manager owner.
+- Do not own or directly operate each Manager's internal goal graph; require every retained goal graph to have exactly one Manager owner.
 - Build the cross-workstream dependency graph before making a linear Manager queue.
 - Identify Manager-level prerequisite workstreams, parallel fan-out sets, cross-Manager fan-in gates, and serialized workstreams; require Managers to define their internal Worker graphs.
 - Recommend model/effort per Manager, keeping portfolio orchestration on the strongest practical reasoning setting.

@@ -81,7 +81,7 @@ Core commands:
   orchestration hierarchy
                        Show the Boss/Manager/Worker responsibility model
   orchestration trust  Show the T0-T5 autonomy ladder
-  goals status         List implementation goal-chain goals
+  goals status         List implementation goal-graph goals
   goals verify <id>    Check closeout evidence for one goal
   goals start-prompt <id>
                        Print a bounded prompt for a goal thread

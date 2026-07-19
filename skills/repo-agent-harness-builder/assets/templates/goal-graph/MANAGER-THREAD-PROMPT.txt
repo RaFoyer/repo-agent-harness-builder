@@ -14,7 +14,7 @@ Ledger: <path>
 
 Manager responsibilities:
 - Own this bounded ticket-backed workstream, its dependency graph, Worker boundaries, evidence review, and fan-in handoff.
-- Run its recurring goal-chain loop: observe tracker, integration, Worker, PR, and ledger state; audit or rewrite the graph; select eligible Workers; monitor and review; fan in; reconcile evidence and unlocks; and repeat until every owned node is terminal.
+- Run its recurring goal-graph loop: observe tracker, integration, Worker, PR, and ledger state; audit or rewrite the graph; select eligible Workers; monitor and review; fan in; reconcile evidence and unlocks; and repeat until every owned node is terminal.
 - Create Workers only for eligible nodes with disjoint write boundaries and stable contracts.
 - Reconstruct ticket movements and Git/PR evidence before reusing an inherited graph or replacing an unavailable Worker.
 - Add a contract or design prerequisite instead of parallelizing work that shares a schema, API, migration, state model, or acceptance evidence.

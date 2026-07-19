@@ -6,7 +6,8 @@ import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 
 const REGISTRY_REL_PATH = "ops/orchestration.json";
-const REGISTRY_SCHEMA_VERSION = 2;
+const REGISTRY_SCHEMA_VERSION = 3;
+const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3]);
 const TRUST_LEVELS = [
   { id: "T0", name: "Observe", authority: "approved reads and reporting only" },
   { id: "T1", name: "Propose", authority: "plans, graphs, drafts, and prompts without project-state mutation" },
@@ -30,6 +31,10 @@ const BINDING_ATTESTATION_ALGORITHM = "ed25519";
 const BINDING_PUBLIC_KEY_ENV = "ORCHESTRATION_BINDING_PUBLIC_KEY";
 const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
 const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
+const PROJECT_ORCHESTRATION_SKILL = "project-orchestration";
+const GOAL_GRAPH_SKILL = "goal-graph-loop";
+const GOAL_GRAPH_PROTOCOLS = new Set(["GOAL-GRAPH", "GOAL-CHAIN"]);
+const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PRESENTATION_PROFILES = new Set(["portable", "nautical", "executive"]);
 const PRESENTATION_ROLE_LABELS = {
   portable: { boss: "Boss", manager: "Manager", worker: "Worker" },
@@ -38,6 +43,7 @@ const PRESENTATION_ROLE_LABELS = {
 const DEFAULT_EXECUTIVE_MANAGER_CATALOG = ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"];
 const DEFAULT_EXECUTIVE_WORKER_CATALOG = ["Director", "Lead", "Contributor"];
 const CODEX_FIRSTMATE_ASSETS = [
+  ".agents/skills/project-orchestration/SKILL.md",
   ".agents/skills/codex-native-firstmate/SKILL.md",
   ".codex/config.firstmate.example.toml",
   ".codex/agents/firstmate-boss.toml",
@@ -80,6 +86,25 @@ function isStringArray(value, { nonEmpty = false } = {}) {
 
 function arrayOrEmpty(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function requiredSkillsFor(registry, node) {
+  const ordered = [PROJECT_ORCHESTRATION_SKILL];
+  if (isCodexNativeFirstmateAdapter(registry.clientAdapter)) ordered.push(CODEX_FIRSTMATE_PROFILE);
+  else if (registry.clientAdapter?.status === "active" && isNonEmptyString(registry.clientAdapter.requiredSkill)) {
+    ordered.push(registry.clientAdapter.requiredSkill);
+  }
+  if (arrayOrEmpty(node.governingProtocols).some((protocol) => GOAL_GRAPH_PROTOCOLS.has(protocol))) {
+    ordered.push(GOAL_GRAPH_SKILL);
+  }
+  ordered.push(...arrayOrEmpty(node.requiredSkills));
+  return [...new Set(ordered)];
+}
+
+function missingRequiredSkills(registry, node) {
+  return requiredSkillsFor(registry, node).filter((skillName) => !fs.existsSync(
+    path.join(CONFIG.repoRoot, ".agents", "skills", skillName, "SKILL.md")
+  ));
 }
 
 function trustRank(level) {
@@ -344,26 +369,28 @@ function taskBindingAttestationBlockers(registry, node, binding) {
 }
 
 function materializedWorkContract(registry, node, parent) {
+  const nodeContract = {
+    id: node.id,
+    role: node.role,
+    parentId: node.parentId,
+    workRef: node.workRef,
+    workKind: node.workKind,
+    governingProtocols: canonicalValues(node.governingProtocols),
+    ...(registry.schemaVersion >= 3 ? { requiredSkills: requiredSkillsFor(registry, node) } : {}),
+    label: node.label,
+    title: node.title,
+    objective: node.objective,
+    dependencies: canonicalValues(node.dependencies),
+    trustLevel: node.trustLevel,
+    authority: canonicalAuthority(node.authority),
+    completionProfile: isObject(node.completionProfile)
+      ? { ...node.completionProfile, requiredEvidence: canonicalValues(node.completionProfile.requiredEvidence) }
+      : node.completionProfile
+  };
   return canonicalize({
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
-    node: {
-      id: node.id,
-      role: node.role,
-      parentId: node.parentId,
-      workRef: node.workRef,
-      workKind: node.workKind,
-      governingProtocols: canonicalValues(node.governingProtocols),
-      label: node.label,
-      title: node.title,
-      objective: node.objective,
-      dependencies: canonicalValues(node.dependencies),
-      trustLevel: node.trustLevel,
-      authority: canonicalAuthority(node.authority),
-      completionProfile: isObject(node.completionProfile)
-        ? { ...node.completionProfile, requiredEvidence: canonicalValues(node.completionProfile.requiredEvidence) }
-        : node.completionProfile
-    },
+    node: nodeContract,
     parent: parent ? {
       id: parent.id,
       taskId: parent.taskId,
@@ -680,7 +707,8 @@ function validateRegistry(registry) {
   const blockers = [];
   const warnings = [];
   if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
-  if (registry.schemaVersion !== REGISTRY_SCHEMA_VERSION) blockers.push(`schemaVersion must be ${REGISTRY_SCHEMA_VERSION}`);
+  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2 or 3");
+  else if (registry.schemaVersion < REGISTRY_SCHEMA_VERSION) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 before relying on requiredSkills as immutable work-contract data");
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 0) blockers.push("revision must be a non-negative safe integer");
   if (!["inactive", "active"].includes(registry.status)) blockers.push("status must be inactive or active");
   if (!isNonEmptyString(registry.prefix)) blockers.push("prefix must be a non-empty single-line string");
@@ -703,6 +731,12 @@ function validateRegistry(registry) {
       if (!isNonEmptyString(adapter.id)) blockers.push("clientAdapter.id must be a non-empty single-line string");
       if (!isNonEmptyString(adapter.profile)) blockers.push("clientAdapter.profile must be a non-empty single-line string");
       if (!['inactive', 'active'].includes(adapter.status)) blockers.push("clientAdapter.status must be inactive or active");
+      if (adapter.status === "active" && registry.schemaVersion >= 3 && !isNonEmptyString(adapter.requiredSkill)) {
+        blockers.push("active schemaVersion 3 clientAdapter requires requiredSkill");
+      }
+      if (adapter.requiredSkill !== undefined && (!isNonEmptyString(adapter.requiredSkill) || !SKILL_NAME_RE.test(adapter.requiredSkill))) {
+        blockers.push("clientAdapter.requiredSkill must be a lowercase skill slug when configured");
+      }
       if (typeof adapter.standingTaskCreationGrant !== "boolean") {
         blockers.push("clientAdapter.standingTaskCreationGrant must be boolean");
       }
@@ -758,6 +792,9 @@ function validateRegistry(registry) {
     if (!isNonEmptyString(node.workKind) || !/^[a-z][a-z0-9-]*$/.test(node.workKind)) blockers.push(`${label}: workKind must be a lowercase slug`);
     if (!isStringArray(node.governingProtocols, { nonEmpty: true })) blockers.push(`${label}: governingProtocols must be a non-empty string array`);
     else if (!node.governingProtocols.includes(CORE_GOVERNING_PROTOCOL)) blockers.push(`${label}: governingProtocols must include ${CORE_GOVERNING_PROTOCOL}`);
+    if (node.requiredSkills !== undefined && (!isStringArray(node.requiredSkills) || !node.requiredSkills.every((skill) => SKILL_NAME_RE.test(skill)))) {
+      blockers.push(`${label}: requiredSkills must be an array of lowercase skill slugs`);
+    }
     if (!isNonEmptyString(node.label)) blockers.push(`${label}: label is required`);
     if (!isNonEmptyString(node.objective)) blockers.push(`${label}: objective is required`);
     if (!Array.isArray(node.dependencies) || !node.dependencies.every(isNonEmptyString)) blockers.push(`${label}: dependencies must be an array of node ids`);
@@ -1303,13 +1340,14 @@ function resolvePromptNode(nodeId, loaded, findings) {
   return findings.nodesById.get(nodeId) || null;
 }
 
-function buildPromptLines(node, parent) {
+function buildPromptLines(node, parent, registry) {
   const lines = [];
   lines.push(`Title: ${node.title}`);
   lines.push(`Node ID: ${node.id}`);
   lines.push(`Work reference: ${node.workRef}`);
   lines.push(`Work kind: ${node.workKind}`);
   lines.push(`Governing protocols: ${node.governingProtocols.join(", ")}`);
+  lines.push(`Required skills (load in order): ${requiredSkillsFor(registry, node).join(", ")}`);
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
   lines.push(`State: ${node.state}`);
   lines.push(`Trust level: ${node.trustLevel}`);
@@ -1376,7 +1414,7 @@ function loadPromptTarget(nodeId, io) {
 function runPrompt(nodeId, io) {
   const target = loadPromptTarget(nodeId, io);
   if (target.code !== 0) return target.code;
-  for (const line of buildPromptLines(target.node, target.parent)) io.stdout(line);
+  for (const line of buildPromptLines(target.node, target.parent, target.loaded.registry)) io.stdout(line);
   return 0;
 }
 
@@ -1384,6 +1422,11 @@ function runLaunchSpec(nodeId, io) {
   const target = loadPromptTarget(nodeId, io);
   if (target.code !== 0) return target.code;
   const { node, parent, findings, loaded } = target;
+  const missingSkills = missingRequiredSkills(loaded.registry, node);
+  if (missingSkills.length) {
+    io.stderr(`Node ${node.id} is missing required project-local skills: ${missingSkills.join(", ")}.`);
+    return 1;
+  }
   const eligibilityBlocker = launchEligibilityBlockers({
     registry: loaded.registry,
     node,
@@ -1446,12 +1489,13 @@ function runLaunchSpec(nodeId, io) {
     validity: reservationValidity
   };
   io.stdout(JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: REGISTRY_SCHEMA_VERSION,
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
     title: node.title,
     parentTaskId: parent?.taskId || null,
+    requiredSkills: requiredSkillsFor(loaded.registry, node),
     trustLevel: node.trustLevel,
     authority: canonicalAuthority(node.authority),
     workContract: { algorithm: "sha256", hash: workContractHash },
@@ -1473,7 +1517,7 @@ function runLaunchSpec(nodeId, io) {
       } : {}),
       indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
-    prompt: buildPromptLines(node, parent).join("\n"),
+    prompt: buildPromptLines(node, parent, loaded.registry).join("\n"),
     reservation,
     callback: {
       registry: REGISTRY_REL_PATH,

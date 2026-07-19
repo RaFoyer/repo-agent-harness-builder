@@ -9,6 +9,12 @@ description: Use when creating, auditing, extending, packaging, or explaining a 
 
 Build repository and personal-folder harnesses that give coding agents one durable source of truth, lazy-loaded protocols, and deterministic CLI commands for repeatable work. Keep the harness agent-agnostic: repo docs, protocols, and CLI behavior are the portable core; Codex, Claude Code, Gemini CLI, Kimi, Cursor, and similar clients are adapters.
 
+This builder installs, migrates, and verifies the harness; it is not the
+runtime project controller. Generated repositories use `$project-orchestration`
+for the portable control plane, then a selected client adapter such as
+`$codex-native-firstmate`, then a domain loop such as `$goal-graph-loop`, then
+node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
+
 ## Core Workflow
 
 1. Identify the target mode: repository, non-GitHub project folder, or personal-folder steward.
@@ -42,7 +48,7 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
 - Project-wide Boss/Manager/Worker delegation, progressive autonomy, authority envelopes, budgets, lifecycle, completion profiles, and client launch contracts: read `references/project-orchestration.md`.
 - Dependency-light Codex app mapping for the portable hierarchy, including the Firstmate Boss profile, managed worktrees, bounded subagents, native capability gaps, and inactive activation controls: read `references/codex-native-firstmate.md`.
-- Ticket-backed implementation goal chains with merge, verification, and handoff evidence: read `references/goal-chain-loop.md`.
+- Manager-owned ticket-backed implementation graphs, strict-chain topology, merge evidence, fan-in, and handoff: read `references/goal-graph-loop.md`.
 - Hooks, intent authority, generated artifacts, and evidence/provenance maps: read `references/advanced-patterns.md`.
 
 ## Bundled Assets
@@ -53,8 +59,8 @@ Build repository and personal-folder harnesses that give coding agents one durab
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust, authority, and loop ownership.
 - `assets/templates/client-adapters/codex-native-firstmate/`: opt-in Codex config examples, role profiles, Firstmate Boss overlay, protocol, and project-local adapter skill around the portable orchestration core.
-- `assets/templates/goal-chain/`: ticket-backed implementation goal-chain/graph, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
-- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, and goal-chain-loop skill templates plus agent-client install guidance.
+- `assets/templates/goal-graph/`: ticket-backed implementation DAGs, strict-chain topology, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
+- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, project-orchestration, goal-graph-loop, and compatibility skill templates plus agent-client install guidance.
 
 Use placeholders consistently:
 

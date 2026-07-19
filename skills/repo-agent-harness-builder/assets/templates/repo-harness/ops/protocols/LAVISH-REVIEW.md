@@ -9,7 +9,7 @@ summary: Defines optional Lavish HTML artifact review, update checks, tracker de
 related_protocols:
   - AGENT-CLI-ERGONOMICS
   - CLI-INTERFACE
-  - GOAL-CHAIN
+  - GOAL-GRAPH
   - NO-MISTAKES-GATE
   - QA-BROWSER
 ---
@@ -38,7 +38,7 @@ Do not use Lavish when a short answer, normal code review comment, or existing i
 - Review artifact: repo-local HTML file, usually under `.lavish/`
 - Review commands: `./{{CLI_NAME}} lavish ...`
 - Durable decisions: canonical tracker issue or repo-owned decision document
-- Implementation sequence: `ops/protocols/GOAL-CHAIN.md`
+- Implementation dependency graph: `ops/protocols/GOAL-GRAPH.md`
 - PR validation: `ops/protocols/NO-MISTAKES-GATE.md`
 
 ## Required Sequence

@@ -121,8 +121,8 @@ Use loops for bounded, inspectable cycles:
 
 For ongoing goals, prefer a goal/checkpoint pattern over an infinite loop.
 
-For ticket-backed implementation sequences, prefer a goal-chain protocol over a
-generic scheduled loop. Each goal should start from the current integration
+For ticket-backed implementation sequences, prefer a goal-graph protocol over a
+generic scheduled loop. Each graph node should start from the current integration
 branch, land one PR, record verification, and queue the next goal from merged
 state. Useful read-only commands are `./<cli> goals status`,
 `./<cli> goals verify <goal-id>`, and `./<cli> goals start-prompt <goal-id>`.
@@ -130,7 +130,8 @@ The start-prompt command should stay bounded by default and expose `--full` only
 when the complete objective is needed.
 
 For dependency graphs, parallel subgoal threads, orchestration ledgers, or
-fan-out/fan-in planning, use the bundled `skills/goal-chain-loop/SKILL.md`.
+fan-out/fan-in planning, use the bundled `skills/goal-graph-loop/SKILL.md` after
+`skills/project-orchestration/SKILL.md`. A strict chain is a linear graph.
 
 If loops become an active module, add deterministic local commands such as
 `./<cli> loops list`, `./<cli> loops validate`, and

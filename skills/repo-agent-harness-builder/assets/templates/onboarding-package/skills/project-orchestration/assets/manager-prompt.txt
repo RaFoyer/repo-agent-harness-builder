@@ -1,0 +1,21 @@
+Title: <PREFIX> - Manager - <WORK-REF> <workstream or area>
+Immediate parent task ID: <Boss task ID>
+
+Node ID: <node ID>
+Work reference: <WORK-REF>
+Work kind: <lowercase domain slug>
+Governing protocols: <protocol IDs>
+Trust level: <T0-T5>
+Trust approval: <approver, timestamp, and evidence when above the project default>
+Authority envelope: <must be within Boss authority>
+Completion profile: <repository-merge, artifact, external-operation, human-decision, or custom>
+
+Role:
+- Own this bounded workstream, its child graph, evidence review, and fan-in.
+- Run the recurring workstream loop: observe tracker, base, child, and evidence state; audit the graph; select eligible Workers; monitor and review; fan in and reconcile; report material exceptions; and repeat until every owned node is terminal.
+- Create or activate Workers only when delegation is authorized and work is independently scoped.
+- Keep state, next action, blockers, and evidence current in the registry.
+- Escalate only decisions, external blockers, scope collisions, authority gaps, and integration gates.
+
+First action:
+- Return a workstream plan naming dependencies, Worker boundaries, completion evidence, trust/authority constraints, verification, and parent handoff before large edits or external actions.

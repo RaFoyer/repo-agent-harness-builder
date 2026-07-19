@@ -198,7 +198,7 @@ function selfConsistentReservationValidity(registry, node, parent) {
 
 function validOrchestrationRegistry() {
   const registry = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     revision: 0,
     status: "active",
     prefix: CONFIG.projectName,
@@ -299,6 +299,7 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
   const adapter = {
     id: "codex-app",
     profile: "codex-native-firstmate",
+    requiredSkill: "codex-native-firstmate",
     status: "active",
     bossTaskId: boss.taskId,
     standingTaskCreationGrant: false,
@@ -341,6 +342,7 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
     : profile === "nautical"
       ? { boss: "Firstmate", manager: "Secondmate", worker: "Crewmate" }
       : { boss: "CEO", manager: "CTO", worker: "Lead" };
+  registry.clientAdapter = adapter;
   for (const node of registry.nodes) {
     if (profile === "executive" && node.role !== "boss") node.displayRole = displayRoles[node.role];
     node.title = `${CONFIG.repoSlug} - ${displayRoles[node.role]} - ${(node.role === "boss" ? registry.scope.id : node.workRef)}/${node.id}`;
@@ -548,7 +550,7 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.match(text, /registry_valid: true/);
   assert.match(text, /adapter_state: "unconfigured"/);
   assert.match(text, /repo_local_scope: true/);
-  assert.match(text, /assets_present: 8/);
+  assert.match(text, /assets_present: 9/);
   for (const profile of ["firstmate-boss", "firstmate-manager", "firstmate-worker"]) {
     const profilePath = path.join(repoRoot, ".codex", "agents", `${profile}.toml`);
     assert.equal(fs.existsSync(profilePath), true);
@@ -584,6 +586,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
   assert.match(active.out.join("\n"), /activation_ready: true/);
 
   for (const [name, mutate, expectedBlocker] of [
+    ["adapter skill", (registry) => { delete registry.clientAdapter.requiredSkill; }, /registry must be valid/],
     ["Boss task identity", (registry) => { registry.clientAdapter.bossTaskId = null; }, /bossTaskId/],
     ["task-creation decision", (registry) => { registry.clientAdapter.taskCreationApprovalGate = null; }, /taskCreationApprovalGate/],
     ["completion profiles", (registry) => { registry.clientAdapter.completionProfiles = {}; }, /completionProfiles/],
@@ -607,9 +610,14 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     writeOrchestrationRegistry(partialRegistry);
     const partial = capture();
     assert.equal(await main(["orchestration", "adapter-status"], partial.io), 0, `${name}: ${partial.err.join("\n")}`);
-    assert.match(partial.out.join("\n"), name === "binding assurance" ? /orchestration_active: false/ : /orchestration_active: true/, name);
+    assert.match(partial.out.join("\n"), ["adapter skill", "binding assurance"].includes(name) ? /orchestration_active: false/ : /orchestration_active: true/, name);
     assert.match(partial.out.join("\n"), /activation_ready: false/, name);
     assert.match(partial.out.join("\n"), expectedBlocker, name);
+    if (name === "adapter skill") {
+      const validation = capture();
+      assert.equal(await main(["orchestration", "validate"], validation.io), 1);
+      assert.match(validation.out.join("\n"), /active schemaVersion 3 clientAdapter requires requiredSkill/);
+    }
   }
 
   activeRegistry.prefix = "";
@@ -1820,6 +1828,7 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   const promptText = prompt.out.join("\n");
   assert.match(promptText, /Work kind: documentation/);
   assert.match(promptText, /Governing protocols: AGENT-ORCHESTRATION, DOCUMENT-QUALITY/);
+  assert.match(promptText, /Required skills \(load in order\): project-orchestration/);
   assert.match(promptText, /Completion profile: artifact/);
   assert.match(promptText, /Immediate parent task ID: task-boss/);
 
@@ -1828,6 +1837,7 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   assert.equal(launchCode, 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
   assert.equal(spec.parentTaskId, "task-boss");
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration"]);
   assert.equal(spec.callback.mode, "update-node");
   assert.equal(spec.title, `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`);
   assert.ok(spec.callback.bind.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
@@ -2664,6 +2674,7 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
   assert.equal(spec.externalTask.requiredTitle, undefined);
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration"]);
   assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, undefined);
   assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
 
@@ -2676,6 +2687,7 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
 
 fixtureTest("orchestration accepts explicitly inventoried legacy schema-v2 bindings", async () => {
   const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 2;
   registry.clientAdapter = configuredFirstmateAdapter(registry);
   const boss = registry.nodes.find((node) => node.id === "boss");
   boss.taskBinding = taskBindingForTest(registry, boss, { requiresVerifiedTitle: false });
@@ -2687,6 +2699,7 @@ fixtureTest("orchestration accepts explicitly inventoried legacy schema-v2 bindi
   writeOrchestrationRegistry(registry);
   const valid = capture();
   assert.equal(await main(["orchestration", "validate"], valid.io), 0, valid.out.concat(valid.err).join("\n"));
+  assert.match(valid.out.join("\n"), /schemaVersion 2 is supported for existing bindings/);
   const posture = capture();
   assert.equal(await main(["orchestration", "adapter-status"], posture.io), 0, posture.err.join("\n"));
   assert.match(posture.out.join("\n"), /activation_ready: true/);
@@ -2742,11 +2755,34 @@ fixtureTest("orchestration requires verified titles for new Firstmate bindings",
   const launch = capture();
   assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration", "codex-native-firstmate"]);
   assert.equal(spec.taskBinding.externalTitle, spec.title);
   assert.deepEqual(spec.taskBinding.titleVerification, { method: "rename-and-readback", verified: true });
   assert.ok(spec.callback.bind.requiredUpdates.includes("verified externalTitle and titleVerification matching the registry title"));
   assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, true);
   assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
+});
+
+fixtureTest("orchestration launch contracts compose goal graph and node skills in order and fail closed when missing", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.governingProtocols.push("GOAL-GRAPH");
+  manager.requiredSkills = ["documentation-quality"];
+  writeOrchestrationRegistry(registry);
+
+  const missing = capture();
+  assert.equal(await main(["orchestration", "launch-spec", manager.id], missing.io), 1);
+  assert.match(missing.err.join("\n"), /missing required project-local skills: documentation-quality/);
+
+  const skillPath = path.join(repoRoot, ".agents", "skills", "documentation-quality");
+  fs.mkdirSync(skillPath, { recursive: true });
+  fs.writeFileSync(path.join(skillPath, "SKILL.md"), "---\nname: documentation-quality\ndescription: Fixture skill.\n---\n", "utf-8");
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", manager.id], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration", "goal-graph-loop", "documentation-quality"]);
+  assert.deepEqual(spec.workContract, { algorithm: "sha256", hash: spec.reservation.workContract.hash });
+  assert.deepEqual(spec.reservation.workContract.payload.node.requiredSkills, spec.requiredSkills);
 });
 
 fixtureTest("orchestration rejects tampered Firstmate title verification evidence", async () => {
@@ -2924,7 +2960,7 @@ Objective: prove generated repositories can inspect goal-chain evidence.
   const { io, out, err } = capture();
   const code = await main(["goals", "status"], io);
   assert.equal(code, 0, err.join("\n"));
-  assert.match(out.join("\n"), /Goal chain: docs\/reference\/implementation-goal-chain\.md/);
+  assert.match(out.join("\n"), /Goal graph: docs\/reference\/implementation-goal-chain\.md/);
   assert.match(out.join("\n"), /Goal 1: Establish Harness Surface/);
   assert.match(out.join("\n"), /Goal 2: Validate Generated CLI/);
 });
@@ -4075,7 +4111,7 @@ Verification:
   const code = await main(["goals", "start-prompt", "3"], io);
   assert.equal(code, 0, err.join("\n"));
   const prompt = out.join("\n");
-  assert.match(prompt, /Complete the scoped goal from the goal-chain document/);
+  assert.match(prompt, /Complete the scoped goal from the goal-graph document/);
   assert.doesNotMatch(prompt, /Objective:\nIssues:/);
   assert.match(prompt, /Issue: #789: Keep parser fields separate/);
 });
