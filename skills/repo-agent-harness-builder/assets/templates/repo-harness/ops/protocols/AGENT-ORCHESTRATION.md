@@ -84,6 +84,11 @@ Worker:
 
 ## Title Grammar
 
+Use this portable grammar unless a configured client presentation taxonomy
+selects another grammar. The Codex-native Firstmate adapter owns its configured
+display-role and title grammar in `CODEX-NATIVE-FIRSTMATE.md`; it never changes
+the canonical role, parentage, lifecycle, trust, authority, or budgets.
+
 `<WORK-REF>` is a stable project reference such as `#123`, `INT-936`, `G2`, `DOCS-4`, or `OPS-7`. Ticket-backed projects should use the canonical ticket reference.
 
 - `<PREFIX> - Boss`
