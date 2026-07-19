@@ -1,0 +1,38 @@
+{
+  "id": "codex-app",
+  "profile": "codex-native-firstmate",
+  "status": "inactive",
+  "bossTaskId": null,
+  "standingTaskCreationGrant": false,
+  "taskCreationApprovalGate": null,
+  "completionProfiles": null,
+  "presentationTaxonomy": {
+    "profile": "portable",
+    "repositoryIdentity": null,
+    "managerCatalog": ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"],
+    "workerCatalog": ["Director", "Lead", "Contributor"]
+  },
+  "baseRef": null,
+  "worktreePolicy": {
+    "mode": "managed",
+    "parallelWrites": "disjoint-only",
+    "landedWorkProofRequiredBeforeArchive": true
+  },
+  "browserIntegration": "unconfigured",
+  "browserAuthenticationBoundary": null,
+  "githubIntegration": "unconfigured",
+  "githubAuthenticationBoundary": null,
+  "heartbeat": {
+    "mode": "disabled",
+    "cadence": null,
+    "registryMutator": null
+  },
+  "retention": {
+    "pinBoss": false,
+    "archivePolicy": "manual-after-landed-proof",
+    "handoffPolicy": null
+  },
+  "reconciliationPolicy": null,
+  "legacyTaskBindings": [],
+  "headlessFallback": "disabled"
+}

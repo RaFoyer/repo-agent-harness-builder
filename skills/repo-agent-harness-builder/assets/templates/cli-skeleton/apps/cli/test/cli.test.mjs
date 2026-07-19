@@ -10,7 +10,7 @@ import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
-import { materializedWorkContractHash, taskBindingAttestationPayload } from "../src/orchestration/index.mjs";
+import { materializedWorkContractHash, taskBindingAttestationPayload, taskBindingLegacyAttestationDigest } from "../src/orchestration/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -119,7 +119,11 @@ function canonicalAuthorityForTest(authority) {
   };
 }
 
-function taskBindingForTest(registry, node, { boundRevision = registry.revision, boundAt = "2026-07-16T12:00:00Z" } = {}) {
+function taskBindingForTest(registry, node, {
+  boundRevision = registry.revision,
+  boundAt = "2026-07-16T12:00:00Z",
+  requiresVerifiedTitle = registry.clientAdapter?.profile === "codex-native-firstmate"
+} = {}) {
   const parent = node.parentId ? registry.nodes.find((candidate) => candidate.id === node.parentId) : null;
   const workContractHash = materializedWorkContractHash(registry, node, parent);
   const binding = {
@@ -127,6 +131,13 @@ function taskBindingForTest(registry, node, { boundRevision = registry.revision,
     workContractHash,
     nodeId: node.id,
     taskId: node.taskId,
+    ...(requiresVerifiedTitle ? {
+      externalTitle: node.title,
+      titleVerification: {
+        method: "rename-and-readback",
+        verified: true
+      }
+    } : {}),
     parentNodeId: node.parentId,
     parentTaskId: parent?.taskId || null,
     boundRevision,
@@ -281,6 +292,61 @@ function validOrchestrationRegistry() {
   const boss = registry.nodes.find((node) => node.id === "boss");
   boss.taskBinding = taskBindingForTest(registry, boss);
   return registry;
+}
+
+function configuredFirstmateAdapter(registry, profile = "portable") {
+  const boss = registry.nodes.find((node) => node.role === "boss");
+  const adapter = {
+    id: "codex-app",
+    profile: "codex-native-firstmate",
+    status: "active",
+    bossTaskId: boss.taskId,
+    standingTaskCreationGrant: false,
+    taskCreationApprovalGate: "per-task-human-approval",
+    completionProfiles: {
+      artifact: ["approved documentation artifact"],
+      "human-decision": ["downstream disposition", "recorded human decision"]
+    },
+    presentationTaxonomy: {
+      profile,
+      repositoryIdentity: CONFIG.repoSlug,
+      managerCatalog: ["CTO", "COO"],
+      workerCatalog: ["Director", "Lead", "Contributor"]
+    },
+    baseRef: "{{DEFAULT_BRANCH}}",
+    worktreePolicy: {
+      mode: "managed",
+      parallelWrites: "disjoint-only",
+      landedWorkProofRequiredBeforeArchive: true
+    },
+    browserIntegration: "not-used",
+    browserAuthenticationBoundary: "repository-scoped",
+    githubIntegration: "not-used",
+    githubAuthenticationBoundary: "repository-scoped",
+    heartbeat: {
+      mode: "manual",
+      cadence: "on-demand",
+      registryMutator: "project-owner"
+    },
+    retention: {
+      pinBoss: true,
+      archivePolicy: "manual-after-landed-proof",
+      handoffPolicy: "parent-review-before-archive"
+    },
+    reconciliationPolicy: "quarantine-and-human-reconcile",
+    legacyTaskBindings: []
+  };
+  const displayRoles = profile === "portable"
+    ? { boss: "Boss", manager: "Manager", worker: "Worker" }
+    : profile === "nautical"
+      ? { boss: "Firstmate", manager: "Secondmate", worker: "Crewmate" }
+      : { boss: "CEO", manager: "CTO", worker: "Lead" };
+  for (const node of registry.nodes) {
+    if (profile === "executive" && node.role !== "boss") node.displayRole = displayRoles[node.role];
+    node.title = `${CONFIG.repoSlug} - ${displayRoles[node.role]} - ${(node.role === "boss" ? registry.scope.id : node.workRef)}/${node.id}`;
+  }
+  boss.taskBinding = taskBindingForTest(registry, boss, { requiresVerifiedTitle: true });
+  return adapter;
 }
 
 function createFixtureCommit(message = "fixture commit", branch = "{{DEFAULT_BRANCH}}") {
@@ -455,6 +521,8 @@ test("help lists core commands", () => {
   assert.match(help, /connections auth-plan/);
   assert.match(help, /connections env/);
   assert.match(help, /orchestration status/);
+  assert.match(help, /orchestration adapter-status/);
+  assert.match(help, /orchestration taxonomy/);
   assert.match(help, /orchestration validate/);
   assert.match(help, /orchestration prompt/);
   assert.match(help, /orchestration launch-spec/);
@@ -465,6 +533,140 @@ test("help lists core commands", () => {
   assert.match(help, /lavish status/);
   assert.match(help, /lavish update/);
   assert.match(help, /checklist/);
+});
+
+fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-light, and read-only by default", async () => {
+  const registryPath = path.join(repoRoot, "ops", "orchestration.json");
+  const before = fs.readFileSync(registryPath, "utf-8");
+  const beforeMtime = fs.statSync(registryPath).mtimeMs;
+  const { io, out, err } = capture();
+  const code = await main(["orchestration", "adapter-status"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /profile: "codex-native-firstmate"/);
+  assert.match(text, /registry_state: "inactive"/);
+  assert.match(text, /registry_valid: true/);
+  assert.match(text, /adapter_state: "unconfigured"/);
+  assert.match(text, /repo_local_scope: true/);
+  assert.match(text, /assets_present: 8/);
+  for (const profile of ["firstmate-boss", "firstmate-manager", "firstmate-worker"]) {
+    const profilePath = path.join(repoRoot, ".codex", "agents", `${profile}.toml`);
+    assert.equal(fs.existsSync(profilePath), true);
+    const profileText = fs.readFileSync(profilePath, "utf-8");
+    assert.match(profileText, new RegExp(`name = "${profile}"`));
+    assert.match(profileText, /description = "/);
+  }
+  assert.equal(fs.existsSync(path.join(repoRoot, ".codex", "agents", "boss.toml")), false);
+  assert.match(text, /required_external_dependencies\[0\]:/);
+  assert.match(text, /orchestration_active: false/);
+  assert.match(text, /activation_ready: false/);
+  assert.equal(fs.readFileSync(registryPath, "utf-8"), before);
+  assert.equal(fs.statSync(registryPath).mtimeMs, beforeMtime);
+});
+
+fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit activation configuration", async () => {
+  const inactiveRegistry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
+  inactiveRegistry.clientAdapter = configuredFirstmateAdapter(validOrchestrationRegistry());
+  writeOrchestrationRegistry(inactiveRegistry);
+
+  const inactive = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], inactive.io), 0, inactive.err.join("\n"));
+  assert.match(inactive.out.join("\n"), /adapter_selected: true/);
+  assert.match(inactive.out.join("\n"), /orchestration_active: false/);
+  assert.match(inactive.out.join("\n"), /activation_ready: false/);
+
+  const activeRegistry = validOrchestrationRegistry();
+  activeRegistry.clientAdapter = configuredFirstmateAdapter(activeRegistry);
+  writeOrchestrationRegistry(activeRegistry);
+  const active = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], active.io), 0, active.err.join("\n"));
+  assert.match(active.out.join("\n"), /orchestration_active: true/);
+  assert.match(active.out.join("\n"), /activation_ready: true/);
+
+  for (const [name, mutate, expectedBlocker] of [
+    ["Boss task identity", (registry) => { registry.clientAdapter.bossTaskId = null; }, /bossTaskId/],
+    ["task-creation decision", (registry) => { registry.clientAdapter.taskCreationApprovalGate = null; }, /taskCreationApprovalGate/],
+    ["completion profiles", (registry) => { registry.clientAdapter.completionProfiles = {}; }, /completionProfiles/],
+    ["completion profile coverage", (registry) => { delete registry.clientAdapter.completionProfiles["human-decision"]; }, /completionProfiles\.human-decision must exactly cover registry required evidence/],
+    ["completion evidence coverage", (registry) => { registry.clientAdapter.completionProfiles.artifact = ["wrong evidence"]; }, /completionProfiles\.artifact must exactly cover registry required evidence/],
+    ["presentation taxonomy", (registry) => { registry.nodes.find((node) => node.id === "boss").displayRole = "Captain"; }, /portable displayRole must remain Boss/],
+    ["base ref", (registry) => { registry.clientAdapter.baseRef = null; }, /baseRef/],
+    ["worktree policy", (registry) => { registry.clientAdapter.worktreePolicy.mode = "unmanaged"; }, /worktreePolicy/],
+    ["Browser choice", (registry) => { registry.clientAdapter.browserIntegration = "unconfigured"; }, /browserIntegration/],
+    ["Browser boundary", (registry) => { registry.clientAdapter.browserAuthenticationBoundary = null; }, /browserAuthenticationBoundary/],
+    ["GitHub choice", (registry) => { registry.clientAdapter.githubIntegration = "unconfigured"; }, /githubIntegration/],
+    ["GitHub boundary", (registry) => { registry.clientAdapter.githubAuthenticationBoundary = null; }, /githubAuthenticationBoundary/],
+    ["heartbeat ownership", (registry) => { delete registry.clientAdapter.heartbeat.registryMutator; }, /heartbeat must configure mode, cadence, and registry mutator/],
+    ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
+    ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
+    ["binding assurance", (registry) => { registry.bindingAttestation = null; }, /registry must be valid/]
+  ]) {
+    const partialRegistry = validOrchestrationRegistry();
+    partialRegistry.clientAdapter = configuredFirstmateAdapter(partialRegistry);
+    mutate(partialRegistry);
+    writeOrchestrationRegistry(partialRegistry);
+    const partial = capture();
+    assert.equal(await main(["orchestration", "adapter-status"], partial.io), 0, `${name}: ${partial.err.join("\n")}`);
+    assert.match(partial.out.join("\n"), name === "binding assurance" ? /orchestration_active: false/ : /orchestration_active: true/, name);
+    assert.match(partial.out.join("\n"), /activation_ready: false/, name);
+    assert.match(partial.out.join("\n"), expectedBlocker, name);
+  }
+
+  activeRegistry.prefix = "";
+  writeOrchestrationRegistry(activeRegistry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], invalid.io), 0, invalid.err.join("\n"));
+  assert.match(invalid.out.join("\n"), /registry_valid: false/);
+  assert.match(invalid.out.join("\n"), /orchestration_active: false/);
+  assert.match(invalid.out.join("\n"), /activation_ready: false/);
+});
+
+fixtureTest("active orchestration rejects an explicitly configured inactive client adapter", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = {
+    id: "codex-app",
+    profile: "codex-native-firstmate",
+    status: "inactive",
+    standingTaskCreationGrant: false
+  };
+  writeOrchestrationRegistry(registry);
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /configured clientAdapter must be active when orchestration is active/);
+});
+
+fixtureTest("Codex-native Firstmate taxonomy preserves canonical roles and exact titles", async () => {
+  const expectedDisplayRoles = {
+    portable: ["Boss", "Manager", "Worker"],
+    nautical: ["Firstmate", "Secondmate", "Crewmate"],
+    executive: ["CEO", "CTO", "Lead"]
+  };
+  for (const [profile, displayRoles] of Object.entries(expectedDisplayRoles)) {
+    const registry = validOrchestrationRegistry();
+    registry.clientAdapter = configuredFirstmateAdapter(registry, profile);
+    writeOrchestrationRegistry(registry);
+    const validation = capture();
+    assert.equal(await main(["orchestration", "validate"], validation.io), 0, `${profile}: ${validation.out.concat(validation.err).join("\n")}`);
+    const posture = capture();
+    assert.equal(await main(["orchestration", "adapter-status"], posture.io), 0, `${profile}: ${posture.err.join("\n")}`);
+    assert.match(posture.out.join("\n"), /activation_ready: true/);
+    assert.deepEqual(registry.nodes.map((node) => node.role), ["boss", "manager", "worker"]);
+    assert.deepEqual(registry.nodes.map((node) => node.title), [
+      `${CONFIG.repoSlug} - ${displayRoles[0]} - knowledge-refresh/boss`,
+      `${CONFIG.repoSlug} - ${displayRoles[1]} - DOCS-4/manager-docs`,
+      `${CONFIG.repoSlug} - ${displayRoles[2]} - RES-2/worker-research`
+    ]);
+  }
+
+  const taxonomy = capture();
+  assert.equal(await main(["orchestration", "taxonomy"], taxonomy.io), 0, taxonomy.err.join("\n"));
+  const taxonomyText = taxonomy.out.join("\n");
+  assert.match(taxonomyText, /profiles\[3\]\{profile,boss,manager,worker\}/);
+  assert.match(taxonomyText, /"portable","Boss","Manager","Worker"/);
+  assert.match(taxonomyText, /"nautical","Firstmate","Secondmate","Crewmate"/);
+  assert.match(taxonomyText, /"executive","CEO","configured C-suite title","configured Director, Lead, or Contributor title"/);
+  assert.match(taxonomyText, /Display labels never grant authority/);
 });
 
 test("no args renders content-first agent home view", async () => {
@@ -2216,7 +2418,7 @@ fixtureTest("orchestration launch specs require a compare-and-set reservation be
   assert.deepEqual(refreshedSpec.callback.preCreate.expectedParent, validity.expectedParent);
   assert.deepEqual(refreshedSpec.callback.bind.capacity, validity.capacity);
   assert.equal(refreshedSpec.externalTask.idempotencyKey, refreshedSpec.reservation.launchKey);
-  assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation and reconcile/);
+  assert.match(refreshedSpec.callback.bind.onFailure, /Keep the reservation quarantined and reconcile/);
   assert.equal(refreshedSpec.callback.reconcile.operation, "compare-and-set-reconcile-bind");
   assert.deepEqual(refreshedSpec.callback.reconcile.requiredReservation, {
     key: refreshedSpec.reservation.launchKey,
@@ -2452,19 +2654,111 @@ fixtureTest("orchestration launch contracts require immutable task binding metad
   assert.equal(spec.taskBinding.launchKey, spec.reservation.launchKey);
   assert.equal(spec.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.taskBinding.nodeId, "manager-docs");
+  assert.equal(spec.taskBinding.externalTitle, undefined);
   assert.equal(spec.taskBinding.parentNodeId, "boss");
   assert.equal(spec.taskBinding.parentTaskId, "task-boss");
   assert.equal(spec.taskBinding.attestation.algorithm, "ed25519");
   assert.equal(spec.taskBinding.attestation.keyId, BINDING_ATTESTOR_KEY_ID);
   assert.ok(spec.callback.bind.requiredUpdates.some((update) => update.startsWith("Ed25519-attested taskBinding")));
+  assert.ok(!spec.callback.bind.requiredUpdates.some((update) => update.includes("externalTitle")));
   assert.equal(spec.callback.bind.taskBinding.workContractHash, spec.workContract.hash);
   assert.equal(spec.callback.reconcile.taskBinding.boundRevision, "latest registry revision plus one");
+  assert.equal(spec.externalTask.requiredTitle, undefined);
+  assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, undefined);
+  assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
 
   delete registry.nodes.find((node) => node.id === "boss").taskBinding;
   writeOrchestrationRegistry(registry);
   const missing = capture();
   assert.equal(await main(["orchestration", "validate"], missing.io), 1);
   assert.match(missing.out.join("\n"), /node boss: task-backed node requires immutable taskBinding metadata/);
+});
+
+fixtureTest("orchestration accepts explicitly inventoried legacy schema-v2 bindings", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding = taskBindingForTest(registry, boss, { requiresVerifiedTitle: false });
+  registry.clientAdapter.legacyTaskBindings = [{
+    nodeId: boss.id,
+    taskId: boss.taskId,
+    attestationDigest: taskBindingLegacyAttestationDigest(registry, boss.taskBinding)
+  }];
+  writeOrchestrationRegistry(registry);
+  const valid = capture();
+  assert.equal(await main(["orchestration", "validate"], valid.io), 0, valid.out.concat(valid.err).join("\n"));
+  const posture = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], posture.io), 0, posture.err.join("\n"));
+  assert.match(posture.out.join("\n"), /activation_ready: true/);
+});
+
+fixtureTest("orchestration rejects supplied binding titles that do not match the registry", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding.externalTitle = "Wrong external title";
+  boss.taskBinding.attestation.signature = signPayload(
+    null,
+    Buffer.from(taskBindingAttestationPayload(registry, boss.taskBinding)),
+    bindingAttestor.privateKey
+  ).toString("base64");
+  writeOrchestrationRegistry(registry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "validate"], invalid.io), 1);
+  assert.match(invalid.out.join("\n"), /node boss: taskBinding\.externalTitle must match the verified task title/);
+});
+
+fixtureTest("orchestration requires verified titles for new Firstmate bindings", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  delete boss.taskBinding.titleVerification;
+  boss.taskBinding.attestation.signature = signPayload(
+    null,
+    Buffer.from(taskBindingAttestationPayload(registry, boss.taskBinding)),
+    bindingAttestor.privateKey
+  ).toString("base64");
+  writeOrchestrationRegistry(registry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "validate"], invalid.io), 1);
+  assert.match(invalid.out.join("\n"), /node boss: taskBinding\.titleVerification must prove rename-and-readback verification/);
+  const notReady = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], notReady.io), 0, notReady.err.join("\n"));
+  assert.match(notReady.out.join("\n"), /activation_ready: false/);
+
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  delete boss.taskBinding.externalTitle;
+  boss.taskBinding.attestation.signature = signPayload(
+    null,
+    Buffer.from(taskBindingAttestationPayload(registry, boss.taskBinding)),
+    bindingAttestor.privateKey
+  ).toString("base64");
+  writeOrchestrationRegistry(registry);
+  const missingTitle = capture();
+  assert.equal(await main(["orchestration", "validate"], missingTitle.io), 1);
+  assert.match(missingTitle.out.join("\n"), /node boss: non-legacy Firstmate taskBinding requires externalTitle matching the verified task title/);
+
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.taskBinding.externalTitle, spec.title);
+  assert.deepEqual(spec.taskBinding.titleVerification, { method: "rename-and-readback", verified: true });
+  assert.ok(spec.callback.bind.requiredUpdates.includes("verified externalTitle and titleVerification matching the registry title"));
+  assert.equal(spec.callback.reconcile.externalTask.renameAndVerifyBeforeBind, true);
+  assert.match(spec.callback.bind.onFailure, /reservation quarantined/);
+});
+
+fixtureTest("orchestration rejects tampered Firstmate title verification evidence", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding.titleVerification.verified = false;
+  writeOrchestrationRegistry(registry);
+  const invalid = capture();
+  assert.equal(await main(["orchestration", "validate"], invalid.io), 1);
+  assert.match(invalid.out.join("\n"), /node boss: taskBinding\.attestation signature does not match the trusted immutable binding record/);
+  assert.match(invalid.out.join("\n"), /node boss: taskBinding\.titleVerification must prove rename-and-readback verification/);
 });
 
 fixtureTest("orchestration requires an external attestation for immutable task bindings", async () => {

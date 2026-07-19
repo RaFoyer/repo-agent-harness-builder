@@ -29,6 +29,24 @@ const AUTHORITY_ARRAY_FIELDS = ["allowedReads", "allowedWrites", "allowedExterna
 const BINDING_ATTESTATION_ALGORITHM = "ed25519";
 const BINDING_PUBLIC_KEY_ENV = "ORCHESTRATION_BINDING_PUBLIC_KEY";
 const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
+const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
+const PRESENTATION_PROFILES = new Set(["portable", "nautical", "executive"]);
+const PRESENTATION_ROLE_LABELS = {
+  portable: { boss: "Boss", manager: "Manager", worker: "Worker" },
+  nautical: { boss: "Firstmate", manager: "Secondmate", worker: "Crewmate" }
+};
+const DEFAULT_EXECUTIVE_MANAGER_CATALOG = ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"];
+const DEFAULT_EXECUTIVE_WORKER_CATALOG = ["Director", "Lead", "Contributor"];
+const CODEX_FIRSTMATE_ASSETS = [
+  ".agents/skills/codex-native-firstmate/SKILL.md",
+  ".codex/config.firstmate.example.toml",
+  ".codex/agents/firstmate-boss.toml",
+  ".codex/agents/firstmate-manager.toml",
+  ".codex/agents/firstmate-worker.toml",
+  "docs/templates/orchestration/codex-native-firstmate-prompt.txt",
+  "docs/templates/orchestration/codex-native-firstmate-adapter.example.json",
+  "ops/protocols/CODEX-NATIVE-FIRSTMATE.md"
+];
 
 function registryPath() {
   return path.join(CONFIG.repoRoot, REGISTRY_REL_PATH);
@@ -46,6 +64,10 @@ function loadRegistry() {
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCodexNativeFirstmateAdapter(adapter) {
+  return isObject(adapter) && adapter.profile === CODEX_FIRSTMATE_PROFILE;
 }
 
 function isNonEmptyString(value) {
@@ -86,7 +108,27 @@ function isUtcRfc3339Timestamp(value) {
     && isApprovalTimestamp(value);
 }
 
-function titleForNode(node, nodesById, prefix) {
+function presentationTaxonomy(adapter) {
+  const taxonomy = adapter?.presentationTaxonomy;
+  if (!isObject(taxonomy) || !PRESENTATION_PROFILES.has(taxonomy.profile)) return null;
+  return taxonomy;
+}
+
+function displayRoleForNode(node, taxonomy) {
+  if (!taxonomy) return null;
+  if (taxonomy.profile !== "executive") return PRESENTATION_ROLE_LABELS[taxonomy.profile][node.role] || null;
+  if (node.role === "boss") return "CEO";
+  return isNonEmptyString(node.displayRole) ? node.displayRole : null;
+}
+
+function titleForNode(node, nodesById, prefix, adapter, scope) {
+  const taxonomy = presentationTaxonomy(adapter);
+  if (taxonomy) {
+    const identity = taxonomy.repositoryIdentity || "<repository-identity>";
+    const displayRole = displayRoleForNode(node, taxonomy) || `<${node.role}-display-role>`;
+    const boundedScope = node.role === "boss" ? scope?.id || "<scope>" : node.workRef || "<WORK-REF>";
+    return `${identity} - ${displayRole} - ${boundedScope}/${node.id || "<node-id>"}`;
+  }
   const label = node.label || "<label>";
   const workRef = node.workRef || "<WORK-REF>";
   if (node.role === "boss") return `${prefix} - Boss`;
@@ -196,6 +238,8 @@ function bindingAttestationPayload(registry, binding) {
       workContractHash: binding.workContractHash,
       nodeId: binding.nodeId,
       taskId: binding.taskId,
+      externalTitle: binding.externalTitle,
+      titleVerification: binding.titleVerification,
       parentNodeId: binding.parentNodeId ?? null,
       parentTaskId: binding.parentTaskId ?? null,
       boundRevision: binding.boundRevision,
@@ -210,6 +254,63 @@ function bindingAttestationPayload(registry, binding) {
 
 export function taskBindingAttestationPayload(registry, binding) {
   return bindingAttestationPayload(registry, binding);
+}
+
+export function taskBindingLegacyAttestationDigest(registry, binding) {
+  return createHash("sha256").update(bindingAttestationPayload(registry, binding)).digest("hex");
+}
+
+function explicitLegacyFirstmateBinding(registry, node, binding) {
+  const adapter = registry.clientAdapter;
+  if (!isCodexNativeFirstmateAdapter(adapter)
+    || binding.externalTitle !== undefined
+    || binding.titleVerification !== undefined
+    || !Array.isArray(adapter.legacyTaskBindings)) {
+    return false;
+  }
+  const attestationDigest = taskBindingLegacyAttestationDigest(registry, binding);
+  return adapter.legacyTaskBindings.some((entry) => isObject(entry)
+    && entry.nodeId === node.id
+    && entry.taskId === node.taskId
+    && entry.attestationDigest === attestationDigest);
+}
+
+function legacyTaskBindingInventoryBlockers(registry, adapter, nodesById) {
+  const blockers = [];
+  if (!Array.isArray(adapter.legacyTaskBindings)) {
+    blockers.push("clientAdapter.legacyTaskBindings must explicitly inventory legacy bindings or be an empty array");
+    return blockers;
+  }
+  const seenNodeIds = new Set();
+  for (const entry of adapter.legacyTaskBindings) {
+    if (!isObject(entry)
+      || !isNonEmptyString(entry.nodeId)
+      || !isNonEmptyString(entry.taskId)
+      || typeof entry.attestationDigest !== "string"
+      || !/^[a-f0-9]{64}$/.test(entry.attestationDigest)) {
+      blockers.push("clientAdapter.legacyTaskBindings entries require nodeId, taskId, and a SHA-256 attestationDigest");
+      continue;
+    }
+    if (seenNodeIds.has(entry.nodeId)) {
+      blockers.push(`clientAdapter.legacyTaskBindings may list node ${entry.nodeId} only once`);
+      continue;
+    }
+    seenNodeIds.add(entry.nodeId);
+    const node = nodesById.get(entry.nodeId);
+    const binding = node?.taskBinding;
+    if (!isTaskBackedNode(node) || node.taskId !== entry.taskId || !isObject(binding)) {
+      blockers.push(`clientAdapter.legacyTaskBindings entry ${entry.nodeId} must identify its current task-backed node`);
+      continue;
+    }
+    if (binding.externalTitle !== undefined || binding.titleVerification !== undefined) {
+      blockers.push(`clientAdapter.legacyTaskBindings entry ${entry.nodeId} may not classify a title-proof binding as legacy`);
+      continue;
+    }
+    if (taskBindingLegacyAttestationDigest(registry, binding) !== entry.attestationDigest) {
+      blockers.push(`clientAdapter.legacyTaskBindings entry ${entry.nodeId} must match the immutable binding attestation digest`);
+    }
+  }
+  return blockers;
 }
 
 function taskBindingAttestationBlockers(registry, node, binding) {
@@ -342,6 +443,23 @@ function taskBindingBlockers(registry, node, parent) {
   else if (binding.workContractHash !== workContractHash) blockers.push(`${label}: taskBinding.workContractHash must match the immutable materialized work contract`);
   if (binding.nodeId !== node.id) blockers.push(`${label}: taskBinding.nodeId must match node identity`);
   if (binding.taskId !== node.taskId) blockers.push(`${label}: taskBinding.taskId must match taskId`);
+  const firstmateBindingRequiresTitleProof = isCodexNativeFirstmateAdapter(registry.clientAdapter)
+    && !explicitLegacyFirstmateBinding(registry, node, binding);
+  if (binding.externalTitle !== undefined && binding.externalTitle !== node.title) {
+    blockers.push(`${label}: taskBinding.externalTitle must match the verified task title`);
+  }
+  if (firstmateBindingRequiresTitleProof && binding.externalTitle !== node.title) {
+    blockers.push(`${label}: non-legacy Firstmate taskBinding requires externalTitle matching the verified task title`);
+  }
+  if (binding.titleVerification !== undefined || firstmateBindingRequiresTitleProof) {
+    const verification = binding.titleVerification;
+    if (!isObject(verification) || verification.method !== "rename-and-readback" || verification.verified !== true) {
+      blockers.push(`${label}: taskBinding.titleVerification must prove rename-and-readback verification`);
+    }
+    if (binding.externalTitle !== node.title) {
+      blockers.push(`${label}: taskBinding.titleVerification requires externalTitle matching the verified task title`);
+    }
+  }
   if (node.role === "boss") {
     if ((binding.parentNodeId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentNodeId must be null`);
     if ((binding.parentTaskId ?? null) !== null) blockers.push(`${label}: Boss taskBinding.parentTaskId must be null`);
@@ -365,6 +483,13 @@ function taskBindingUpdate({ registry, launchKey, workContractHash, node, parent
     workContractHash,
     nodeId: node.id,
     taskId: "external task ID returned by the adapter",
+    ...(isCodexNativeFirstmateAdapter(registry.clientAdapter) ? {
+      externalTitle: node.title,
+      titleVerification: {
+        method: "rename-and-readback",
+        verified: true
+      }
+    } : {}),
     parentNodeId: node.parentId ?? null,
     parentTaskId: parent?.taskId ?? null,
     boundRevision,
@@ -571,6 +696,21 @@ function validateRegistry(registry) {
       blockers.push("bindingAttestation must declare algorithm ed25519 and a non-empty keyId when configured");
     }
   }
+  if (registry.clientAdapter !== undefined && registry.clientAdapter !== null) {
+    const adapter = registry.clientAdapter;
+    if (!isObject(adapter)) blockers.push("clientAdapter must be null or an object");
+    else {
+      if (!isNonEmptyString(adapter.id)) blockers.push("clientAdapter.id must be a non-empty single-line string");
+      if (!isNonEmptyString(adapter.profile)) blockers.push("clientAdapter.profile must be a non-empty single-line string");
+      if (!['inactive', 'active'].includes(adapter.status)) blockers.push("clientAdapter.status must be inactive or active");
+      if (typeof adapter.standingTaskCreationGrant !== "boolean") {
+        blockers.push("clientAdapter.standingTaskCreationGrant must be boolean");
+      }
+      if (registry.status === "active" && adapter.status !== "active") {
+        blockers.push("configured clientAdapter must be active when orchestration is active");
+      }
+    }
+  }
   if (!isObject(registry.trustPolicy)) blockers.push("trustPolicy is required");
   const defaultLevel = registry.trustPolicy?.defaultLevel;
   const maxLevel = registry.trustPolicy?.maxLevel;
@@ -605,6 +745,9 @@ function validateRegistry(registry) {
   if (bosses.length > 1) blockers.push("only one Boss is allowed");
   if (registry.status === "active" && bosses.length !== 1) blockers.push("active orchestration requires exactly one Boss");
   if (registry.status === "inactive" && nodes.length === 0) warnings.push("orchestration is scaffolded but inactive; configure a Boss and nodes before activation");
+  if (isCodexNativeFirstmateAdapter(registry.clientAdapter) && registry.clientAdapter.status === "active") {
+    blockers.push(...legacyTaskBindingInventoryBlockers(registry, registry.clientAdapter, nodesById));
+  }
 
   for (const node of nodes) {
     const label = `node ${node.id}`;
@@ -626,7 +769,7 @@ function validateRegistry(registry) {
     if (node.role !== "boss" && !isNonEmptyString(node.parentId)) blockers.push(`${label}: non-Boss nodes require parentId`);
     if (node.role !== "boss" && isNonEmptyString(node.parentId) && !parent) blockers.push(`${label}: parent ${node.parentId} does not exist`);
     if (node.role === "manager" && parent?.role !== "boss") blockers.push(`${label}: Manager parent must be the Boss`);
-    const expectedTitle = titleForNode(node, nodesById, registry.prefix || "<PREFIX>");
+    const expectedTitle = titleForNode(node, nodesById, registry.prefix || "<PREFIX>", registry.clientAdapter, registry.scope);
     if (!isNonEmptyString(node.title) || (expectedTitle && node.title !== expectedTitle)) {
       blockers.push(`${label}: title must equal ${expectedTitle || "the registry-derived title"}`);
     }
@@ -792,6 +935,8 @@ function printHelp(io) {
   io.stdout("");
   io.stdout("Commands:");
   io.stdout("  status             Summarize configured project orchestration");
+  io.stdout("  adapter-status     Inspect Codex-native Firstmate adapter posture");
+  io.stdout("  taxonomy           Preview presentation profiles and task-title grammar");
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
@@ -801,6 +946,222 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("All commands are read-only and never create tasks or mutate external systems.");
+}
+
+function completionProfileCoverageBlockers(nodes, completionProfiles) {
+  const blockers = [];
+  const expectedByType = new Map();
+  for (const node of nodes) {
+    if (node.role === "boss" || !isObject(node.completionProfile)) continue;
+    const { type, requiredEvidence } = node.completionProfile;
+    if (!COMPLETION_TYPES.has(type) || !isStringArray(requiredEvidence, { nonEmpty: true })) continue;
+    const expected = expectedByType.get(type) || new Set();
+    for (const evidence of requiredEvidence) expected.add(evidence);
+    expectedByType.set(type, expected);
+  }
+  for (const [type, expected] of expectedByType) {
+    const configured = completionProfiles[type];
+    if (!isStringArray(configured, { nonEmpty: true })
+      || !isDeepStrictEqual(canonicalValues(configured), [...expected].sort())) {
+      blockers.push(`clientAdapter.completionProfiles.${type} must exactly cover registry required evidence`);
+    }
+  }
+  return blockers;
+}
+
+function presentationTaxonomyBlockers(registry, adapter) {
+  const blockers = [];
+  const taxonomy = presentationTaxonomy(adapter);
+  if (!taxonomy) {
+    blockers.push("clientAdapter.presentationTaxonomy must select portable, nautical, or executive");
+    return blockers;
+  }
+  if (!isNonEmptyString(taxonomy.repositoryIdentity)) {
+    blockers.push("clientAdapter.presentationTaxonomy.repositoryIdentity is required");
+  }
+  if (taxonomy.profile === "executive") {
+    if (!isStringArray(taxonomy.managerCatalog, { nonEmpty: true })) {
+      blockers.push("clientAdapter.presentationTaxonomy.managerCatalog must be a non-empty C-suite title catalog");
+    }
+    if (!isStringArray(taxonomy.workerCatalog, { nonEmpty: true })) {
+      blockers.push("clientAdapter.presentationTaxonomy.workerCatalog must be a non-empty Worker title catalog");
+    }
+  }
+  for (const node of arrayOrEmpty(registry.nodes)) {
+    if (!isObject(node) || !ROLES.has(node.role)) continue;
+    const displayRole = displayRoleForNode(node, taxonomy);
+    if (taxonomy.profile === "executive") {
+      if (node.role === "boss" && node.displayRole !== undefined && node.displayRole !== "CEO") {
+        blockers.push(`node ${node.id || "<missing-id>"}: executive Boss displayRole must be CEO when configured`);
+      }
+      if (node.role === "manager" && !arrayOrEmpty(taxonomy.managerCatalog).includes(displayRole)) {
+        blockers.push(`node ${node.id || "<missing-id>"}: executive Manager displayRole must be in managerCatalog`);
+      }
+      if (node.role === "worker" && !arrayOrEmpty(taxonomy.workerCatalog).includes(displayRole)) {
+        blockers.push(`node ${node.id || "<missing-id>"}: executive Worker displayRole must be in workerCatalog`);
+      }
+    } else if (node.displayRole !== undefined && node.displayRole !== displayRole) {
+      blockers.push(`node ${node.id || "<missing-id>"}: ${taxonomy.profile} displayRole must remain ${displayRole}`);
+    }
+  }
+  return blockers;
+}
+
+function firstmateActivationBlockers(registry, adapter) {
+  const blockers = [];
+  if (!isObject(registry) || registry.status !== "active") {
+    blockers.push("orchestration must be active");
+  }
+  if (!isObject(adapter) || adapter.profile !== CODEX_FIRSTMATE_PROFILE || adapter.status !== "active") {
+    blockers.push("clientAdapter must select an active codex-native-firstmate profile");
+    return blockers;
+  }
+
+  blockers.push(...legacyTaskBindingInventoryBlockers(registry, adapter, new Map(arrayOrEmpty(registry.nodes)
+    .filter(isObject)
+    .filter((node) => isNonEmptyString(node.id))
+    .map((node) => [node.id, node]))));
+
+  const bosses = arrayOrEmpty(registry.nodes).filter((node) => isObject(node) && node.role === "boss");
+  if (bosses.length !== 1 || !isTaskBackedNode(bosses[0])) {
+    blockers.push("one task-backed Firstmate Boss is required");
+  } else if (!isNonEmptyString(adapter.bossTaskId) || adapter.bossTaskId !== bosses[0].taskId) {
+    blockers.push("clientAdapter.bossTaskId must match the task-backed Firstmate Boss");
+  }
+
+  if (typeof adapter.standingTaskCreationGrant !== "boolean") {
+    blockers.push("clientAdapter.standingTaskCreationGrant must declare the task-creation posture");
+  } else if (!adapter.standingTaskCreationGrant && !isNonEmptyString(adapter.taskCreationApprovalGate)) {
+    blockers.push("clientAdapter.taskCreationApprovalGate is required without a standing task-creation grant");
+  }
+  if (!isObject(adapter.completionProfiles)
+    || Object.keys(adapter.completionProfiles).length === 0
+    || Object.entries(adapter.completionProfiles).some(([type, evidence]) => !COMPLETION_TYPES.has(type) || !isStringArray(evidence, { nonEmpty: true }))) {
+    blockers.push("clientAdapter.completionProfiles must configure supported profiles with required evidence");
+  } else {
+    blockers.push(...completionProfileCoverageBlockers(arrayOrEmpty(registry.nodes), adapter.completionProfiles));
+  }
+  blockers.push(...presentationTaxonomyBlockers(registry, adapter));
+  if (!isNonEmptyString(adapter.baseRef)) blockers.push("clientAdapter.baseRef is required");
+
+  const worktreePolicy = adapter.worktreePolicy;
+  if (!isObject(worktreePolicy)
+    || worktreePolicy.mode !== "managed"
+    || worktreePolicy.parallelWrites !== "disjoint-only"
+    || worktreePolicy.landedWorkProofRequiredBeforeArchive !== true) {
+    blockers.push("clientAdapter.worktreePolicy must require managed, disjoint worktrees and landed-work proof before archive");
+  }
+
+  for (const integration of ["browserIntegration", "githubIntegration"]) {
+    if (!isNonEmptyString(adapter[integration]) || adapter[integration] === "unconfigured") {
+      blockers.push(`clientAdapter.${integration} must record a deliberate integration choice`);
+    }
+  }
+  for (const boundary of ["browserAuthenticationBoundary", "githubAuthenticationBoundary"]) {
+    if (!isNonEmptyString(adapter[boundary])) blockers.push(`clientAdapter.${boundary} is required`);
+  }
+
+  const heartbeat = adapter.heartbeat;
+  if (!isObject(heartbeat)
+    || !isNonEmptyString(heartbeat.mode)
+    || heartbeat.mode === "disabled"
+    || !isNonEmptyString(heartbeat.cadence)
+    || !isNonEmptyString(heartbeat.registryMutator)) {
+    blockers.push("clientAdapter.heartbeat must configure mode, cadence, and registry mutator");
+  }
+
+  const retention = adapter.retention;
+  if (!isObject(retention)
+    || typeof retention.pinBoss !== "boolean"
+    || !isNonEmptyString(retention.archivePolicy)
+    || retention.archivePolicy === "unconfigured"
+    || !isNonEmptyString(retention.handoffPolicy)) {
+    blockers.push("clientAdapter.retention must configure pin, handoff, and archive policy");
+  }
+  if (!isNonEmptyString(adapter.reconciliationPolicy) || adapter.reconciliationPolicy === "unconfigured") {
+    blockers.push("clientAdapter.reconciliationPolicy is required");
+  }
+
+  const attestorError = bindingAttestationConfigError(registry);
+  if (attestorError) blockers.push(`binding assurance is required: ${attestorError}`);
+  return blockers;
+}
+
+function runAdapterStatus(io) {
+  const loaded = loadRegistry();
+  const adapter = isObject(loaded.registry?.clientAdapter) ? loaded.registry.clientAdapter : null;
+  const assets = CODEX_FIRSTMATE_ASSETS.map((relPath) => ({
+    path: relPath,
+    present: fs.existsSync(path.join(CONFIG.repoRoot, relPath))
+  }));
+  const presentCount = assets.filter((asset) => asset.present).length;
+  const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
+  const registryValid = Boolean(loaded.exists && !loaded.error && validateRegistry(loaded.registry).blockers.length === 0);
+  const activationBlockers = registryValid ? firstmateActivationBlockers(loaded.registry, adapter) : ["registry must be valid"];
+  if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
+
+  io.stdout(`profile: ${toonString(CODEX_FIRSTMATE_PROFILE)}`);
+  io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+  io.stdout(`registry_state: ${toonString(!loaded.exists ? "missing" : loaded.error ? "invalid" : loaded.registry.status)}`);
+  io.stdout(`registry_valid: ${registryValid}`);
+  io.stdout(`adapter_state: ${toonString(!adapter ? "unconfigured" : adapter.status)}`);
+  io.stdout(`adapter_selected: ${selected}`);
+  io.stdout(`repo_local_scope: true`);
+  io.stdout(`assets_present: ${presentCount}`);
+  io.stdout(`assets_expected: ${assets.length}`);
+  io.stdout(`assets[${assets.length}]{path,present}:`);
+  for (const asset of assets) io.stdout(`  ${toonString(asset.path)},${asset.present}`);
+  io.stdout("native_capabilities[9]{capability,detection,status}:");
+  io.stdout('  "persistent tasks","Codex client runtime","verify before activation"');
+  io.stdout('  "managed worktrees","Codex client runtime","verify before activation"');
+  io.stdout('  "task title/pin/archive/handoff","Codex client runtime","verify before activation"');
+  io.stdout('  "Goal mode","Codex client runtime","optional"');
+  io.stdout('  "subagents","Codex client runtime","read-heavy helpers only"');
+  io.stdout('  "automations/heartbeats","Codex client runtime","disabled until configured"');
+  io.stdout('  "hooks","Codex client runtime","optional guardrail adapter"');
+  io.stdout('  "Browser","Codex client runtime","unconfigured"');
+  io.stdout('  "Git UI/integration","Codex client runtime","unconfigured"');
+  io.stdout("required_external_dependencies[0]:");
+  io.stdout("optional_adapters[6]:");
+  io.stdout('  "no-mistakes (repository-merge completion gate)"');
+  io.stdout('  "GitHub connector or CLI"');
+  io.stdout('  "Chrome"');
+  io.stdout('  "Lavish"');
+  io.stdout('  "Treehouse/tmux for non-Codex adapters"');
+  io.stdout('  "Codex app-server headless fallback"');
+  io.stdout(`orchestration_active: ${Boolean(registryValid && loaded.registry?.status === "active")}`);
+  io.stdout(`activation_ready: ${activationBlockers.length === 0}`);
+  io.stdout(`activation_blockers[${activationBlockers.length}]:`);
+  for (const blocker of activationBlockers) io.stdout(`  ${toonString(blocker)}`);
+  io.stdout(renderHelpBlock([
+    `Read ops/protocols/CODEX-NATIVE-FIRSTMATE.md`,
+    `Configure the repo-local adapter deliberately before activation`,
+    `Run ./${CONFIG.cliName} orchestration validate`
+  ]));
+  return loaded.error ? 1 : 0;
+}
+
+function runTaxonomy(io) {
+  const loaded = loadRegistry();
+  const taxonomy = presentationTaxonomy(loaded.registry?.clientAdapter);
+  const managerCatalog = arrayOrEmpty(taxonomy?.managerCatalog || DEFAULT_EXECUTIVE_MANAGER_CATALOG);
+  const workerCatalog = arrayOrEmpty(taxonomy?.workerCatalog || DEFAULT_EXECUTIVE_WORKER_CATALOG);
+  io.stdout(`selected_profile: ${toonString(taxonomy?.profile || "portable")}`);
+  io.stdout(`repository_identity: ${toonString(taxonomy?.repositoryIdentity || "configure before activation")}`);
+  io.stdout("profiles[3]{profile,boss,manager,worker}:");
+  io.stdout('  "portable","Boss","Manager","Worker"');
+  io.stdout('  "nautical","Firstmate","Secondmate","Crewmate"');
+  io.stdout('  "executive","CEO","configured C-suite title","configured Director, Lead, or Contributor title"');
+  io.stdout(`executive_manager_catalog[${managerCatalog.length}]:`);
+  for (const title of managerCatalog) io.stdout(`  ${toonString(title)}`);
+  io.stdout(`executive_worker_catalog[${workerCatalog.length}]:`);
+  for (const title of workerCatalog) io.stdout(`  ${toonString(title)}`);
+  io.stdout('title_grammar: "<repository identity> - <display role> - <scope-or-workstream>/<node id>"');
+  io.stdout("rules[3]:");
+  io.stdout('  "Canonical registry roles remain boss, manager, and worker"');
+  io.stdout('  "Display labels never grant authority"');
+  io.stdout('  "Create or adopt, rename, and verify the exact title before binding; title failure quarantines the reservation"');
+  return 0;
 }
 
 function printFindings(io, findings) {
@@ -831,6 +1192,7 @@ function runStatus(io) {
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
+  io.stdout(`client_adapter: ${toonString(loaded.registry.clientAdapter?.profile || "unconfigured")}`);
   io.stdout(`nodes: ${findings.nodes.length}`);
   io.stdout(`bosses: ${findings.nodes.filter((node) => node.role === "boss").length}`);
   io.stdout(`managers: ${findings.nodes.filter((node) => node.role === "manager").length}`);
@@ -1036,6 +1398,7 @@ function runLaunchSpec(nodeId, io) {
     return 1;
   }
   const configured = findings.nodesById.has(node.id);
+  const firstmate = isCodexNativeFirstmateAdapter(loaded.registry.clientAdapter);
   const workContract = materializedWorkContract(loaded.registry, node, parent);
   const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
   const launchKey = launchKeyFor(loaded.registry, node, parent);
@@ -1103,7 +1466,11 @@ function runLaunchSpec(nodeId, io) {
     externalTask: {
       idempotencyKey: launchKey,
       reconciliationKey: launchKey,
-      requiredCreateBehavior: "Use launchKey as the external task API idempotency key.",
+      ...(firstmate ? {
+        requiredTitle: node.title,
+        requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
+        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title."
+      } : {}),
       indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
     prompt: buildPromptLines(node, parent).join("\n"),
@@ -1133,6 +1500,7 @@ function runLaunchSpec(nodeId, io) {
         ...reservationValidity,
         requiredUpdates: [
           "taskId",
+          ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
@@ -1148,7 +1516,7 @@ function runLaunchSpec(nodeId, io) {
           boundRevision: reservationValidity.expectedRegistryRevision + 1
         }),
         mustAdvanceRegistryRevision: true,
-        onFailure: "Keep the reservation and reconcile the external task by launchKey; do not create another task."
+        onFailure: "Keep the reservation quarantined and reconcile the external task by launchKey; do not create another task after a title or bind failure."
       },
       reconcile: {
         operation: "compare-and-set-reconcile-bind",
@@ -1156,7 +1524,11 @@ function runLaunchSpec(nodeId, io) {
           reconciliationKey: launchKey,
           idempotencyKey: launchKey,
           requireExistingTask: true,
-          createAllowed: false
+          createAllowed: false,
+          ...(firstmate ? {
+            requiredTitle: node.title,
+            renameAndVerifyBeforeBind: true
+          } : {})
         },
         requiredReservation: {
           key: launchKey,
@@ -1197,6 +1569,7 @@ function runLaunchSpec(nodeId, io) {
         },
         requiredUpdates: [
           "taskId from reconciled external task",
+          ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
           ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
@@ -1240,6 +1613,12 @@ export async function runOrchestration(argv, io) {
     case "status":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration status", hints: [`Run ./${CONFIG.cliName} orchestration status`] })) return 2;
       return runStatus(io);
+    case "adapter-status":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration adapter-status", hints: [`Run ./${CONFIG.cliName} orchestration adapter-status`] })) return 2;
+      return runAdapterStatus(io);
+    case "taxonomy":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration taxonomy", hints: [`Run ./${CONFIG.cliName} orchestration taxonomy`] })) return 2;
+      return runTaxonomy(io);
     case "hierarchy":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration hierarchy", hints: [`Run ./${CONFIG.cliName} orchestration hierarchy`] })) return 2;
       return runHierarchy(io);

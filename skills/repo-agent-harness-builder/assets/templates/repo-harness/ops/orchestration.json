@@ -10,6 +10,7 @@
     "objective": "Coordinate bounded project work with explicit authority and evidence."
   },
   "bindingAttestation": null,
+  "clientAdapter": null,
   "trustPolicy": {
     "defaultLevel": "T1",
     "maxLevel": "T2",

@@ -21,6 +21,7 @@ This package is based on generalized patterns from mature repo-agent harnesses:
 - baseline and optional module checklist patterns with active, inactive, and not-applicable states
 - recurring work patterns for heartbeats, scheduled checks, goals, hooks, and noninteractive command loops
 - project-wide orchestration patterns for role hierarchy, lifecycle, progressive autonomy, authority envelopes, delegation budgets, and client launch contracts
+- repo-local Codex-native Firstmate adapter patterns that map the portable Boss to one resident repository task and use native worktrees/subagents without requiring a global project registry
 - goal-chain-loop skill patterns for repository-merge graphs, delivery ledgers, subgoal threads, and PR/merge handoffs
 
 Public reference surfaces consulted:

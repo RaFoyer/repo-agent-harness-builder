@@ -9,6 +9,7 @@ summary: Defines project-wide Boss, Manager, and Worker coordination with explic
 related_protocols:
   - AUTOMATIONS
   - CLI-INTERFACE
+  - CODEX-NATIVE-FIRSTMATE
   - GOAL-CHAIN
   - PROJECT-TRACKING
 ---
@@ -22,6 +23,7 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 ## Source Of Truth
 
 - `ops/orchestration.json` owns the configured scope, monotonic revision, hierarchy, task parentage, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
+- `clientAdapter` is null in the inactive scaffold. A configured object names the selected client/profile and activation posture; installed adapter files alone do not select it.
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.
 - Markdown ledgers and task titles are human-readable views. They do not override the registry.
@@ -44,6 +46,12 @@ A role never grants authority by itself. A Boss at T1 may propose a graph but ca
 ## Scope And Work Taxonomy
 
 One registry governs one explicit orchestration scope, such as a repository, project, program, personal folder, or custom boundary. “One Boss” means one logical Boss per registry scope, not one Boss for every repository visible on the machine.
+
+In this generated repository harness, the default complete scope is this
+repository: its own registry, one resident Boss capability, and repo-local
+Managers and Workers. No global project list is required. Cross-repository
+portfolio control is optional composition above independently governed
+repository Bosses and requires separate explicit scope and authority.
 
 Every node records:
 
@@ -76,6 +84,11 @@ Worker:
 
 ## Title Grammar
 
+Use this portable grammar unless a configured client presentation taxonomy
+selects another grammar. The Codex-native Firstmate adapter owns its configured
+display-role and title grammar in `CODEX-NATIVE-FIRSTMATE.md`; it never changes
+the canonical role, parentage, lifecycle, trust, authority, or budgets.
+
 `<WORK-REF>` is a stable project reference such as `#123`, `INT-936`, `G2`, `DOCS-4`, or `OPS-7`. Ticket-backed projects should use the canonical ticket reference.
 
 - `<PREFIX> - Boss`
@@ -84,7 +97,7 @@ Worker:
 - `<PREFIX> - Worker for Manager <PARENT-WORK-REF> - <WORK-REF> <bounded responsibility>`
 - `<PREFIX> - Worker for Worker <PARENT-WORK-REF> - <WORK-REF> <bounded responsibility>`
 
-Before a task may be bound, configure `bindingAttestation` with the external attestor's `ed25519` key ID and provide its base64 SPKI public key plus matching key ID through `ORCHESTRATION_BINDING_PUBLIC_KEY` and `ORCHESTRATION_BINDING_KEY_ID`. The public key is a trust anchor outside the mutable registry; keep the matching private key only with the approved adapter or attestation service. Every task-backed node records a signed `taskBinding`: its contract-derived `launchKey`, canonical `workContractHash`, node and task IDs, original parent node and task IDs, bind revision/time, and an Ed25519 attestation over those values. Every task-backed non-Boss node also records `parentTaskId`; it must equal its immediate parent's current task ID and its binding's original parent task ID. A Boss has no bound `parentTaskId`, and its binding's `parentNodeId` and `parentTaskId` are both `null`. Titles make the hierarchy visible; the externally attested binding makes the external contract and parentage durable. Do not replace a parent task while any bound child remains unreconciled, and supersede/replan rather than mutating a bound contract in place.
+Before a task may be bound, configure `bindingAttestation` with the external attestor's `ed25519` key ID and provide its base64 SPKI public key plus matching key ID through `ORCHESTRATION_BINDING_PUBLIC_KEY` and `ORCHESTRATION_BINDING_KEY_ID`. The public key is a trust anchor outside the mutable registry; keep the matching private key only with the approved adapter or attestation service. Every task-backed node records a signed `taskBinding`: its contract-derived `launchKey`, canonical `workContractHash`, node and task IDs, original parent node and task IDs, bind revision/time, and an Ed25519 attestation over those values. Every task-backed non-Boss node also records `parentTaskId`; it must equal its immediate parent's current task ID and its binding's original parent task ID. A Boss has no bound `parentTaskId`, and its binding's `parentNodeId` and `parentTaskId` are both `null`. A Codex-native Firstmate binding additionally records the exact observed `externalTitle` and signed `titleVerification` after rename-and-readback; any supplied external title must equal the registry title. To preserve an otherwise-valid pre-Firstmate schema-v2 binding, list its node ID, task ID, and immutable attestation-payload digest in `clientAdapter.legacyTaskBindings` before activation. That inventory is an explicit migration record, so every non-inventoried Firstmate binding requires both title proof fields. Titles make the hierarchy visible; the externally attested binding makes the external contract and parentage durable. Do not replace a parent task while any bound child remains unreconciled, and supersede/replan rather than mutating a bound contract in place.
 
 ## Trust Ladder
 
@@ -153,6 +166,13 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 
 These commands are read-only. They inspect local registry state and print bounded prompts or JSON launch contracts; they do not create tasks, update trackers, merge, deploy, schedule, or send messages.
 
+When the opt-in Codex-native profile is relevant, inspect it with
+`./{{CLI_NAME}} orchestration adapter-status`, preview presentation labels with
+`./{{CLI_NAME}} orchestration taxonomy`, and read
+`CODEX-NATIVE-FIRSTMATE.md`. Firstmate is a Codex-facing Boss profile, not a
+fourth role. Installed profile assets do not activate orchestration or grant
+task-creation authority.
+
 ## Client Adapter Handshake
 
 The repository harness is agent-agnostic, so task creation belongs to a thin client adapter. The CLI remains read-only; the adapter performs the compare-and-set operations described by the launch spec.
@@ -162,7 +182,7 @@ The repository harness is agent-agnostic, so task creation belongs to a thin cli
 3. Configure a complete Boss node, including its intended delegation authority and budgets, before its first launch; the empty inactive scaffold is not a launchable placeholder. Before any external side effect, atomically compare the registry revision, expected registry status, target node state/task identity/trust/entire canonical authority envelope, immediate parent state/task ID/trust/entire canonical authority envelope, capacity preconditions, and the `workContract.hash` from `reservation`. Canonical authority arrays are stable sorted and deduplicated for reads, writes, external actions, approval gates, and stop conditions. The SHA-256 work-contract hash canonically covers the scope, project budgets, node title/objective/work reference and kind/governing protocols/completion profile/dependencies/trust/authority, and the immediate parent task/trust/authority launch envelope. On a match, add the exact `launchReservation` key with its complete `validity` snapshot, advance the registry revision by one, and reserve capacity. For every Boss bootstrap, also set `status` to `active` in that transaction.
 4. If the compare-and-set fails, do not create a task. Re-read the registry and generate a new launch spec; an old spec or duplicate reservation is never reusable.
 5. Immediately before task creation, atomically compare the reserved registry against `preCreate`: its revision, status, target task identity/reservation key/trust/entire authority envelope including approval gates/work-contract hash, parent state/task ID/trust/entire authority envelope including approval gates, and project/parent capacity must still match. A changed status, target or parent trust/authority/approval gate, work contract, task identity, capacity, or revision invalidates the reservation before the side effect.
-6. Create the task with the exact title, prompt, and immediate parent from the launch spec, using `externalTask.idempotencyKey` (the contract-derived `launchKey`) as the task API's durable idempotency key and `externalTask.reconciliationKey` for lookup.
+6. Create or adopt the task with the exact title, prompt, and immediate parent from the launch spec, using `externalTask.idempotencyKey` (the contract-derived `launchKey`) as the task API's durable idempotency key and `externalTask.reconciliationKey` for lookup. Read back and verify the exact title before bind; a title failure keeps the reservation quarantined for reconciliation and never permits another create.
 7. Atomically bind the returned task ID only when the complete `bind` current-state contract still matches the reserved registry. Have the trusted external attestor sign the emitted `taskBinding` payload, then persist its Ed25519 attestation with the launch key, canonical work-contract hash, node/task identity, original parent node/task binding, post-bind revision, and UTC RFC3339 bind time. For a non-Boss child, also set immutable `parentTaskId` to the immediate parent task ID used at launch; then set `state` to `working`, add `nextAction`, clear the reservation, and advance the registry revision by one. Validation recomputes the canonical contract and parentage and verifies the external attestation for every task-backed node; a mismatch stays blocked until explicit supersession/replan. A failed bind must preserve the reservation and trigger reconciliation by `launchKey`, never a second create.
 8. If the task was created but an unrelated valid registry mutation advanced the revision before bind, look up the task by `launchKey` and use `reconcile` to atomically rebind it. Prove the reservation key and base revision, re-read the latest revision, then re-run active-registry, dependency, target task-identity/trust/entire authority envelope including approval gates/work-contract hash, parent task/managing-state/T3 delegation, the full current parent-to-child authority inheritance predicate (trust, read/write/external-action subsets, inherited approval gates, and delegation budget), and capacity checks before binding the found task. A revoked target or parent authority, changed work contract, invalid prerequisite, identity mismatch, or exhausted capacity fails closed and keeps the reservation quarantined for explicit cancel or replan; reconciliation never creates a second task.
 9. If create fails with a definitive proof that no task exists for `launchKey`, atomically clear only the matching reservation and advance the revision before generating a new spec. On a timeout, crash, ambiguous response, or failed bind, retain the reservation and reconcile the external task by `launchKey`; do not clear or retry creation until absence is proven.

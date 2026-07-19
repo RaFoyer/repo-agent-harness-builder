@@ -163,8 +163,15 @@ branches, pull requests, or software delivery. Minimum behavior:
 
 - `orchestration status`: summarize the explicit registry scope, roles, states,
   and validation findings; an inactive valid registry exits successfully.
-- `orchestration hierarchy`: explain portfolio/workstream/work-unit
-  responsibility and exact title grammar without implying authority.
+- `orchestration adapter-status`: inspect the local Codex-native Firstmate
+  adapter posture, installed assets, activation blockers, and optional native
+  capability plan without contacting Codex or changing configuration.
+- `orchestration taxonomy`: preview portable, nautical, and executive display
+  labels plus the configured title grammar without changing configuration or
+  tasks.
+- `orchestration hierarchy`: explain portable portfolio/workstream/work-unit
+  responsibility and parent links without implying authority; direct configured
+  client title grammar to the selected adapter protocol.
 - `orchestration trust`: show the T0-T5 autonomy ceiling and inheritance rules.
 - `orchestration validate`: reject invalid parent/dependency graphs, duplicate
   Bosses, title drift, invalid lifecycle evidence, trust promotion without

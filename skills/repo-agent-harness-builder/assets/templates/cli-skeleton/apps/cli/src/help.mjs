@@ -67,6 +67,10 @@ Core commands:
                        Show read-only browser/CLI auth isolation plan
   connections env      Print value-safe config-root env or flag guidance
   orchestration status Summarize project-wide structured delegation
+  orchestration adapter-status
+                       Inspect Codex-native Firstmate adapter posture
+  orchestration taxonomy
+                       Preview presentation profiles and task-title grammar
   orchestration validate
                        Validate hierarchy, lifecycle, trust, and authority
   orchestration next   List dependency-eligible work across the project
@@ -97,6 +101,7 @@ Safety posture:
   - lavish tracker commands are proposal-first and never write to the tracker
   - lavish update defaults to --check; --apply is explicit
   - orchestration commands inspect local policy and emit launch material; client adapters create tasks
+  - adapter-status performs local read-only feature and asset inspection; it never configures Codex or activates orchestration
   - write-capable operations should support dry-run first
   - command help, protocol docs, and tests must stay in sync
 `;

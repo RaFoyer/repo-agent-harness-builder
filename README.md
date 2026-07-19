@@ -28,10 +28,23 @@ The durable contract lives in ordinary files in the target repo or folder:
   trust, authority, budgets, and completion evidence
 - bundled orchestration and goal-chain-loop templates for general delegation,
   implementation graphs, and subgoal orchestration
+- an inactive-by-default Codex-native Firstmate adapter that gives each
+  generated repository its own resident Boss capability, native task/worktree
+  mapping, and project-local skill without requiring a global project registry
 - portable onboarding material for nontechnical recipients
 
 Codex, Claude Code, Gemini CLI, Kimi, Cursor, and future coding agents are
 adapters around that shared contract. No one agent client owns the harness.
+
+For Codex-heavy teams, the generated harness includes an opt-in
+`codex-native-firstmate` profile. Firstmate is the client-facing Boss persona,
+not a fourth role: one persistent Firstmate task owns the repository portfolio,
+Managers own bounded workstreams, and Workers own bounded execution loops.
+The capability is installed per repository but remains inactive until a human
+configures its scope, authority, budgets, completion evidence, task creation,
+worktree, integration, heartbeat, and retention policies. Cross-repository
+fleet orchestration is optional composition above independent repo-local
+Firstmates, never a prerequisite.
 
 ## First Successful Result
 
@@ -45,6 +58,8 @@ see a read-only readiness result, such as:
 ./harness no-mistakes status
 ./harness lavish status
 ./harness orchestration status
+./harness orchestration adapter-status
+./harness orchestration taxonomy
 ./harness context
 ./harness preflight
 ```
@@ -174,6 +189,10 @@ The skill can help with:
   orchestration layer instead of defining a software-only hierarchy
 - bundled orchestration and goal-chain assets for prompts, registries, ledgers,
   graph templates, and handoff records
+- repo-local Codex-native Firstmate assets under `.codex/` and
+  `.agents/skills/codex-native-firstmate/`, scaffolded as examples and inactive
+  protocol support rather than an implicit runtime dependency; its custom-agent
+  profiles are namespaced to preserve existing repository profiles
 
 ## Build The Portable Package
 

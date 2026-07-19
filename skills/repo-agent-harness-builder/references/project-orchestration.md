@@ -31,6 +31,13 @@ One `ops/orchestration.json` governs one explicit scope. Record:
 
 “One Boss” means one logical Boss per configured scope. It does not grant authority over other repositories, projects, tasks, accounts, or systems that happen to be visible.
 
+For a repository harness, default to the repository itself as the complete
+scope: its own registry, one resident Boss capability, and repo-local Managers
+and Workers. The builder does not require a global project list. A program may
+optionally compose multiple independently governed repository Bosses, but that
+cross-repository layer needs its own explicit scope and authority and must not
+silently control repositories merely because they are visible.
+
 ## Node Contract
 
 Every node should declare:
@@ -39,7 +46,8 @@ Every node should declare:
 - role and immediate parent node
 - extensible `workKind` slug
 - governing protocol IDs
-- exact registry-derived title
+- exact registry-derived title; a client presentation taxonomy may change only
+  its display role and title grammar, never the canonical role or authority
 - dependency node IDs
 - lifecycle state and its required control fields
 - trust level and promotion evidence when above the default
@@ -94,6 +102,12 @@ This avoids forcing pull requests onto research, operations, planning, or person
 
 The repo CLI remains read-only and agent-agnostic:
 
+The inactive scaffold may keep `clientAdapter` null. A configured adapter
+record names its client ID, profile, status, and whether a standing task-
+creation grant exists; client-specific policy may add base/worktree,
+integration, heartbeat, retention, and reconciliation fields. Installing an
+adapter capability does not select or activate it.
+
 1. Validate the registry.
 2. List dependency-eligible nodes.
 3. Generate a prompt for inspection or a JSON launch spec for task creation.
@@ -105,6 +119,13 @@ The repo CLI remains read-only and agent-agnostic:
 9. Require the child to report to its immediate parent and the parent to reconcile evidence.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
+
+For a dependency-light Codex app implementation, read
+`references/codex-native-firstmate.md`. It maps the Boss to a persistent
+Firstmate-profile task, Managers to persistent workstream tasks, durable Workers
+to managed-worktree tasks, and bounded read-heavy helpers to transient
+subagents. The mapping does not add a role or weaken the reservation, binding,
+immediate-parent, completion, or landed-work contracts above.
 
 ## Adversarial Failure Modes
 
