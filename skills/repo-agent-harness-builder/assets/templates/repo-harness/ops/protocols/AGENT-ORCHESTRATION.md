@@ -22,7 +22,7 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 
 ## Source Of Truth
 
-- `ops/orchestration.json` owns the configured scope, monotonic revision, hierarchy, task parentage, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
+- `ops/orchestration.json` owns the configured scope, monotonic revision, coordination mode, project-owner identity, governed owner directives, hierarchy, task parentage, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
 - `clientAdapter` is null in the inactive scaffold. A configured object names the selected client/profile and activation posture; installed adapter files alone do not select it.
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.
@@ -53,6 +53,23 @@ Managers and Workers. No global project list is required. Cross-repository
 portfolio control is optional composition above independently governed
 repository Bosses and requires separate explicit scope and authority.
 
+Schema version 4 supports `managed` and `hybrid` coordination. Hybrid mode
+keeps the resident Boss and immutable parent relationships while allowing the
+configured `scope.ownerRef` to talk directly to Managers or Workers. A direct
+message never changes trust or authority by itself. Record a durable
+`ownerDirectives` entry only when the instruction must survive task history or
+affects execution; bind it to `scope.ownerRef`, the target node and live task,
+its immutable parent and live task, a typed task, task-message, or tracker
+reference, registry revision at issue, and the current work-contract hash.
+`within-contract` directives may proceed inside the existing envelope.
+Acknowledgement and resolution require evidence bound to both target node and
+task IDs; immediate-parent reconciliation likewise binds the live parent node
+and task IDs. An open `replan-required` directive prevents scheduling the
+target and its descendants, invalidates stale reservations before creation,
+binding, or reconciliation, and requires an active target to be `blocked` at
+its current boundary with `blockedByDirectiveIds` naming the open directive
+until explicit replan or supersession.
+
 Every node records:
 
 - `workRef`: a stable project-local identifier; a tracker ticket is recommended when one exists, but is not required
@@ -64,9 +81,10 @@ Every node records:
 - `completionProfile`: the evidence shape that makes the node terminal
 
 Schema version 3 seals the ordered `requiredSkills` composition into new work-
-contract hashes. Version 2 remains readable so existing externally attested
-bindings keep their original hash; migrate a v2 registry deliberately before
-relying on required skills as immutable binding data.
+contract hashes. Schema version 4 also seals coordination mode and owner
+identity while validating governed direct-owner instructions. Versions 2 and 3
+remain readable so existing externally attested bindings keep their original
+hash; migrate deliberately.
 
 This keeps the control plane universal without pretending that all work is software delivery.
 
@@ -177,6 +195,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration hierarchy
 ./{{CLI_NAME}} orchestration trust
 ./{{CLI_NAME}} orchestration validate
+./{{CLI_NAME}} orchestration directives
 ./{{CLI_NAME}} orchestration next
 ./{{CLI_NAME}} orchestration prompt boss
 ./{{CLI_NAME}} orchestration prompt <node-id>
@@ -198,8 +217,9 @@ The repository harness is agent-agnostic, so task creation belongs to a thin cli
 
 The inactive scaffold may keep `clientAdapter` null. A configured adapter names
 its client ID, profile, status, project-local `requiredSkill`, and task-creation
-grant posture. Active schema-version-3 adapters must declare their required
-skill explicitly; installation alone does not select or activate an adapter.
+grant posture. Active schema-version-3-or-newer adapters must declare their
+required skill explicitly; installation alone does not select or activate an
+adapter.
 
 1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`. Its ordered `requiredSkills` must begin with `project-orchestration`, then the selected client adapter, then `goal-graph-loop` for nodes governed by `GOAL-GRAPH` or its deprecated `GOAL-CHAIN` alias, followed by node-specific skills. Missing project-local skills block materialization.
 2. The active client verifies that the current user request or recorded scope grant authorizes task creation.
@@ -232,6 +252,7 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
 - Do not let Managers silently become Workers.
 - Do not let the Boss directly operate every goal graph or leave a graph without exactly one Manager owner.
+- Do not force the project owner to relay ordinary conversation through the Boss in hybrid mode. Also do not treat direct conversation as authority, reparent work from chat, or close a durable owner directive without resolution and parent-reconciliation evidence.
 - Do not let a Worker report around its parent except for material safety risk.
 - Do not create a replacement Worker merely because an earlier task or thread is unavailable; first reconcile tracker movements with Git/PR and orchestration evidence and prove the outcome is incomplete and unowned.
 - Do not leave a live task idle without a named reason and next control action.

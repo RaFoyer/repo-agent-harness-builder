@@ -9,6 +9,9 @@ not replace the Boss -> Manager -> Worker hierarchy.
 
 This profile is dependency-light. It prefers Codex tasks, managed worktrees,
 subagents, Goal mode, automations, hooks, Browser, and the app's Git surfaces.
+It is a thin repository-local adapter, not a dependency on an external
+FirstMate repository, service, or runtime. A repository may leave it inactive
+or omit it while continuing to use the portable orchestration and goal graph.
 Treehouse, tmux, `chrome-devtools-axi`, `lavish-axi`, `gh-axi`, and
 `no-mistakes` are not prerequisites. They may remain optional capability or
 completion adapters when the native surface does not cover a repository's
@@ -21,6 +24,17 @@ that repository's scope. No global project list or external fleet registry is
 required. A cross-repository portfolio may later compose several independent
 repo-local Firstmates under separately authorized policy, but that is optional
 and must not become a hidden prerequisite.
+
+Schema-v4 hybrid coordination does not make Firstmate a communication
+gatekeeper. The configured project owner may enter Manager and Worker tasks
+directly. Tactical messages inside the sealed contract may proceed; durable or
+contract-relevant instructions become governed `ownerDirectives`, do not alter
+parentage or authority, and require acknowledgement and resolution bound to the
+live target node and task plus reconciliation bound to the live immediate-
+parent node and task before terminal status. An open
+`replan-required` directive blocks the active target at its current boundary
+until replan or supersession. The adapter must expose this posture explicitly
+through `ownerDirectMessaging` rather than inferring it from task visibility.
 
 ## Portable Core And Adapter Boundary
 

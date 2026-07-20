@@ -40,6 +40,13 @@
     "handoffPolicy": null
   },
   "reconciliationPolicy": null,
+  "ownerDirectMessaging": {
+    "enabled": false,
+    "targetRoles": ["manager", "worker"],
+    "recordDirectivesInRegistry": true,
+    "parentReconciliationRequired": true,
+    "authorityExpansionFromMessage": false
+  },
   "legacyTaskBindings": [],
   "headlessFallback": "disabled"
 }

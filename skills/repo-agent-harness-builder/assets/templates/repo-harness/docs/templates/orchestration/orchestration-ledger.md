@@ -18,6 +18,10 @@ Boss trust level:
 
 Last reconciled:
 
+Coordination mode:
+
+Project owner reference:
+
 ## Portfolio
 
 | Node | Role | Work ref | Work kind | Governing protocols | Title | Task ID | Parent task ID | State | Trust | Completion profile | Next control action | Evidence |
@@ -27,6 +31,12 @@ Last reconciled:
 ## Escalations
 
 - <node>: <owner, exact decision or unblock action, and next check>
+
+## Owner Directives
+
+| Directive | Target node | Directive reference | Contract impact | Status | Target acknowledgement | Target resolution | Immediate-parent reconciliation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| <directive id> | <node id> | <task/tracker reference> | within-contract or replan-required | issued/acknowledged/reconciled/superseded/cancelled | <target node, timestamp, evidence or pending> | <target node, timestamp, evidence or pending> | <immediate parent, timestamp, evidence or pending> |
 
 ## Trust Changes
 

@@ -28,7 +28,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
   trust, authority, budgets, completion evidence, and nested portfolio,
-  goal-graph, and bounded execution loops
+  goal-graph, bounded execution loops, and schema-v4 hybrid owner-to-node
+  conversation with governed directive reconciliation
 - project-local `project-orchestration`, `goal-graph-loop`, and
   `codex-native-firstmate` skills with a deprecated `goal-chain-loop` alias
 - an inactive-by-default Codex-native Firstmate adapter that gives each
@@ -50,7 +51,9 @@ The capability is installed per repository but remains inactive until a human
 configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository
 fleet orchestration is optional composition above independent repo-local
-Firstmates, never a prerequisite.
+Firstmates, never a prerequisite. The adapter does not require an external
+FirstMate repository or service; repositories that do not select it still use
+the self-contained portable orchestration and goal-graph surfaces normally.
 
 ## Global Skill Ownership
 
@@ -80,6 +83,7 @@ see a read-only readiness result, such as:
 ./harness no-mistakes status
 ./harness lavish status
 ./harness orchestration status
+./harness orchestration directives
 ./harness orchestration adapter-status
 ./harness orchestration taxonomy
 ./harness github status

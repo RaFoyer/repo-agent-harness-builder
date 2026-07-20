@@ -1,12 +1,14 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "revision": 0,
   "status": "active",
+  "coordinationMode": "hybrid",
   "prefix": "EXAMPLE",
   "scope": {
     "id": "documentation-refresh",
     "kind": "project",
     "rootRef": "repository-root",
+    "ownerRef": "project-owner",
     "objective": "Deliver an evidence-backed documentation refresh."
   },
   "bindingAttestation": {
@@ -23,6 +25,7 @@
       "maxDelegationDepth": 2
     }
   },
+  "ownerDirectives": [],
   "nodes": [
     {
       "id": "boss",
@@ -34,8 +37,8 @@
       "title": "EXAMPLE - Boss",
       "taskId": "task-boss",
       "taskBinding": {
-        "launchKey": "orchestration:documentation-refresh:boss:9ef76ce77ebd35c2fd04da412c6ab560bc6b41bd35ca2632667fb1cb255cbe8c",
-        "workContractHash": "9ef76ce77ebd35c2fd04da412c6ab560bc6b41bd35ca2632667fb1cb255cbe8c",
+        "launchKey": "orchestration:documentation-refresh:boss:a2450dc0611eb638eca26a6273313ab7ecfeb277f5c3d600ed74f3a57a98bc77",
+        "workContractHash": "a2450dc0611eb638eca26a6273313ab7ecfeb277f5c3d600ed74f3a57a98bc77",
         "nodeId": "boss",
         "taskId": "task-boss",
         "parentNodeId": null,

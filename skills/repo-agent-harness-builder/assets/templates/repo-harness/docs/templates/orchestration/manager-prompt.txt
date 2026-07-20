@@ -19,3 +19,4 @@ Role:
 
 First action:
 - Return a workstream plan naming dependencies, Worker boundaries, completion evidence, trust/authority constraints, verification, and parent handoff before large edits or external actions.
+- In hybrid mode, accept direct project-owner conversation without changing parentage. Proceed with tactical instructions inside the sealed contract; record durable directives, stop for explicit replan when the contract changes, and ensure the immediate parent reconciles the outcome.

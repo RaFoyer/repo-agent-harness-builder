@@ -48,10 +48,27 @@ proof fields, and any supplied `externalTitle` must match its registry-derived
 title exactly.
 
 Each generated repository carries its own resident capability and registry.
+This optional adapter does not depend on an external FirstMate repository,
+service, fleet registry, or runtime; the portable harness remains usable when
+the adapter is inactive or absent.
 The default active shape is one Firstmate/Boss task for this repository, with
 Managers and Workers bounded to it. No external or global project registry is
 required. Cross-repository fleet control is optional composition above multiple
 repo-local Firstmates and needs separate explicit authority.
+
+## Hybrid Owner Conversation
+
+When schema-v4 `coordinationMode` is `hybrid`, the configured project owner may
+enter Manager and Worker tasks directly. Firstmate must not become a
+conversation relay or infer authority from a message. Tactical instructions
+inside the sealed work contract may proceed. Instructions that must survive
+task history or affect scope, dependencies, authority, budget, or completion
+are recorded as governed `ownerDirectives`; acknowledgement and resolution
+evidence must bind the live target node and task, and reconciliation must bind
+the live immediate-parent node and task before terminal status. An open
+`replan-required` directive blocks the active target
+at its current boundary until replan or supersession. Direct conversation never
+changes task parentage.
 
 ## Native Mapping
 

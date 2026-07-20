@@ -39,6 +39,31 @@ One `ops/orchestration.json` governs one explicit scope. Record:
 
 “One Boss” means one logical Boss per configured scope. It does not grant authority over other repositories, projects, tasks, accounts, or systems that happen to be visible.
 
+Schema version 4 adds an explicit `coordinationMode`, a stable
+`scope.ownerRef`, and governed `ownerDirectives`:
+
+- `managed` keeps all durable coordination on the resident hierarchy.
+- `hybrid` preserves that hierarchy while allowing the configured project owner
+  to talk directly to Managers and Workers. Direct conversation does not
+  reparent a node, replace its immediate-parent reporting duty, or expand its
+  trust, authority, gates, budget, or completion contract.
+
+Do not record ordinary conversation merely because it was direct. Record an
+owner directive when the instruction must survive task history or affects
+durable execution. Each record binds the owner, target node and live target
+task, immutable parent and live parent task, a typed task, task-message, or
+tracker reference, registry revision, current work-contract hash, impact, and
+reconciliation state. Acknowledgement and terminal resolution bind both the
+target node and task IDs, timestamp, and
+evidence reference; the target's immutable immediate parent must likewise have
+a live task and record both parent node and task IDs, timestamp, and
+reconciliation evidence reference. `within-contract`
+instructions may proceed inside the existing envelope. An open `replan-required`
+directive prevents scheduling its target and descendants, invalidates a stale
+reservation before create, bind, or reconciliation, and requires an active
+target to be `blocked` at its current boundary with `blockedByDirectiveIds`
+naming every open replan directive until explicit replan or supersession.
+
 For a repository harness, default to the repository itself as the complete
 scope: its own registry, one resident Boss capability, and repo-local Managers
 and Workers. The builder does not require a global project list. A program may
@@ -67,9 +92,11 @@ Every node should declare:
 - task ID only after the client materializes the graph node as a task, plus Ed25519-attested immutable `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and an immutable `parentTaskId` for every task-backed non-Boss node; Boss nodes have no bound `parentTaskId` and null binding parent metadata
 
 Schema version 3 includes the ordered required-skill composition in new work-
-contract hashes. Version 2 remains readable for existing externally attested
-bindings; migrate it deliberately before treating required skills as immutable
-binding data.
+contract hashes. Schema version 4 additionally seals coordination mode and
+owner identity into new contracts and validates owner directives without
+making chat messages a permission source. Versions 2 and 3 remain readable for
+existing externally attested bindings; migrate deliberately rather than
+silently rewriting their hashes.
 
 Queued and eligible nodes are graph state, not fake tasks. Working, waiting, blocked, ready-for-parent, and terminal nodes are task-backed. Terminal nodes record a disposition and every exact evidence identifier required by their completion profile.
 
@@ -140,7 +167,7 @@ The inactive scaffold may keep `clientAdapter` null. A configured adapter
 record names its client ID, profile, status, project-local required skill, and whether a standing task-
 creation grant exists; client-specific policy may add base/worktree,
 integration, heartbeat, retention, and reconciliation fields. Installing an
-adapter capability does not select or activate it. Active schema-version-3
+adapter capability does not select or activate it. Active schema-version-3-or-newer
 adapters must declare their required skill explicitly.
 
 1. Validate the registry.
@@ -153,9 +180,10 @@ adapters must declare their required skill explicitly.
 4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision and status, target node task identity/trust/full authority including approval gates, parent state/task ID/trust/full authority including approval gates, capacity preconditions, and the canonical SHA-256 materialized-work-contract hash. That hash covers scope, budgets, title, objective, work reference and kind, governing protocols, ordered required skills, completion profile, dependencies, trust, authority, and the immediate-parent launch envelope; the contract-derived launch key is the durable idempotency key. On success the reservation records the key and hash and advances the revision.
 5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
 6. Configure a complete Boss, including its eventual delegation authority and budgets, before bootstrapping it; the empty inactive scaffold is intentionally not launchable. Immediately before create and again at bind, compare the current registry to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside `ops/orchestration.json` and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and the immutable parent task ID for a non-Boss child, set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan. Boss bootstrap reservation also activates the registry.
-7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
+7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, the open replan-directive boundary, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, open replan boundary, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
 8. On a timeout, crash, ambiguous create, or failed bind, keep the reservation and reconcile the external task by `launchKey`; release and retry only after proving no task exists for that key.
 9. Require the child to report to its immediate parent and the parent to reconcile evidence.
+10. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
 
@@ -189,6 +217,7 @@ Reject designs that:
 - bind durable project semantics to one agent vendor's task API
 - promote trust globally from narrow evidence
 - let Managers silently absorb Worker implementation or Workers bypass their immediate parent for routine updates
+- treat a direct owner message as implicit authority, omit a contract-relevant owner directive from the registry, or mark one terminal without resolution and parent-observation evidence
 - let a Boss directly operate every goal graph, leave a graph without exactly one Manager owner, or create replacement Workers merely because previous task context is unavailable
 - generate a launch contract without ordered required skills or materialize it
   while a required project-local skill is missing

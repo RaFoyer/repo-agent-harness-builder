@@ -8,7 +8,9 @@ description: Use after project-orchestration when operating or configuring the i
 ## Boundary
 
 Load `$project-orchestration` first. Firstmate is the Codex-facing Boss profile,
-not a new role or portable control plane. The repository's
+not a new role, portable control plane, external repository, service, or
+runtime dependency. Repositories may leave this adapter inactive or omit it.
+The repository's
 `ops/protocols/AGENT-ORCHESTRATION.md` and `ops/orchestration.json` own roles,
 parentage, lifecycle, trust, authority, budgets, reservations, task bindings,
 and completion. Read them before using this adapter. For ticket-backed
@@ -46,6 +48,7 @@ independent repository Firstmates.
   current worktree. Do not assume subagents have isolated filesystems.
 - **Close or archive:** require the configured completion evidence and landed-
   work proof before archive or worktree removal.
+- **Route direct owner conversation:** in hybrid mode, allow the configured project owner to enter a Manager or Worker task directly. Record contract-relevant instructions in `ownerDirectives`, preserve the node's parent and authority, bind acknowledgement and resolution to the live target node and task, bind reconciliation to the live immediate-parent node and task before terminal status, and block an active replan-required target at its current boundary.
 
 ## Native-First Rules
 
@@ -66,6 +69,7 @@ independent repository Firstmates.
 - When GitHub CLI integration is selected, use the repository `github` facade;
   require the node's exact capability and `github.profile.<profile-id>` marker,
   and never inherit ambient global `gh` authentication.
+- A direct task message is not an authority grant. Tactical instructions within the sealed contract may proceed; scope, dependency, authority, budget, or completion changes must stop for replan or supersession and be surfaced to the immediate parent.
 
 ## Dependency Contract
 

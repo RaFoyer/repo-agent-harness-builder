@@ -92,6 +92,7 @@ Run:
 ./{{CLI_NAME}} github plan --profile example-github-worker
 ./{{CLI_NAME}} github run --profile example-github-worker --dry-run -- pr list
 ./{{CLI_NAME}} orchestration status
+./{{CLI_NAME}} orchestration directives
 ./{{CLI_NAME}} orchestration adapter-status
 ./{{CLI_NAME}} orchestration taxonomy
 ./{{CLI_NAME}} orchestration validate

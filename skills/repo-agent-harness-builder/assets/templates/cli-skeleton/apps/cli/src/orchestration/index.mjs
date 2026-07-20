@@ -6,8 +6,16 @@ import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 
 const REGISTRY_REL_PATH = "ops/orchestration.json";
-const REGISTRY_SCHEMA_VERSION = 3;
-const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3]);
+const REGISTRY_SCHEMA_VERSION = 4;
+const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4]);
+const COORDINATION_MODES = new Set(["managed", "hybrid"]);
+const DIRECTIVE_KINDS = new Set(["owner-directive", "owner-intervention"]);
+const DIRECTIVE_IMPACTS = new Set(["within-contract", "replan-required"]);
+const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "superseded", "cancelled"]);
+const DIRECTIVE_TERMINAL_STATES = new Set(["reconciled", "superseded", "cancelled"]);
+const SAFE_DIRECTIVE_ID_RE = /^[a-z][a-z0-9-]{0,95}$/;
+const SHA256_RE = /^[a-f0-9]{64}$/;
+const DIRECTIVE_REFERENCE_RE = /^(?:task|task-message|tracker):[A-Za-z0-9][A-Za-z0-9._/-]*(?:#[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
 const TRUST_LEVELS = [
   { id: "T0", name: "Observe", authority: "approved reads and reporting only" },
   { id: "T1", name: "Propose", authority: "plans, graphs, drafts, and prompts without project-state mutation" },
@@ -403,6 +411,7 @@ function materializedWorkContract(registry, node, parent) {
       : node.completionProfile
   };
   return canonicalize({
+    ...(registry.schemaVersion >= 4 ? { coordinationMode: registry.coordinationMode } : {}),
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
     node: nodeContract,
@@ -413,6 +422,162 @@ function materializedWorkContract(registry, node, parent) {
       authority: canonicalAuthority(parent.authority)
     } : null
   });
+}
+
+function validateOwnerDirectives(registry, nodesById, blockers) {
+  const directives = registry.ownerDirectives;
+  if (!Array.isArray(directives)) {
+    blockers.push("ownerDirectives must be an array");
+    return;
+  }
+  if (registry.coordinationMode !== "hybrid" && directives.length) {
+    blockers.push("ownerDirectives require coordinationMode hybrid");
+  }
+  const ids = new Set();
+  for (const directive of directives) {
+    const label = `owner directive ${directive?.id || "<missing-id>"}`;
+    if (!isObject(directive)) {
+      blockers.push("every ownerDirectives entry must be an object");
+      continue;
+    }
+    if (!SAFE_DIRECTIVE_ID_RE.test(String(directive.id || ""))) blockers.push(`${label}: id must be a safe lowercase slug`);
+    else if (ids.has(directive.id)) blockers.push(`duplicate owner directive id: ${directive.id}`);
+    else ids.add(directive.id);
+    if (!DIRECTIVE_KINDS.has(directive.kind)) blockers.push(`${label}: kind must be owner-directive or owner-intervention`);
+    if (directive.issuedByRef !== registry.scope?.ownerRef) blockers.push(`${label}: issuedByRef must match scope.ownerRef`);
+    if (!DIRECTIVE_REFERENCE_RE.test(String(directive.directiveRef || ""))) {
+      blockers.push(`${label}: directiveRef must be a task, task-message, or tracker reference`);
+    }
+    if (!DIRECTIVE_IMPACTS.has(directive.contractImpact)) blockers.push(`${label}: contractImpact must be within-contract or replan-required`);
+    if (!DIRECTIVE_STATES.has(directive.status)) blockers.push(`${label}: invalid status`);
+    if (!Number.isSafeInteger(directive.registryRevisionAtIssue) || directive.registryRevisionAtIssue < 0
+      || directive.registryRevisionAtIssue > registry.revision) {
+      blockers.push(`${label}: registryRevisionAtIssue must be a non-negative revision no newer than the registry`);
+    }
+    if (!isUtcRfc3339Timestamp(directive.createdAt)) blockers.push(`${label}: createdAt must be a UTC RFC3339 timestamp`);
+    const target = nodesById.get(directive.targetNodeId);
+    const targetParent = target?.parentId ? nodesById.get(target.parentId) : null;
+    if (!target) blockers.push(`${label}: targetNodeId must reference a configured node`);
+    if (target && !["manager", "worker"].includes(target.role)) blockers.push(`${label}: targetNodeId must identify a Manager or Worker`);
+    if (target && directive.targetParentIdAtIssue !== target.parentId) blockers.push(`${label}: targetParentIdAtIssue must match the target's immutable parent`);
+    if (!isTaskBackedNode(target)) {
+      blockers.push(`${label}: issuance requires a live target task`);
+    } else if (directive.targetTaskIdAtIssue !== target.taskId) {
+      blockers.push(`${label}: targetTaskIdAtIssue must identify the target's live task`);
+    }
+    if (!isTaskBackedNode(targetParent)) {
+      blockers.push(`${label}: issuance requires a live immediate-parent task`);
+    } else if (directive.targetParentTaskIdAtIssue !== targetParent.taskId) {
+      blockers.push(`${label}: targetParentTaskIdAtIssue must identify the immediate parent's live task`);
+    }
+    if (target?.state === "terminal" && !DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
+      blockers.push(`${label}: an open directive cannot target a terminal node`);
+    }
+    if (!SHA256_RE.test(String(directive.workContractHashAtIssue || ""))) blockers.push(`${label}: workContractHashAtIssue must be a lowercase SHA-256 digest`);
+    if (target && ["issued", "acknowledged"].includes(directive.status)) {
+      if (directive.workContractHashAtIssue !== materializedWorkContractHash(registry, target, targetParent)) {
+        blockers.push(`${label}: open directive workContractHashAtIssue must match the current target contract`);
+      }
+    }
+    if (directive.status !== "issued" && !isUtcRfc3339Timestamp(directive.acknowledgedAt)) {
+      blockers.push(`${label}: acknowledgedAt is required after issuance`);
+    }
+    if (directive.status !== "issued") {
+      if (!isTaskBackedNode(target)) {
+        blockers.push(`${label}: acknowledgement requires a live target task`);
+      }
+      if (directive.acknowledgedByNodeId !== directive.targetNodeId) {
+        blockers.push(`${label}: acknowledgedByNodeId must identify the target node`);
+      }
+      if (directive.acknowledgedByTaskId !== target?.taskId) {
+        blockers.push(`${label}: acknowledgedByTaskId must identify the target's live task`);
+      }
+      if (!isNonEmptyString(directive.acknowledgementRef)) {
+        blockers.push(`${label}: acknowledgementRef is required after issuance`);
+      }
+      if (isUtcRfc3339Timestamp(directive.acknowledgedAt)
+        && isUtcRfc3339Timestamp(directive.createdAt)
+        && Date.parse(directive.acknowledgedAt) < Date.parse(directive.createdAt)) {
+        blockers.push(`${label}: acknowledgedAt may not precede createdAt`);
+      }
+    }
+    if (DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
+      if (!isNonEmptyString(directive.resolutionRef)) {
+        blockers.push(`${label}: terminal directive status requires resolutionRef`);
+      }
+      if (!isUtcRfc3339Timestamp(directive.resolvedAt)) {
+        blockers.push(`${label}: terminal directive status requires resolvedAt`);
+      }
+      if (directive.resolvedByNodeId !== directive.targetNodeId) {
+        blockers.push(`${label}: resolvedByNodeId must identify the target node`);
+      }
+      if (directive.resolvedByTaskId !== target?.taskId) {
+        blockers.push(`${label}: resolvedByTaskId must identify the target's live task`);
+      }
+      if (isUtcRfc3339Timestamp(directive.resolvedAt)
+        && isUtcRfc3339Timestamp(directive.acknowledgedAt)
+        && Date.parse(directive.resolvedAt) < Date.parse(directive.acknowledgedAt)) {
+        blockers.push(`${label}: resolvedAt may not precede acknowledgedAt`);
+      }
+      if (target?.parentId) {
+        if (!isUtcRfc3339Timestamp(directive.parentObservedAt)) {
+          blockers.push(`${label}: terminal directive status requires parentObservedAt`);
+        }
+        if (directive.parentObservedByNodeId !== directive.targetParentIdAtIssue) {
+          blockers.push(`${label}: parentObservedByNodeId must identify the target's immediate parent`);
+        }
+        if (directive.parentObservedByTaskId !== targetParent?.taskId) {
+          blockers.push(`${label}: parentObservedByTaskId must identify the immediate parent's live task`);
+        }
+        if (!isNonEmptyString(directive.parentReconciliationRef)) {
+          blockers.push(`${label}: terminal directive status requires parentReconciliationRef`);
+        }
+        if (isUtcRfc3339Timestamp(directive.parentObservedAt)
+          && isUtcRfc3339Timestamp(directive.resolvedAt)
+          && Date.parse(directive.parentObservedAt) < Date.parse(directive.resolvedAt)) {
+          blockers.push(`${label}: parentObservedAt may not precede resolvedAt`);
+        }
+      }
+    }
+  }
+}
+
+function coordinationModeFor(registry) {
+  return registry?.schemaVersion === 4 && registry.coordinationMode === "hybrid" ? "hybrid" : "managed";
+}
+
+function governedOwnerDirectives(registry) {
+  if (registry?.schemaVersion !== 4) return [];
+  return arrayOrEmpty(registry.ownerDirectives).filter(isObject);
+}
+
+function openOwnerDirectivesFor(registry, nodeId) {
+  return governedOwnerDirectives(registry).filter((directive) => (
+    directive.targetNodeId === nodeId && !DIRECTIVE_TERMINAL_STATES.has(directive.status)
+  ));
+}
+
+function hasOpenReplanDirective(registry, nodeId) {
+  return openOwnerDirectivesFor(registry, nodeId).some((directive) => directive.contractImpact === "replan-required");
+}
+
+function openReplanDirectiveIdsFor(registry, nodeId) {
+  return canonicalValues(openOwnerDirectivesFor(registry, nodeId)
+    .filter((directive) => directive.contractImpact === "replan-required")
+    .map((directive) => directive.id)
+    .filter(isNonEmptyString));
+}
+
+function replanBoundaryDirectiveIdsFor(registry, node, nodesById) {
+  const ids = [];
+  const seen = new Set();
+  let current = node;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    ids.push(...openReplanDirectiveIdsFor(registry, current.id));
+    current = current.parentId ? nodesById.get(current.parentId) : null;
+  }
+  return canonicalValues(ids);
 }
 
 export function materializedWorkContractHash(registry, node, parent) {
@@ -450,6 +615,7 @@ function reservationCapacity(nodes, parent, maxActiveNodes) {
 
 function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation) {
   const workContractHash = materializedWorkContractHash(registry, node, parent);
+  const nodesById = new Map(nodes.map((candidate) => [candidate.id, candidate]));
   return {
     expectedRegistryRevision: registry.revision,
     expectedRegistryStatus: registry.status,
@@ -465,6 +631,9 @@ function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, r
     },
     expectedParent: parentSnapshot(parent),
     capacity: reservationCapacity(nodes, parent, maxActiveNodes),
+    ...(registry.schemaVersion >= 4 ? {
+      openReplanBoundaryDirectiveIds: replanBoundaryDirectiveIdsFor(registry, node, nodesById)
+    } : {}),
     materializedWorkContractHash: workContractHash
   };
 }
@@ -603,6 +772,9 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   if (!["queued", "eligible"].includes(node.state) || isNonEmptyString(node.taskId)) {
     block("task-identity", "launch eligibility requires a queued or eligible node without taskId");
   }
+  if (replanBoundaryDirectiveIdsFor(registry, node, nodesById).length) {
+    block("owner-replan", "launch eligibility requires every replan-required owner directive to be resolved and reconciled");
+  }
   if (node.parentTaskId !== undefined && node.parentTaskId !== null) {
     block("parent-task-identity", "launch eligibility requires no bound parentTaskId");
   }
@@ -659,6 +831,8 @@ function launchSpecFailure(node, parent, blocker) {
       return `Node ${node.id} cannot launch because parent ${parent?.id || node.parentId} is not in an active managing state.`;
     case "dependencies":
       return `Node ${node.id} cannot launch before all dependencies are completed.`;
+    case "owner-replan":
+      return `Node ${node.id} cannot launch while a replan-required owner directive remains open.`;
     case "reservation":
       return `Node ${node.id} has a pending launch reservation and cannot be materialized again.`;
     case "registry-status":
@@ -723,8 +897,14 @@ function validateRegistry(registry) {
   const warnings = [];
   const githubProfiles = loadGithubProfiles();
   if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
-  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2 or 3");
-  else if (registry.schemaVersion < REGISTRY_SCHEMA_VERSION) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 before relying on requiredSkills as immutable work-contract data");
+  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2, 3, or 4");
+  else if (registry.schemaVersion === 2) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 or newer before relying on requiredSkills as immutable work-contract data");
+  else if (registry.schemaVersion === 3) warnings.push("schemaVersion 3 is supported for existing bindings; migrate to 4 before enabling hybrid coordination and owner directives");
+  if (registry.schemaVersion < 4
+    && registry.ownerDirectives !== undefined
+    && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
+    blockers.push("ownerDirectives require schemaVersion 4");
+  }
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 0) blockers.push("revision must be a non-negative safe integer");
   if (!["inactive", "active"].includes(registry.status)) blockers.push("status must be inactive or active");
   if (!isNonEmptyString(registry.prefix)) blockers.push("prefix must be a non-empty single-line string");
@@ -733,6 +913,10 @@ function validateRegistry(registry) {
   if (!SCOPE_KINDS.has(registry.scope?.kind)) blockers.push("scope.kind must be repository, project, program, personal-folder, or custom");
   if (!isNonEmptyString(registry.scope?.rootRef)) blockers.push("scope.rootRef must be a non-empty single-line reference");
   if (!isNonEmptyString(registry.scope?.objective)) blockers.push("scope.objective must be a non-empty single-line string");
+  if (registry.schemaVersion >= 4) {
+    if (!COORDINATION_MODES.has(registry.coordinationMode)) blockers.push("coordinationMode must be managed or hybrid");
+    if (!isNonEmptyString(registry.scope?.ownerRef)) blockers.push("scope.ownerRef must identify the project owner in schemaVersion 4");
+  }
   if (registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) {
     if (!isObject(registry.bindingAttestation)
       || registry.bindingAttestation.algorithm !== BINDING_ATTESTATION_ALGORITHM
@@ -748,7 +932,7 @@ function validateRegistry(registry) {
       if (!isNonEmptyString(adapter.profile)) blockers.push("clientAdapter.profile must be a non-empty single-line string");
       if (!['inactive', 'active'].includes(adapter.status)) blockers.push("clientAdapter.status must be inactive or active");
       if (adapter.status === "active" && registry.schemaVersion >= 3 && !isNonEmptyString(adapter.requiredSkill)) {
-        blockers.push("active schemaVersion 3 clientAdapter requires requiredSkill");
+        blockers.push("active schemaVersion 3 or newer clientAdapter requires requiredSkill");
       }
       if (adapter.requiredSkill !== undefined && (!isNonEmptyString(adapter.requiredSkill) || !SKILL_NAME_RE.test(adapter.requiredSkill))) {
         blockers.push("clientAdapter.requiredSkill must be a lowercase skill slug when configured");
@@ -794,6 +978,7 @@ function validateRegistry(registry) {
     if (nodesById.has(node.id)) blockers.push(`duplicate node id: ${node.id}`);
     nodesById.set(node.id, node);
   }
+  if (registry.schemaVersion >= 4) validateOwnerDirectives(registry, nodesById, blockers);
   const bosses = nodes.filter((node) => node.role === "boss");
   if (bosses.length > 1) blockers.push("only one Boss is allowed");
   if (registry.status === "active" && bosses.length !== 1) blockers.push("active orchestration requires exactly one Boss");
@@ -908,6 +1093,22 @@ function validateRegistry(registry) {
     if (node.state === "waiting" && !isNonEmptyString(node.waitingOn)) blockers.push(`${label}: waiting state requires waitingOn`);
     if (node.state === "blocked" && (!isNonEmptyString(node.blocker) || !isNonEmptyString(node.unblockAction))) {
       blockers.push(`${label}: blocked state requires blocker and unblockAction`);
+    }
+    const openReplanDirectiveIds = openReplanDirectiveIdsFor(registry, node.id);
+    if (node.blockedByDirectiveIds !== undefined
+      && (!isStringArray(node.blockedByDirectiveIds) || !node.blockedByDirectiveIds.every((id) => SAFE_DIRECTIVE_ID_RE.test(id)))) {
+      blockers.push(`${label}: blockedByDirectiveIds must be an array of owner directive ids when present`);
+    }
+    const claimedBlockedDirectiveIds = canonicalValues(node.blockedByDirectiveIds);
+    if (openReplanDirectiveIds.length && isTaskBackedNode(node)) {
+      if (node.state !== "blocked") {
+        blockers.push(`${label}: an open replan-required owner directive requires the active target to be blocked at its current boundary`);
+      }
+      if (!isDeepStrictEqual(claimedBlockedDirectiveIds, openReplanDirectiveIds)) {
+        blockers.push(`${label}: blockedByDirectiveIds must exactly identify open replan-required owner directives`);
+      }
+    } else if (claimedBlockedDirectiveIds.length) {
+      blockers.push(`${label}: blockedByDirectiveIds requires an active target with an open replan-required owner directive`);
     }
     if (node.state === "ready-for-parent" && !isStringArray(node.handoffEvidence, { nonEmpty: true })) {
       blockers.push(`${label}: ready-for-parent state requires handoffEvidence`);
@@ -1026,6 +1227,7 @@ function printHelp(io) {
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
+  io.stdout("  directives         Show governed direct owner instructions and reconciliation state");
   io.stdout("  next               List dependency-eligible nodes");
   io.stdout("  prompt boss        Print a bounded Boss prompt");
   io.stdout("  prompt <node-id>   Print a bounded prompt for a configured node");
@@ -1177,6 +1379,21 @@ function firstmateActivationBlockers(registry, adapter) {
   if (!isNonEmptyString(adapter.reconciliationPolicy) || adapter.reconciliationPolicy === "unconfigured") {
     blockers.push("clientAdapter.reconciliationPolicy is required");
   }
+  if (registry.schemaVersion >= 4 && registry.coordinationMode === "hybrid") {
+    const direct = adapter.ownerDirectMessaging;
+    const directTargetRoles = new Set(arrayOrEmpty(direct?.targetRoles));
+    if (!isObject(direct)
+      || direct.enabled !== true
+      || !isStringArray(direct.targetRoles, { nonEmpty: true })
+      || direct.targetRoles.length !== 2
+      || directTargetRoles.size !== 2
+      || !["manager", "worker"].every((role) => directTargetRoles.has(role))
+      || direct.recordDirectivesInRegistry !== true
+      || direct.parentReconciliationRequired !== true
+      || direct.authorityExpansionFromMessage !== false) {
+      blockers.push("hybrid Firstmate coordination requires ownerDirectMessaging with governed registry records, parent reconciliation, and no authority expansion from messages");
+    }
+  }
 
   const attestorError = bindingAttestationConfigError(registry);
   if (attestorError) blockers.push(`binding assurance is required: ${attestorError}`);
@@ -1288,6 +1505,9 @@ function runStatus(io) {
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
+  io.stdout(`coordination_mode: ${toonString(coordinationModeFor(loaded.registry))}`);
+  io.stdout(`owner_ref: ${toonString(loaded.registry.scope?.ownerRef || "unconfigured")}`);
+  io.stdout(`owner_directives: ${governedOwnerDirectives(loaded.registry).length}`);
   io.stdout(`client_adapter: ${toonString(loaded.registry.clientAdapter?.profile || "unconfigured")}`);
   io.stdout(`nodes: ${findings.nodes.length}`);
   io.stdout(`bosses: ${findings.nodes.filter((node) => node.role === "boss").length}`);
@@ -1297,6 +1517,26 @@ function runStatus(io) {
   for (const [state, count] of Object.entries(counts)) io.stdout(`  ${state}: ${count}`);
   printFindings(io, findings);
   io.stdout(renderHelpBlock([`Run ./${CONFIG.cliName} orchestration validate`, `Run ./${CONFIG.cliName} orchestration next`]));
+  return findings.blockers.length ? 1 : 0;
+}
+
+function runDirectives(io) {
+  const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stdout("directives: 0");
+    io.stdout(`reason: ${toonString(!loaded.exists ? `missing ${REGISTRY_REL_PATH}` : `invalid JSON: ${loaded.error}`)}`);
+    return 1;
+  }
+  const findings = validateRegistry(loaded.registry);
+  const directives = governedOwnerDirectives(loaded.registry);
+  io.stdout(`coordination_mode: ${toonString(coordinationModeFor(loaded.registry))}`);
+  io.stdout(`directives: ${directives.length}`);
+  io.stdout(`records[${directives.length}]{id,target_node,target_task_at_issue,target_parent,target_parent_task_at_issue,impact,status,acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref,directive_ref}:`);
+  for (const directive of directives) {
+    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.targetTaskIdAtIssue || "")},${toonString(directive.targetParentIdAtIssue || "")},${toonString(directive.targetParentTaskIdAtIssue || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.acknowledgedAt || "")},${toonString(directive.acknowledgedByNodeId || "")},${toonString(directive.acknowledgedByTaskId || "")},${toonString(directive.acknowledgementRef || "")},${toonString(directive.resolutionRef || "")},${toonString(directive.resolvedAt || "")},${toonString(directive.resolvedByNodeId || "")},${toonString(directive.resolvedByTaskId || "")},${toonString(directive.parentObservedAt || "")},${toonString(directive.parentObservedByNodeId || "")},${toonString(directive.parentObservedByTaskId || "")},${toonString(directive.parentReconciliationRef || "")},${toonString(directive.directiveRef || "")}`);
+  }
+  if (!directives.length) io.stdout('message: "No governed owner directives"');
+  printFindings(io, findings);
   return findings.blockers.length ? 1 : 0;
 }
 
@@ -1370,7 +1610,11 @@ function runNext(io) {
     io.stdout('reason: "orchestration is inactive"');
     return 0;
   }
-  const eligible = findings.nodes.filter((node) => node.role !== "boss" && ["queued", "eligible"].includes(node.state) && !hasLaunchReservation(node) && dependenciesSatisfied(node, findings.nodesById));
+  const eligible = findings.nodes.filter((node) => node.role !== "boss"
+    && ["queued", "eligible"].includes(node.state)
+    && !hasLaunchReservation(node)
+    && !replanBoundaryDirectiveIdsFor(loaded.registry, node, findings.nodesById).length
+    && dependenciesSatisfied(node, findings.nodesById));
   io.stdout(`eligible: ${eligible.length}`);
   io.stdout(`nodes[${eligible.length}]{id,role,work_ref,work_kind,state,title}:`);
   for (const node of eligible) {
@@ -1408,6 +1652,10 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Governing protocols: ${node.governingProtocols.join(", ")}`);
   lines.push(`Required skills (load in order): ${requiredSkillsFor(registry, node).join(", ")}`);
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
+  lines.push(`Coordination mode: ${coordinationModeFor(registry)}`);
+  const directives = openOwnerDirectivesFor(registry, node.id);
+  const replanDirectiveIds = replanBoundaryDirectiveIdsFor(registry, node, new Map(registry.nodes.map((candidate) => [candidate.id, candidate])));
+  lines.push(`Open owner directives: ${directives.map((directive) => `${directive.id} (${directive.contractImpact}; ${directive.directiveRef})`).join(", ") || "none"}`);
   lines.push(`State: ${node.state}`);
   lines.push(`Trust level: ${node.trustLevel}`);
   if (node.trustApproval) lines.push(`Trust approval: ${node.trustApproval.approvedBy} at ${node.trustApproval.approvedAt}`);
@@ -1429,7 +1677,11 @@ function buildPromptLines(node, parent, registry) {
   lines.push("- Role does not expand the authority envelope.");
   lines.push("");
   lines.push("First action:");
-  lines.push("- Read project instructions and governing domain protocols, confirm dependency inputs, then return a concise plan with target surfaces, risks, verification, evidence, and exit criteria before substantial work.");
+  if (replanDirectiveIds.length) {
+    lines.push(`- Stop at the owner-replan boundary for ${replanDirectiveIds.join(", ")}; do not execute further task work until replan or supersession is recorded and reconciled.`);
+  } else {
+    lines.push("- Read project instructions and governing domain protocols, confirm dependency inputs, then return a concise plan with target surfaces, risks, verification, evidence, and exit criteria before substantial work.");
+  }
   return lines;
 }
 
@@ -1549,6 +1801,7 @@ function runLaunchSpec(nodeId, io) {
   };
   io.stdout(JSON.stringify({
     schemaVersion: loaded.registry.schemaVersion,
+    ...(loaded.registry.schemaVersion >= 4 ? { coordinationMode: loaded.registry.coordinationMode } : {}),
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
@@ -1668,6 +1921,7 @@ function runLaunchSpec(nodeId, io) {
             }
           } : {}),
           capacityRequired: true,
+          ...(loaded.registry.schemaVersion >= 4 ? { openReplanBoundaryDirectiveIds: [] } : {}),
           materializedWorkContractHash: workContractHash
         },
         requiredUpdates: [
@@ -1731,6 +1985,9 @@ export async function runOrchestration(argv, io) {
     case "validate":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration validate", hints: [`Run ./${CONFIG.cliName} orchestration validate`] })) return 2;
       return runValidate(io);
+    case "directives":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration directives", hints: [`Run ./${CONFIG.cliName} orchestration directives`] })) return 2;
+      return runDirectives(io);
     case "next":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration next", hints: [`Run ./${CONFIG.cliName} orchestration next`] })) return 2;
       return runNext(io);
