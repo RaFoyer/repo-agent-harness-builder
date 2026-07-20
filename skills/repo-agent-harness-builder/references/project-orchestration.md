@@ -52,11 +52,14 @@ Do not record ordinary conversation merely because it was direct. Record an
 owner directive when the instruction must survive task history or affects
 durable execution. Each record binds the owner, target node, immutable parent,
 task/tracker reference, registry revision, current work-contract hash, impact,
-and reconciliation state. `within-contract` instructions may proceed inside the
-existing envelope. `replan-required` instructions stop at the current boundary
-until explicit replan or supersession. A terminal directive requires resolution
-evidence and immediate-parent observation, except when the Boss itself is the
-target.
+and reconciliation state. Acknowledgement records the target node, timestamp,
+and evidence reference; terminal resolution records the target node, timestamp,
+and evidence reference; a non-Boss target additionally requires its immutable
+immediate parent, timestamp, and reconciliation evidence reference. `within-contract`
+instructions may proceed inside the existing envelope. An open `replan-required`
+directive prevents scheduling and requires an active target to be `blocked` at
+its current boundary with `blockedByDirectiveIds` naming every open replan
+directive until explicit replan or supersession.
 
 For a repository harness, default to the repository itself as the complete
 scope: its own registry, one resident Boss capability, and repo-local Managers

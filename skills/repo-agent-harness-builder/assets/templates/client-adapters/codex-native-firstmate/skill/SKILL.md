@@ -46,7 +46,7 @@ independent repository Firstmates.
   current worktree. Do not assume subagents have isolated filesystems.
 - **Close or archive:** require the configured completion evidence and landed-
   work proof before archive or worktree removal.
-- **Route direct owner conversation:** in hybrid mode, allow the configured project owner to enter a Manager or Worker task directly. Record contract-relevant instructions in `ownerDirectives`, preserve the node's parent and authority, and require parent reconciliation before the directive becomes terminal.
+- **Route direct owner conversation:** in hybrid mode, allow the configured project owner to enter a Manager or Worker task directly. Record contract-relevant instructions in `ownerDirectives`, preserve the node's parent and authority, require target-bound acknowledgement and resolution evidence plus parent reconciliation before terminal status, and block an active replan-required target at its current boundary.
 
 ## Native-First Rules
 

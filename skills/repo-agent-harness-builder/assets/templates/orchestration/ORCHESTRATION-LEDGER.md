@@ -34,9 +34,9 @@ Project owner reference:
 
 ## Owner Directives
 
-| Directive | Target node | Directive reference | Contract impact | Status | Immediate parent observed | Resolution |
-| --- | --- | --- | --- | --- | --- | --- |
-| <directive id> | <node id> | <task/tracker reference> | within-contract or replan-required | issued/acknowledged/reconciled/superseded/cancelled | <timestamp or pending> | <reference or pending> |
+| Directive | Target node | Directive reference | Contract impact | Status | Target acknowledgement | Target resolution | Immediate-parent reconciliation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| <directive id> | <node id> | <task/tracker reference> | within-contract or replan-required | issued/acknowledged/reconciled/superseded/cancelled | <target node, timestamp, evidence or pending> | <target node, timestamp, evidence or pending> | <immediate parent, timestamp, evidence or pending> |
 
 ## Trust Changes
 

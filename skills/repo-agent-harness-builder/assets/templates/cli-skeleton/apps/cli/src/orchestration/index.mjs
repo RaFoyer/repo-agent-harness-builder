@@ -468,11 +468,50 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     if (directive.status !== "issued" && !isUtcRfc3339Timestamp(directive.acknowledgedAt)) {
       blockers.push(`${label}: acknowledgedAt is required after issuance`);
     }
-    if (DIRECTIVE_TERMINAL_STATES.has(directive.status) && !isNonEmptyString(directive.resolutionRef)) {
-      blockers.push(`${label}: terminal directive status requires resolutionRef`);
+    if (directive.status !== "issued") {
+      if (directive.acknowledgedByNodeId !== directive.targetNodeId) {
+        blockers.push(`${label}: acknowledgedByNodeId must identify the target node`);
+      }
+      if (!isNonEmptyString(directive.acknowledgementRef)) {
+        blockers.push(`${label}: acknowledgementRef is required after issuance`);
+      }
+      if (isUtcRfc3339Timestamp(directive.acknowledgedAt)
+        && isUtcRfc3339Timestamp(directive.createdAt)
+        && Date.parse(directive.acknowledgedAt) < Date.parse(directive.createdAt)) {
+        blockers.push(`${label}: acknowledgedAt may not precede createdAt`);
+      }
     }
-    if (DIRECTIVE_TERMINAL_STATES.has(directive.status) && target?.parentId && !isUtcRfc3339Timestamp(directive.parentObservedAt)) {
-      blockers.push(`${label}: terminal directive status requires parentObservedAt`);
+    if (DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
+      if (!isNonEmptyString(directive.resolutionRef)) {
+        blockers.push(`${label}: terminal directive status requires resolutionRef`);
+      }
+      if (!isUtcRfc3339Timestamp(directive.resolvedAt)) {
+        blockers.push(`${label}: terminal directive status requires resolvedAt`);
+      }
+      if (directive.resolvedByNodeId !== directive.targetNodeId) {
+        blockers.push(`${label}: resolvedByNodeId must identify the target node`);
+      }
+      if (isUtcRfc3339Timestamp(directive.resolvedAt)
+        && isUtcRfc3339Timestamp(directive.acknowledgedAt)
+        && Date.parse(directive.resolvedAt) < Date.parse(directive.acknowledgedAt)) {
+        blockers.push(`${label}: resolvedAt may not precede acknowledgedAt`);
+      }
+      if (target?.parentId) {
+        if (!isUtcRfc3339Timestamp(directive.parentObservedAt)) {
+          blockers.push(`${label}: terminal directive status requires parentObservedAt`);
+        }
+        if (directive.parentObservedByNodeId !== directive.targetParentIdAtIssue) {
+          blockers.push(`${label}: parentObservedByNodeId must identify the target's immediate parent`);
+        }
+        if (!isNonEmptyString(directive.parentReconciliationRef)) {
+          blockers.push(`${label}: terminal directive status requires parentReconciliationRef`);
+        }
+        if (isUtcRfc3339Timestamp(directive.parentObservedAt)
+          && isUtcRfc3339Timestamp(directive.resolvedAt)
+          && Date.parse(directive.parentObservedAt) < Date.parse(directive.resolvedAt)) {
+          blockers.push(`${label}: parentObservedAt may not precede resolvedAt`);
+        }
+      }
     }
   }
 }
@@ -485,6 +524,13 @@ function openOwnerDirectivesFor(registry, nodeId) {
 
 function hasOpenReplanDirective(registry, nodeId) {
   return openOwnerDirectivesFor(registry, nodeId).some((directive) => directive.contractImpact === "replan-required");
+}
+
+function openReplanDirectiveIdsFor(registry, nodeId) {
+  return canonicalValues(openOwnerDirectivesFor(registry, nodeId)
+    .filter((directive) => directive.contractImpact === "replan-required")
+    .map((directive) => directive.id)
+    .filter(isNonEmptyString));
 }
 
 export function materializedWorkContractHash(registry, node, parent) {
@@ -992,6 +1038,22 @@ function validateRegistry(registry) {
     if (node.state === "blocked" && (!isNonEmptyString(node.blocker) || !isNonEmptyString(node.unblockAction))) {
       blockers.push(`${label}: blocked state requires blocker and unblockAction`);
     }
+    const openReplanDirectiveIds = openReplanDirectiveIdsFor(registry, node.id);
+    if (node.blockedByDirectiveIds !== undefined
+      && (!isStringArray(node.blockedByDirectiveIds) || !node.blockedByDirectiveIds.every((id) => SAFE_DIRECTIVE_ID_RE.test(id)))) {
+      blockers.push(`${label}: blockedByDirectiveIds must be an array of owner directive ids when present`);
+    }
+    const claimedBlockedDirectiveIds = canonicalValues(node.blockedByDirectiveIds);
+    if (openReplanDirectiveIds.length && isTaskBackedNode(node)) {
+      if (node.state !== "blocked") {
+        blockers.push(`${label}: an open replan-required owner directive requires the active target to be blocked at its current boundary`);
+      }
+      if (!isDeepStrictEqual(claimedBlockedDirectiveIds, openReplanDirectiveIds)) {
+        blockers.push(`${label}: blockedByDirectiveIds must exactly identify open replan-required owner directives`);
+      }
+    } else if (claimedBlockedDirectiveIds.length) {
+      blockers.push(`${label}: blockedByDirectiveIds requires an active target with an open replan-required owner directive`);
+    }
     if (node.state === "ready-for-parent" && !isStringArray(node.handoffEvidence, { nonEmpty: true })) {
       blockers.push(`${label}: ready-for-parent state requires handoffEvidence`);
     }
@@ -1410,9 +1472,9 @@ function runDirectives(io) {
   const directives = arrayOrEmpty(loaded.registry.ownerDirectives);
   io.stdout(`coordination_mode: ${toonString(loaded.registry.coordinationMode || "managed")}`);
   io.stdout(`directives: ${directives.length}`);
-  io.stdout(`records[${directives.length}]{id,target_node,impact,status,directive_ref}:`);
+  io.stdout(`records[${directives.length}]{id,target_node,target_parent,impact,status,acknowledged_at,acknowledged_by,acknowledgement_ref,resolution_ref,resolved_at,resolved_by,parent_observed_at,parent_observed_by,parent_reconciliation_ref,directive_ref}:`);
   for (const directive of directives) {
-    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.directiveRef || "")}`);
+    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.targetParentIdAtIssue || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.acknowledgedAt || "")},${toonString(directive.acknowledgedByNodeId || "")},${toonString(directive.acknowledgementRef || "")},${toonString(directive.resolutionRef || "")},${toonString(directive.resolvedAt || "")},${toonString(directive.resolvedByNodeId || "")},${toonString(directive.parentObservedAt || "")},${toonString(directive.parentObservedByNodeId || "")},${toonString(directive.parentReconciliationRef || "")},${toonString(directive.directiveRef || "")}`);
   }
   if (!directives.length) io.stdout('message: "No governed owner directives"');
   printFindings(io, findings);
@@ -1533,6 +1595,7 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
   lines.push(`Coordination mode: ${registry.coordinationMode || "managed"}`);
   const directives = openOwnerDirectivesFor(registry, node.id);
+  const replanDirectiveIds = openReplanDirectiveIdsFor(registry, node.id);
   lines.push(`Open owner directives: ${directives.map((directive) => `${directive.id} (${directive.contractImpact}; ${directive.directiveRef})`).join(", ") || "none"}`);
   lines.push(`State: ${node.state}`);
   lines.push(`Trust level: ${node.trustLevel}`);
@@ -1555,7 +1618,11 @@ function buildPromptLines(node, parent, registry) {
   lines.push("- Role does not expand the authority envelope.");
   lines.push("");
   lines.push("First action:");
-  lines.push("- Read project instructions and governing domain protocols, confirm dependency inputs, then return a concise plan with target surfaces, risks, verification, evidence, and exit criteria before substantial work.");
+  if (replanDirectiveIds.length) {
+    lines.push(`- Stop at the owner-replan boundary for ${replanDirectiveIds.join(", ")}; do not execute further task work until replan or supersession is recorded and reconciled.`);
+  } else {
+    lines.push("- Read project instructions and governing domain protocols, confirm dependency inputs, then return a concise plan with target surfaces, risks, verification, evidence, and exit criteria before substantial work.");
+  }
   return lines;
 }
 

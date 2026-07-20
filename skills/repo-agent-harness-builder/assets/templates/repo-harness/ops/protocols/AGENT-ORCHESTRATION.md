@@ -60,9 +60,12 @@ message never changes trust or authority by itself. Record a durable
 `ownerDirective` only when the instruction must survive task history or affects
 execution; bind it to the target node, parent snapshot, task/tracker reference,
 registry revision, and current work-contract hash. `within-contract` directives
-may proceed inside the existing envelope. `replan-required` directives stop at
-the current boundary until explicit replan or supersession. Terminal directive
-states require resolution evidence and immediate-parent observation.
+may proceed inside the existing envelope. Record target-bound acknowledgement
+and resolution evidence, plus immediate-parent reconciliation evidence for a
+non-Boss target. An open `replan-required` directive prevents scheduling and
+requires an active target to be `blocked` at its current boundary with
+`blockedByDirectiveIds` naming the open directive until explicit replan or
+supersession.
 
 Every node records:
 
