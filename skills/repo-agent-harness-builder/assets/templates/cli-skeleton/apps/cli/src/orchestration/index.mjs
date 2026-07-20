@@ -69,6 +69,19 @@ function loadRegistry() {
   }
 }
 
+function loadGithubProfiles() {
+  const fullPath = path.join(CONFIG.repoRoot, "ops", "connections.json");
+  if (!fs.existsSync(fullPath)) return new Map();
+  try {
+    const registry = JSON.parse(fs.readFileSync(fullPath, "utf-8"));
+    return new Map(arrayOrEmpty(registry.connectorProfiles)
+      .filter((profile) => profile?.provider === "github" && isNonEmptyString(profile.id))
+      .map((profile) => [profile.id, profile]));
+  } catch {
+    return new Map();
+  }
+}
+
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -708,6 +721,7 @@ function validateAuthority(node, parent, defaultLevel, maxLevel, blockers) {
 function validateRegistry(registry) {
   const blockers = [];
   const warnings = [];
+  const githubProfiles = loadGithubProfiles();
   if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
   if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2 or 3");
   else if (registry.schemaVersion < REGISTRY_SCHEMA_VERSION) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 before relying on requiredSkills as immutable work-contract data");
@@ -925,6 +939,24 @@ function validateRegistry(registry) {
       if (dependency === node.id) blockers.push(`${label}: node may not depend on itself`);
     }
     if (TRUST_RANK.has(defaultLevel) && TRUST_RANK.has(maxLevel)) validateAuthority(node, parent, defaultLevel, maxLevel, blockers);
+    const externalActions = arrayOrEmpty(node.authority?.allowedExternalActions);
+    const githubCapabilities = externalActions.filter((action) => action.startsWith("github.") && !action.startsWith("github.profile."));
+    const githubWrites = githubCapabilities.filter((action) => !action.endsWith(".read"));
+    const githubProfileMarkers = externalActions.filter((action) => action.startsWith("github.profile."));
+    if (githubWrites.length && githubProfileMarkers.length !== 1) {
+      blockers.push(`${label}: write-capable GitHub authority requires exactly one github.profile.<profile-id> marker`);
+    }
+    if (githubProfileMarkers.length === 1) {
+      const profileId = githubProfileMarkers[0].slice("github.profile.".length);
+      const profile = githubProfiles.get(profileId);
+      if (!profile) blockers.push(`${label}: GitHub profile marker references unknown profile ${profileId}`);
+      else {
+        const allowed = new Set(arrayOrEmpty(profile.githubAuthority?.allowedCapabilities));
+        for (const capability of githubCapabilities) {
+          if (!allowed.has(capability)) blockers.push(`${label}: ${capability} exceeds GitHub profile ${profileId}`);
+        }
+      }
+    }
   }
   if (graphHasCycle(nodes, (node) => (node.parentId ? [node.parentId] : []))) blockers.push("parent graph contains a cycle");
   if (graphHasCycle(nodes, (node) => arrayOrEmpty(node.dependencies))) blockers.push("dependency graph contains a cycle");
@@ -975,6 +1007,13 @@ function validateRegistry(registry) {
     }
   }
   return { blockers, warnings, nodes, nodesById };
+}
+
+export function validateCurrentOrchestrationRegistry() {
+  const loaded = loadRegistry();
+  if (!loaded.exists) return { registry: null, blockers: [`missing ${REGISTRY_REL_PATH}`], warnings: [], nodes: [], nodesById: new Map() };
+  if (loaded.error) return { registry: null, blockers: [`invalid JSON: ${loaded.error}`], warnings: [], nodes: [], nodesById: new Map() };
+  return { registry: loaded.registry, ...validateRegistry(loaded.registry) };
 }
 
 function printHelp(io) {
@@ -1106,6 +1145,16 @@ function firstmateActivationBlockers(registry, adapter) {
   }
   for (const boundary of ["browserAuthenticationBoundary", "githubAuthenticationBoundary"]) {
     if (!isNonEmptyString(adapter[boundary])) blockers.push(`clientAdapter.${boundary} is required`);
+  }
+  if (adapter.githubIntegration !== "not-used") {
+    const policy = adapter.githubProfilePolicy;
+    if (!isObject(policy)
+      || !isNonEmptyString(policy.facadeCommand)
+      || policy.requireNodeProfileBindingForWrites !== true
+      || policy.forbidAmbientGlobalAuth !== true
+      || !isNonEmptyString(policy.gitTransportBoundary)) {
+      blockers.push("clientAdapter.githubProfilePolicy must configure the facade, node profile binding, ambient-auth refusal, and Git transport boundary");
+    }
   }
 
   const heartbeat = adapter.heartbeat;

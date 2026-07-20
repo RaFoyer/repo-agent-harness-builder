@@ -97,6 +97,25 @@ inaccessible, unsupported by the current client, or blocked by the linked work
 item. Record the reason so the next agent can decide whether to add a durable
 profile instead.
 
+## GitHub Pattern
+
+Treat `gh-axi`, upstream `gh`, authentication, orchestration authority, and Git
+transport as separate layers. `gh-axi` is the preferred compact agent-facing
+executor for supported operations, but it invokes `gh` and inherits its
+environment; it does not select or isolate an account.
+
+Give every GitHub profile a distinct repository-scoped `GH_CONFIG_DIR` under
+`agent-connectors/<repo-id>/github/<profile-id>`, fix `GH_REPO`, and remove
+ambient token, host, and enterprise-credential variables before selecting the profile. Prefer short-lived
+GitHub App installation tokens supplied process-locally for Workers. Broad
+human credentials are explicit operator profiles and must not be inherited.
+
+Bind write-capable orchestration nodes to exact `github.*` capabilities and one
+`github.profile.<profile-id>` marker. Use the repository `github` facade to
+intersect node and profile authority and reject cross-repository targets.
+Remember that SSH keys, Git credential helpers, and `git push` are a separate
+transport boundary; wrapping `gh` alone is not end-to-end enforcement.
+
 ## Google Workspace Pattern
 
 Use Drive or Shared Drive for role-scoped documents and Gmail for message context. Prefer groups and folder permissions over public links. Start read-only, then add write/send permissions only for a named workflow.

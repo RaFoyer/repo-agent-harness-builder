@@ -23,6 +23,7 @@ This repository uses an agent harness. Keep this root file short and treat it as
 
 - Do not expose secrets or credential values in chat, logs, tickets, or commits.
 - Before browser-based or connector authentication, read `ops/protocols/CONNECTOR-AUTH-PROFILES.md` when present and use repo-scoped profiles rather than global mutable auth state.
+- Route GitHub CLI operations through the repository facade and `GITHUB-AUTHORITY.md` when active; never let a Worker fall back to ambient global `gh` authentication.
 - Ask before mutating shared branches, production systems, credentials, or external workspaces.
 - Keep durable docs free of current status, meeting notes, and one-off handoff clutter.
 - When changing protocols, update `AGENTS-TOC.md` and related CLI help in the same change.

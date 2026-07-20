@@ -124,6 +124,13 @@ Before a task may be bound, configure `bindingAttestation` with the external att
 
 Trust only limits maximum authority. Each node also needs an authority envelope naming allowed reads, writes, external actions, approval gates, delegation permission, child budget, and stop conditions. Scope entries are named capability identifiers, not implicit filesystem prefix grants. Children may not exceed the parent trust level, named authority scope, approval gates, or child budget: every parent approval gate remains mandatory for every descendant. Project policy also caps total active nodes and delegation depth. Promotion above the default requires a structured `trustApproval` with approver, timestamp, and evidence; a free-form self-assertion is insufficient. Demotion or revocation may be immediate.
 
+For GitHub actions, use exact `github.*` capability IDs. Every write-capable
+node must also carry exactly one `github.profile.<profile-id>` marker in
+`allowedExternalActions`. The profile marker is part of the sealed authority
+envelope and inherits like every other external action. Effective permission is
+the intersection of node authority, profile ceiling, actual credential, and
+approval gates; role names never grant GitHub permission.
+
 ## Lifecycle Rules
 
 - `queued`: graph node exists but is not yet dependency-eligible and has no live task.

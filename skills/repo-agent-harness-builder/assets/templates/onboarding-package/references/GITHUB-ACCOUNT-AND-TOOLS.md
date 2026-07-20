@@ -16,9 +16,11 @@ Explain GitHub as the project storage and review site. The human usually only ne
 Check:
 
 - git is installed
-- GitHub CLI is installed, if the workflow uses it
+- upstream GitHub CLI and the profile-selected executor (normally `gh-axi`)
+  are installed, if an active repository GitHub profile uses the facade
 - no-mistakes is installed, if the workflow uses the branch-to-PR validation gate
-- the human is signed in, if required
+- the selected repository profile has the required account or process-local
+  credential; do not rely on a shared global `gh` login
 - the repository can be read
 - the target folder exists or can be created
 - no credentials are pasted into chat
@@ -30,10 +32,14 @@ Use only when appropriate for the local environment:
 ```bash
 git --version
 gh --version
-gh auth status
+gh-axi --version
 git clone <repo-url>
 no-mistakes --version
 ```
+
+After scaffolding, inspect the selected repository profile with the local
+`github plan` command before any authentication or GitHub write. `gh-axi` runs
+upstream `gh`; neither tool selects an account or grants authority by itself.
 
 ## Boundaries
 

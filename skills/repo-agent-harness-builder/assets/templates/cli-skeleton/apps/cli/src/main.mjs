@@ -17,6 +17,7 @@ import { runDesign } from "./design/index.mjs";
 import { runErgonomics } from "./ergonomics/index.mjs";
 import { runNoMistakes } from "./no-mistakes/index.mjs";
 import { runLavish } from "./lavish/index.mjs";
+import { runGithub } from "./github/index.mjs";
 import { renderHelpBlock, toonString } from "./util/agent-output.mjs";
 
 export const defaultIO = {
@@ -62,6 +63,8 @@ export async function main(argv = [], io = defaultIO) {
       return runSecrets(rest, io);
     case "connections":
       return runConnections(rest, io);
+    case "github":
+      return runGithub(rest, io);
     case "goals":
       return runGoals(rest, io);
     case "orchestration":

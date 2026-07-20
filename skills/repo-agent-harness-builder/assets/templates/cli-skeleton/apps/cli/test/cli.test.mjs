@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
+import { createGithubChildEnvironment, validateProfileRoot, validateRepositoryTarget } from "../src/github/index.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
 import { materializedWorkContractHash, taskBindingAttestationPayload, taskBindingLegacyAttestationDigest } from "../src/orchestration/index.mjs";
@@ -89,6 +90,12 @@ function writeOrchestrationRegistry(registry) {
   const registryPath = path.join(repoRoot, "ops", "orchestration.json");
   fs.mkdirSync(path.dirname(registryPath), { recursive: true });
   fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+}
+
+function writeGithubApprovals(approvals) {
+  const ledgerPath = path.join(repoRoot, "ops", "github-approvals.json");
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  fs.writeFileSync(ledgerPath, `${JSON.stringify({ schemaVersion: 1, approvals }, null, 2)}\n`, "utf-8");
 }
 
 function orchestrationAuthority({
@@ -613,6 +620,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["Browser boundary", (registry) => { registry.clientAdapter.browserAuthenticationBoundary = null; }, /browserAuthenticationBoundary/],
     ["GitHub choice", (registry) => { registry.clientAdapter.githubIntegration = "unconfigured"; }, /githubIntegration/],
     ["GitHub boundary", (registry) => { registry.clientAdapter.githubAuthenticationBoundary = null; }, /githubAuthenticationBoundary/],
+    ["GitHub profile policy", (registry) => { registry.clientAdapter.githubIntegration = "repository-facade"; }, /githubProfilePolicy/],
     ["heartbeat ownership", (registry) => { delete registry.clientAdapter.heartbeat.registryMutator; }, /heartbeat must configure mode, cadence, and registry mutator/],
     ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
     ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
@@ -699,7 +707,7 @@ test("no args renders content-first agent home view", async () => {
   const text = out.join("\n");
   assert.match(text, new RegExp(`bin: "\\./${CONFIG.cliName}"`));
   assert.match(text, /description:/);
-  assert.match(text, /commands\[10\]\{command,purpose\}:/);
+  assert.match(text, /commands\[11\]\{command,purpose\}:/);
   assert.match(text, /"preflight","Run read-only session-start checks"/);
   assert.match(text, /"ergonomics status","Audit agent-facing CLI ergonomics"/);
   assert.match(text, /"no-mistakes status","Check branch-to-PR validation gate setup"/);
@@ -1368,7 +1376,7 @@ fixtureTest("connections env renders env-var config-root guidance without local 
   assert.match(text, /Connector auth environment: example-gcloud/);
   assert.match(text, /strategy: env/);
   assert.match(text, /env: CLOUDSDK_CONFIG/);
-  assert.match(text, /export CLOUDSDK_CONFIG=\\?"\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/agent-connectors\/[a-z0-9-]+--[a-f0-9]{12}\/gcloud\\?"/);
+  assert.match(text, /export CLOUDSDK_CONFIG=\\?"\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/agent-connectors\/[a-z0-9-]+--[a-f0-9]{12}\/gcloud\/example-gcloud\\?"/);
   assert.doesNotMatch(text, localPathPattern());
 });
 
@@ -1382,6 +1390,257 @@ fixtureTest("connections env renders config-dir flag guidance for Neon-style CLI
   assert.match(text, /executable: neonctl/);
   assert.match(text, /command_hint: "neonctl --config-dir/);
   assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("github status and plan expose value-safe repository profile metadata", async () => {
+  const statusCapture = capture();
+  const statusCode = await main(["github", "status"], statusCapture.io);
+  assert.equal(statusCode, 0, statusCapture.err.join("\n"));
+  assert.match(statusCapture.out.join("\n"), /example-github-worker.*inactive.*worker.*github-app-installation/);
+
+  const planCapture = capture();
+  const planCode = await main(["github", "plan", "--profile", "example-github-worker"], planCapture.io);
+  assert.equal(planCode, 0, planCapture.err.join("\n"));
+  const text = planCapture.out.join("\n");
+  assert.match(text, /profile_boundary: repository/);
+  assert.match(text, /config_root_env: GH_CONFIG_DIR/);
+  assert.match(text, /preferred_cli: gh-axi/);
+  assert.match(text, /runtime_auth: environment/);
+  assert.match(text, /ambient_global_login_used: false/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("github dry-run classifies reads without requiring live auth", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /capability: github\.pr\.read/);
+  assert.match(text, /execution: skipped/);
+  assert.match(text, /ambient_global_login_used: false/);
+});
+
+fixtureTest("github facade fails closed on unclassified and cross-repository commands", async () => {
+  const unknown = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "api", "repos"], unknown.io), 1);
+  assert.match(unknown.err.join("\n"), /fail-closed command capability map/);
+
+  const crossRepo = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "--repo", "other/repository"], crossRepo.io), 1);
+  assert.match(crossRepo.err.join("\n"), /outside this harness scope/);
+
+  const compactCrossRepo = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "-Rother/repository"], compactCrossRepo.io), 1);
+  assert.match(compactCrossRepo.err.join("\n"), /outside this harness scope/);
+
+  const duplicateRepo = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "--repo", CONFIG.repoSlug, "--repo", "other/repository"], duplicateRepo.io), 1);
+  assert.match(duplicateRepo.err.join("\n"), /duplicate repository selectors/);
+
+  for (const args of [
+    ["repo", "view", "other/repository"],
+    ["repo", "clone", "other/repository"],
+    ["repo", "list"],
+    ["repo", "fork", "--org", "other-org"],
+    ["pr", "list", "--hostname", "github.example.test"]
+  ]) {
+    const scoped = capture();
+    assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", ...args], scoped.io), 1, args.join(" "));
+    assert.match(scoped.err.join("\n"), /repository|host scope/i, args.join(" "));
+  }
+});
+
+fixtureTest("github repository targeting is command-specific", () => {
+  assert.match(validateRepositoryTarget(["repo", "view", "github.com/other/repository"]), /outside this harness scope/);
+  assert.equal(validateRepositoryTarget(["repo", "view", `github.com/${CONFIG.repoSlug}`]), null);
+  assert.equal(validateRepositoryTarget(["pr", "list", "--repo", `github.com/${CONFIG.repoSlug}`]), null);
+  assert.equal(validateRepositoryTarget(["repo", "view", "--web"]), null);
+  assert.match(validateRepositoryTarget(["repo", "view", "--web", "other/repository"]), /outside this harness scope/);
+  assert.match(validateRepositoryTarget(["repo", "edit", "other/repository", "--enable-issues=false"]), /outside this harness scope/);
+  assert.match(validateRepositoryTarget(["repo", "edit", "--description", "Bounded repository", "other/repository"]), /outside this harness scope/);
+  assert.match(validateRepositoryTarget(["pr", "view", "--web", "https://github.com/other/repository/pull/1"]), /outside this harness scope/);
+  assert.equal(validateRepositoryTarget(["pr", "create", "--body", "https://github.com/other/repository/pull/1"]), null);
+  assert.equal(validateRepositoryTarget(["release", "upload", "v1", "dist/app.zip"]), null);
+  assert.equal(validateRepositoryTarget(["run", "download", "123", "--dir", "artifacts/run"]), null);
+  assert.equal(validateRepositoryTarget(["pr", "create", "--body-file", "docs/pr.md"]), null);
+  assert.equal(validateRepositoryTarget(["pr", "create", "--body", "https://example.test/docs/path"]), null);
+});
+
+fixtureTest("github profile roots reject symlinked configuration components", () => {
+  const previousConfigHome = process.env.XDG_CONFIG_HOME;
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "github-profile-home-"));
+  const redirected = fs.mkdtempSync(path.join(os.tmpdir(), "github-profile-shared-"));
+  const connectors = path.join(configHome, "agent-connectors");
+  fs.mkdirSync(path.join(redirected, "repo", "github", "worker"), { recursive: true });
+  fs.symlinkSync(redirected, connectors, "dir");
+  process.env.XDG_CONFIG_HOME = configHome;
+  try {
+    assert.match(validateProfileRoot(path.join(connectors, "repo", "github", "worker")), /must not contain symlinks/);
+  } finally {
+    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousConfigHome;
+  }
+});
+
+fixtureTest("github profiles reserve broad credentials for explicit operators", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  const profile = registry.connectorProfiles.find((candidate) => candidate.provider === "github");
+  profile.githubAuthority.authSourceKind = "classic-pat";
+  profile.githubAuthority.tier = "worker";
+  await withFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, async () => {
+    const result = capture();
+    assert.equal(await main(["github", "status"], result.io), 1);
+    assert.match(result.err.join("\n"), /broad GitHub credentials require an operator profile tier/);
+  });
+});
+
+fixtureTest("github child environments clear ambient host and enterprise credentials", async () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops/connections.json"), "utf-8"));
+  const profile = registry.connectorProfiles.find((candidate) => candidate.provider === "github");
+  const child = createGithubChildEnvironment(profile, "<isolated-github-profile>", {
+    GH_TOKEN: "<ambient-gh-token>",
+    GITHUB_TOKEN: "<ambient-github-token>",
+    GH_HOST: "enterprise.example.test",
+    GH_ENTERPRISE_TOKEN: "<ambient-gh-enterprise-token>",
+    GITHUB_ENTERPRISE_TOKEN: "<ambient-github-enterprise-token>",
+    REPO_GITHUB_WORKER_TOKEN: "<selected-worker-token>"
+  });
+  assert.equal(child.ok, true);
+  assert.equal(child.env.GH_TOKEN, "<selected-worker-token>");
+  assert.equal(child.env.GITHUB_TOKEN, undefined);
+  assert.equal(child.env.GH_HOST, undefined);
+  assert.equal(child.env.GH_ENTERPRISE_TOKEN, undefined);
+  assert.equal(child.env.GITHUB_ENTERPRISE_TOKEN, undefined);
+  assert.equal(child.env.GH_CONFIG_DIR, "<isolated-github-profile>");
+  assert.equal(child.env.GH_REPO, CONFIG.repoSlug);
+});
+
+fixtureTest("GitHub and connector profiles reject path-shaped ids", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connectorProfiles.find((profile) => profile.provider === "github").id = "../operator";
+  await withFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, async () => {
+    const githubCapture = capture();
+    assert.equal(await main(["github", "status"], githubCapture.io), 1);
+    assert.match(githubCapture.err.join("\n"), /safe lowercase slug/);
+    const connectionCapture = capture();
+    assert.equal(await main(["connections", "status"], connectionCapture.io), 1);
+    assert.match(connectionCapture.err.join("\n"), /safe lowercase slug/);
+  });
+});
+
+fixtureTest("github writes require active node capability and matching profile binding", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.create", "github.profile.example-github-worker");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const accepted = capture();
+  const acceptedCode = await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], accepted.io);
+  assert.equal(acceptedCode, 0, accepted.err.join("\n"));
+  assert.match(accepted.out.join("\n"), /capability: github\.pr\.create/);
+
+  boss.authority.allowedExternalActions = boss.authority.allowedExternalActions.filter((action) => !action.startsWith("github.profile."));
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const rejected = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], rejected.io), 1);
+  assert.match(rejected.err.join("\n"), /bind exactly one github\.profile/);
+});
+
+fixtureTest("github writes fail closed when parent authority inheritance is invalid", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  boss.authority.allowedExternalActions.push("github.pr.create", "github.profile.example-github-worker");
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.state = "working";
+  manager.trustLevel = "T3";
+  manager.trustApproval = {
+    approvedBy: "project-owner",
+    approvedAt: "2026-07-16",
+    evidence: ["bounded GitHub write approval"]
+  };
+  manager.authority.allowedExternalActions = ["github.pr.create", "github.profile.example-github-worker"];
+  manager.nextAction = "Create the approved pull request.";
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  manager.taskBinding = taskBindingForTest(registry, manager);
+
+  boss.authority.allowedExternalActions = boss.authority.allowedExternalActions.filter((action) => action !== "github.pr.create");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+
+  const result = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "manager-docs", "--dry-run", "--", "pr", "create", "--title", "Test"], result.io), 1);
+  assert.match(result.err.join("\n"), /requires a valid orchestration registry/);
+  assert.match(result.err.join("\n"), /authority\.allowedExternalActions entry github\.pr\.create exceeds parent scope/);
+});
+
+fixtureTest("github cross-repository capabilities require explicit approval gates", async () => {
+  const registry = validOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+  for (const args of [
+    ["repo", "fork"],
+    ["issue", "transfer", "1", "--to-repo", "other/repository"]
+  ]) {
+    const result = capture();
+    assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", ...args], result.io), 1, args.join(" "));
+    assert.match(result.err.join("\n"), /requires inherited cross-repository approval gate/);
+    assert.match(result.err.join("\n"), /requires a value-safe --approval-ref for cross-repository/);
+  }
+});
+
+fixtureTest("github high-risk actions require a current governed approval record", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.merge", "github.profile.example-github-worker");
+  for (const node of registry.nodes) node.authority.approvalGates.push("merge");
+  for (const node of registry.nodes) {
+    if (node.taskBinding) node.taskBinding = taskBindingForTest(registry, node);
+  }
+  writeOrchestrationRegistry(registry);
+
+  const connectionsPath = "ops/connections.json";
+  const connections = JSON.parse(fs.readFileSync(path.join(repoRoot, connectionsPath), "utf-8"));
+  connections.connectorProfiles.find((profile) => profile.id === "example-github-worker")
+    .githubAuthority.allowedCapabilities.push("github.pr.merge");
+
+  await withFile(connectionsPath, `${JSON.stringify(connections, null, 2)}\n`, async () => {
+    const missing = capture();
+    assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--approval-ref", "approval-merge-1", "--dry-run", "--", "pr", "merge", "1"], missing.io), 1);
+    assert.match(missing.err.join("\n"), /resolve to exactly one governed record/);
+
+    writeGithubApprovals([{
+      id: "approval-merge-1",
+      status: "approved",
+      repositoryRef: CONFIG.repoSlug,
+      nodeId: "boss",
+      capability: "github.pr.merge",
+      gate: "merge",
+      orchestrationRevision: registry.revision,
+      approvedByRef: "project-owner",
+      approvedAt: "2026-07-20T00:00:00Z",
+      expiresAt: null
+    }]);
+    const accepted = capture();
+    assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--approval-ref", "approval-merge-1", "--dry-run", "--", "pr", "merge", "1"], accepted.io), 0, accepted.err.join("\n"));
+  });
+});
+
+fixtureTest("orchestration validation intersects GitHub node and profile capabilities", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.merge", "github.profile.example-github-worker");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /github\.pr\.merge exceeds GitHub profile example-github-worker/);
 });
 
 fixtureTest("connections status blocks unsafe auth profile config-root metadata", async () => {

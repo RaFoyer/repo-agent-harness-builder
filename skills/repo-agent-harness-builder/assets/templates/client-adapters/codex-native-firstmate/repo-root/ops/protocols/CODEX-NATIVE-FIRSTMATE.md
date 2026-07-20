@@ -71,7 +71,9 @@ The example references `firstmate-boss`, `firstmate-manager`, and
 ## Dependency Posture
 
 The native profile does not require Treehouse, tmux, `chrome-devtools-axi`,
-`lavish-axi`, `gh-axi`, or `no-mistakes`. No Mistakes is an optional
+`lavish-axi`, `gh-axi`, or `no-mistakes`. When selected, `gh-axi` runs behind
+the repository `github` facade with one node-bound profile and exact
+capabilities; it never supplies authority or ambient authentication. No Mistakes is an optional
 `repository-merge` completion adapter after local initialization. Chrome,
 Lavish, a GitHub connector/CLI, and the app-server bridge are optional fallbacks
 when native Browser, Markdown/diffs/Mermaid, Git UI, or task tools do not cover

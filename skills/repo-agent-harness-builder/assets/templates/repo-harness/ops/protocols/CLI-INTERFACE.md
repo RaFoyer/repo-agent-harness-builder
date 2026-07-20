@@ -50,6 +50,9 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections doctor` | Check a named connector profile without printing secret values |
 | `connections auth-plan` | Print a read-only browser/CLI authentication isolation plan for a profile |
 | `connections env` | Print value-safe provider config-root environment or flag guidance |
+| `github status` | Validate repository-scoped GitHub profile contracts without live auth |
+| `github plan --profile <id>` | Show one value-safe GitHub profile and authority plan |
+| `github run --profile <id> [--node <id>] [--approval-ref <ref>] [--dry-run] -- <args>` | Run a classified GitHub CLI command—normally `gh-axi`—through isolated repository auth |
 | `orchestration` | Inspect project hierarchy, lifecycle, trust, authority, eligibility, prompts, and adapter launch contracts |
 | `goals` | Inspect ticket-backed goal graphs, strict-chain compatibility paths, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |
@@ -85,6 +88,9 @@ Run:
 ./{{CLI_NAME}} connections plan
 ./{{CLI_NAME}} connections auth-plan --profile example-gcloud
 ./{{CLI_NAME}} connections env --profile example-gcloud
+./{{CLI_NAME}} github status
+./{{CLI_NAME}} github plan --profile example-github-worker
+./{{CLI_NAME}} github run --profile example-github-worker --dry-run -- pr list
 ./{{CLI_NAME}} orchestration status
 ./{{CLI_NAME}} orchestration adapter-status
 ./{{CLI_NAME}} orchestration taxonomy

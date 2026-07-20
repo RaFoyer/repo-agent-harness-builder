@@ -10,6 +10,7 @@ const HOME_COMMANDS = [
   ["no-mistakes status", "Check branch-to-PR validation gate setup"],
   ["lavish status", "Check optional Lavish review-surface posture"],
   ["orchestration status", "Inspect structured project delegation posture"],
+  ["github status", "Inspect repository-scoped GitHub authority profiles"],
   ["verify --dry-run", "Preview the verification sequence"],
   ["help", "Show the concise command reference"]
 ];
@@ -66,6 +67,9 @@ Core commands:
   connections auth-plan
                        Show read-only browser/CLI auth isolation plan
   connections env      Print value-safe config-root env or flag guidance
+  github status        Validate repository-scoped GitHub profile contracts
+  github plan          Show one GitHub profile's authority and isolation plan
+  github run           Run classified gh-axi commands through an isolated profile
   orchestration status Summarize project-wide structured delegation
   orchestration adapter-status
                        Inspect Codex-native Firstmate adapter posture
@@ -101,6 +105,7 @@ Safety posture:
   - lavish tracker commands are proposal-first and never write to the tracker
   - lavish update defaults to --check; --apply is explicit
   - orchestration commands inspect local policy and emit launch material; client adapters create tasks
+  - GitHub execution refuses ambient global auth, cross-repository targets, unclassified commands, and authority outside the selected profile or node
   - adapter-status performs local read-only feature and asset inspection; it never configures Codex or activates orchestration
   - write-capable operations should support dry-run first
   - command help, protocol docs, and tests must stay in sync

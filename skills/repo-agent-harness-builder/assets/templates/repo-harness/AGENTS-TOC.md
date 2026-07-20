@@ -18,6 +18,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Creating or changing docs | `ops/protocols/DOCUMENT-LIFECYCLE.md`, `ops/protocols/DOCUMENT-QUALITY.md` |
 | Planning or activating Drive, email, document stores, or databases | `ops/protocols/EXTERNAL-SYSTEMS.md` |
 | Starting browser-based login, device-code login, copied-code login, or CLI connector authentication | `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, then `./{{CLI_NAME}} connections auth-plan --profile <profile-id>` |
+| Authenticating GitHub, selecting a GitHub account, or using `gh`, `gh-axi`, issues, comments, reviews, PRs, checks, or merges | `ops/protocols/GITHUB-AUTHORITY.md`, `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, then `./{{CLI_NAME}} github plan --profile <profile-id>` |
 | Running repo commands | `ops/protocols/CLI-INTERFACE.md` |
 | Changing or auditing agent-facing CLI output, command discovery, stdout/stderr behavior, or usage errors | `ops/protocols/AGENT-CLI-ERGONOMICS.md`, `ops/protocols/CLI-INTERFACE.md`, then `./{{CLI_NAME}} ergonomics status` |
 | Preparing a commit | `ops/protocols/PRE-COMMIT.md` |

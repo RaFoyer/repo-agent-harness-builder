@@ -142,6 +142,67 @@
         "./{{CLI_NAME}} connections env --profile example-neon"
       ],
       "revocation": "Revoke the Neon grant or API key and remove this profile's external config root."
+    },
+    {
+      "id": "example-github-worker",
+      "provider": "github",
+      "status": "inactive",
+      "mode": "local",
+      "description": "Example repository-scoped Worker profile. Replace with a real, least-privilege profile and preserve custom Git/GitHub wrappers before activation.",
+      "authStorageClass": "repository-scoped-config-root-and-process-credential",
+      "expectedAccountLabelRef": "repo-github-worker-account",
+      "readOnlyScopes": ["metadata:read", "contents:read", "issues:read", "pull-requests:read", "actions:read"],
+      "approvalGatedWriteScopes": ["contents:write", "issues:write", "pull-requests:write"],
+      "cliAuth": {
+        "status": "inactive",
+        "profileBoundary": "repository",
+        "globalStatePolicy": "refuse-global-mutable-state",
+        "configRoot": {
+          "strategy": "env",
+          "env": "GH_CONFIG_DIR",
+          "providerSubdir": "github"
+        },
+        "authFlowTypes": ["browser", "noninteractive"],
+        "browserPolicy": "explicit-browser-is-binding",
+        "identityCheckCommands": [
+          "gh auth status --hostname github.com"
+        ]
+      },
+      "githubAuthority": {
+        "tier": "worker",
+        "authSourceKind": "github-app-installation",
+        "repositoryRef": "{{REPO_SLUG}}",
+        "preferredCli": "gh-axi",
+        "runtimeAuth": {
+          "strategy": "environment",
+          "env": "REPO_GITHUB_WORKER_TOKEN"
+        },
+        "allowedCapabilities": [
+          "github.repo.read",
+          "github.issue.read",
+          "github.issue.create",
+          "github.issue.update",
+          "github.issue.close",
+          "github.issue.comment",
+          "github.pr.read",
+          "github.pr.create",
+          "github.pr.update",
+          "github.pr.close",
+          "github.pr.comment",
+          "github.pr.review",
+          "github.workflow.read"
+        ]
+      },
+      "writeApproval": {
+        "required": true,
+        "policy": "The orchestration node must explicitly allow the exact github.* capability and bind github.profile.example-github-worker before execution."
+      },
+      "verificationCommands": [
+        "./{{CLI_NAME}} connections auth-plan --profile example-github-worker",
+        "./{{CLI_NAME}} github plan --profile example-github-worker",
+        "./{{CLI_NAME}} github run --profile example-github-worker --dry-run -- pr list"
+      ],
+      "revocation": "Revoke the GitHub App installation or token source and remove the isolated profile directory."
     }
   ]
 }

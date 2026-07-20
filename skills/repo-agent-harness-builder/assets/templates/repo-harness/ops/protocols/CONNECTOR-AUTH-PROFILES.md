@@ -27,7 +27,7 @@ The repository harness should select the connector profile for every provider in
 3. Compute provider config roots under a user-scoped connector home, such as:
 
    ```text
-   ${XDG_CONFIG_HOME:-$HOME/.config}/agent-connectors/<repo-id>/<provider>
+   ${XDG_CONFIG_HOME:-$HOME/.config}/agent-connectors/<repo-id>/<provider>/<profile-id>
    ```
 
 4. Worktrees of the same canonical repository may share the same repository profile unless the project requires a narrower boundary.
@@ -55,6 +55,11 @@ Each provider adapter should define how the repository wrapper isolates mutable 
 | Environment config root | Google Cloud CLI with `CLOUDSDK_CONFIG` | env var name, provider subdirectory, identity check |
 | Config directory flag | Neon CLI with `--config-dir` | flag name, executable name, provider subdirectory, identity check |
 | Unsupported global session | CLIs with only one mutable global profile | limitation and stop rule |
+| GitHub CLI profile | `gh`/`gh-axi` with `GH_CONFIG_DIR` and optional process-local `GH_TOKEN` | profile id, account-label ref, credential kind, capability ceiling, identity check |
+
+For GitHub-specific execution and orchestration binding, also read
+`GITHUB-AUTHORITY.md` and use the repository `github` facade. `gh-axi` inherits
+upstream `gh` authentication; it does not isolate accounts itself.
 
 Use:
 

@@ -38,7 +38,7 @@ repo:
   slug: "{{REPO_SLUG}}"
   default_branch: "{{DEFAULT_BRANCH}}"
   tracker: "{{TRACKER_NAME}}"
-commands[9]{command,purpose}:
+commands[11]{command,purpose}:
   "preflight","Run read-only session-start checks"
   "protocols","List routed protocol files"
   "checklist","Show harness module states"
@@ -46,6 +46,8 @@ commands[9]{command,purpose}:
   "ergonomics status","Audit agent-facing CLI ergonomics"
   "no-mistakes status","Check branch-to-PR validation gate setup"
   "lavish status","Check optional Lavish review-surface posture"
+  "orchestration status","Inspect structured project delegation posture"
+  "github status","Inspect repository-scoped GitHub authority profiles"
   "verify --dry-run","Preview the verification sequence"
   "help","Show the concise command reference"
 help[3]:
@@ -91,7 +93,8 @@ help[1]:
 ## Harness-Specific Guidance
 
 - `preflight`, `doctor`, `verify`, and `precommit` may still print human-readable blockers, but new output should be structured enough for an agent to quote or route without rereading docs.
-- `protocols`, `checklist`, `connections`, `goals`, and `design` are good candidates for tabular TOON lists because agents often filter or compare their output.
+- `protocols`, `checklist`, `connections`, `github`, `goals`, and `design` are good candidates for tabular TOON lists because agents often filter or compare their output.
+- Keep `gh-axi` behind the repository GitHub facade: its compact output improves agent ergonomics, while the facade owns profile selection, repository scope, and capability checks.
 - `no-mistakes` wrappers should summarize availability, initialization, config state, and next steps without echoing raw wrapped-tool output.
 - `lavish` wrappers should keep status checks local-only, make update checks explicit and non-mutating by default, and turn tracker captures into proposals rather than silent external writes.
 - External-service wrappers should expose repo-local commands rather than asking the agent to discover a generic SDK, MCP tool catalog, or provider CLI from scratch.

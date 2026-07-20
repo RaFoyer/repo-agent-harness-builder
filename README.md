@@ -22,6 +22,8 @@ The durable contract lives in ordinary files in the target repo or folder:
   update checks, and tracker-decision capture before ticket-backed goals
 - setup checklists with `active`, `inactive`, and `not-applicable` states
 - value-safe secrets, external-authority, and connector boundaries
+- repository-scoped GitHub profiles with `gh-axi` command classification,
+  process-local credential support, and orchestration capability intersection
 - repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
@@ -80,6 +82,9 @@ see a read-only readiness result, such as:
 ./harness orchestration status
 ./harness orchestration adapter-status
 ./harness orchestration taxonomy
+./harness github status
+./harness github plan --profile example-github-worker
+./harness github run --profile example-github-worker --dry-run -- pr list
 ./harness context
 ./harness preflight
 ```
@@ -93,7 +98,9 @@ metadata-only inventory report and a written plan before any file changes.
 - Node.js 18 or newer and `npx` for skill installation and generated CLI tests.
 - Python 3 for scaffold and packaging scripts.
 - `git` for repository mode.
-- `gh` only if you want the agent to create or publish GitHub repositories.
+- `gh`, plus the profile-selected executor (normally `gh-axi`), only if you
+  activate a repository GitHub profile. `gh-axi` invokes upstream `gh`; the
+  facade's read-only status and plan commands do not require a credential.
 - `no-mistakes` only if you want the branch-to-PR validation gate; generated
   `no-mistakes status` reports when it is unavailable.
 - `lavish-axi` only if you want optional HTML artifact review sessions;

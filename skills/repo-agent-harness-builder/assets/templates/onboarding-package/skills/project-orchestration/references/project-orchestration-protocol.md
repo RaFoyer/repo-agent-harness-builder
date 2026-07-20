@@ -102,6 +102,24 @@ Each node needs explicit:
 
 Project policy also caps active nodes and delegation depth. Child trust, named scopes, approval gates, and child budgets must be subsets of the parent envelope. Every parent approval gate remains mandatory for a child. Use stable capability IDs; do not treat a broad path prefix or role label as an implicit grant.
 
+### GitHub Capability And Profile Binding
+
+GitHub authority uses stable external-action identifiers such as
+`github.repo.read`, `github.issue.comment`, `github.pr.create`,
+`github.pr.review`, `github.workflow.dispatch`, `github.pr.merge`,
+`github.secret.write`, and `github.repo.admin`. A role name never supplies one
+of these implicitly.
+
+Every write-capable GitHub node also carries exactly one
+`github.profile.<profile-id>` external-action marker. The marker is sealed into
+the existing authority envelope and materialized-work-contract hash, inherited
+through the parent subset rule, and matched by the repository GitHub facade.
+Effective permission is the intersection of node capability, selected profile
+ceiling, actual credential permission, and approval gates. Merge, workflow
+modification or dispatch, secrets, administration, destructive actions, and
+cross-repository operations require explicit gates. A broad operator profile
+is outside ordinary Worker inheritance.
+
 ## Completion Profiles
 
 Completion belongs to the governing domain protocol:

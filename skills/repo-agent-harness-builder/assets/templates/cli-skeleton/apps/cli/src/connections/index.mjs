@@ -21,6 +21,7 @@ const SAFE_PROVIDER_SUBDIR_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 const SAFE_ENV_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const SAFE_FLAG_RE = /^--[a-z][a-z0-9-]{0,63}$/;
 const SAFE_EXECUTABLE_RE = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
+const SAFE_PROFILE_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 function loadRegistry() {
   const registryPath = path.join(CONFIG.repoRoot, "ops", "connections.json");
@@ -130,7 +131,7 @@ function repoProfileId() {
 }
 
 function connectorRootExpression(profile) {
-  return `\${XDG_CONFIG_HOME:-$HOME/.config}/agent-connectors/${repoProfileId()}/${safeProviderSubdir(profile)}`;
+  return `\${XDG_CONFIG_HOME:-$HOME/.config}/agent-connectors/${repoProfileId()}/${safeProviderSubdir(profile)}/${profile.id}`;
 }
 
 function commandList(value) {
@@ -238,6 +239,7 @@ function validateConnectorProfiles(registry) {
     const id = profile.id || "(unknown)";
     const storageClass = profile.authStorageClass || profile.credentialStorage;
     if (!profile.id) blockers.push("connector profile missing id");
+    else if (!SAFE_PROFILE_ID_RE.test(profile.id)) blockers.push(`${id} connector profile id must be a safe lowercase slug`);
     if (!profile.provider) blockers.push(`${id} missing provider`);
     if (!storageClass) blockers.push(`${id} missing authStorageClass`);
     if (profile.status === "not-configured" || profile.status === "inactive") warnings.push(`${id} connector profile is ${profile.status}`);

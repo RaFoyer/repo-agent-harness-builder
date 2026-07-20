@@ -63,6 +63,9 @@ independent repository Firstmates.
   not retry until absence is proven.
 - Never silently replace a missing native capability with another browser,
   connector, CLI, or app-server bridge.
+- When GitHub CLI integration is selected, use the repository `github` facade;
+  require the node's exact capability and `github.profile.<profile-id>` marker,
+  and never inherit ambient global `gh` authentication.
 
 ## Dependency Contract
 
