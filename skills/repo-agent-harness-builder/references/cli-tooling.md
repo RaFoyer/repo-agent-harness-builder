@@ -227,7 +227,9 @@ Scaffold `github` as the repository-scoped GitHub facade. Minimum behavior:
 Write-capable execution requires an active orchestration node that allows both
 the capability and exactly one matching `github.profile.<profile-id>` marker.
 High-risk classified capabilities also require their inherited approval gate and
-a value-safe `--approval-ref`. Prefer `gh-axi` for supported operational
+a value-safe `--approval-ref` that resolves in `ops/github-approvals.json` to
+an approved record bound to the repository, node, capability, gate, and current
+orchestration revision. Prefer `gh-axi` for supported operational
 commands. Use upstream `gh` inside the same isolated profile only for
 authentication or a deliberately supported surface. Keep Git transport
 authority explicit because `git push` can bypass the GitHub CLI environment.

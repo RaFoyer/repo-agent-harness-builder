@@ -100,9 +100,13 @@ The wrapper must:
 
 For merge/revert, workflow dispatch/cancel/delete, repository administration,
 and destructive issue/release/label actions, the wrapper also requires
-the node's inherited gate and a value-safe `--approval-ref`. A gate is not
-evidence by itself: the approval reference must identify the approval required
-by the repository's governing protocol.
+the node's inherited gate and a value-safe `--approval-ref`. That reference must
+resolve exactly once in `ops/github-approvals.json` to an approved record bound
+to this repository, node, capability, gate, and current orchestration revision.
+The record must identify its approver and UTC approval time; optional expiry is
+enforced. A gate or caller-provided string is not evidence by itself. Treat the
+ledger as governed project state: Managers may propose entries, while only the
+Boss or explicitly authorized human/operator may approve and protect them.
 
 The wrapper is a policy boundary only when Workers are launched in an environment that prevents direct use of other GitHub or Git credentials. A human shell or unsandboxed process can bypass documentation by invoking `gh`, `curl`, or `git` directly.
 

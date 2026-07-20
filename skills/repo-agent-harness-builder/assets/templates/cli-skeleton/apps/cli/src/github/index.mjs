@@ -106,7 +106,7 @@ const CAPABILITY_GATES = new Map([
 const EXTERNALLY_SCOPED_COMMANDS = new Set(["repo:list", "repo:create", "repo:fork", "issue:transfer"]);
 const SCOPE_CHANGING_OPTIONS = ["--org", "--owner", "--hostname", "--host"];
 const REPOSITORY_REFERENCE_RE = /^(?:github\.com\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/i;
-const REPOSITORY_POSITIONAL_COMMANDS = new Set(["repo:view", "repo:clone"]);
+const REPOSITORY_POSITIONAL_COMMANDS = new Set(["repo:view", "repo:clone", "repo:edit"]);
 const RESOURCE_POSITIONAL_COMMANDS = new Set([
   "issue:view", "issue:edit", "issue:close", "issue:reopen", "issue:comment", "issue:delete",
   "issue:lock", "issue:unlock", "issue:pin", "issue:unpin", "issue:subissue",
@@ -116,7 +116,8 @@ const RESOURCE_POSITIONAL_COMMANDS = new Set([
 const RESOURCE_CONTENT_OPTIONS = new Set(["--body", "-b", "--body-file", "--title", "-t"]);
 const REPOSITORY_VALUE_OPTIONS = new Map([
   ["repo:view", new Set(["--branch", "-b", "--jq", "-q", "--json", "--template", "-t"])],
-  ["repo:clone", new Set(["--upstream-remote-name"])]
+  ["repo:clone", new Set(["--upstream-remote-name"])],
+  ["repo:edit", new Set(["--add-topic", "--default-branch", "--description", "--homepage", "--remove-topic", "--visibility"])]
 ]);
 
 function loadJson(relativePath) {
@@ -364,6 +365,33 @@ function validateNode(capability, nodeId, orchestration) {
   return blockers;
 }
 
+function validateApprovalRecord(approvalRef, { capability, gate, nodeId, orchestration }) {
+  const loaded = loadJson("ops/github-approvals.json");
+  if (!loaded.ok) return [`GitHub approval ledger is unavailable: ${loaded.error}`];
+  if (loaded.value?.schemaVersion !== 1 || !Array.isArray(loaded.value.approvals)) {
+    return ["GitHub approval ledger must use schemaVersion 1 with an approvals array"];
+  }
+  const matches = loaded.value.approvals.filter((approval) => approval?.id === approvalRef);
+  if (matches.length !== 1) return ["GitHub approval reference must resolve to exactly one governed record"];
+  const approval = matches[0];
+  const blockers = [];
+  if (approval.status !== "approved") blockers.push("GitHub approval record is not approved");
+  if (approval.repositoryRef !== CONFIG.repoSlug) blockers.push("GitHub approval record does not match this repository");
+  if (approval.nodeId !== nodeId) blockers.push("GitHub approval record does not match the orchestration node");
+  if (approval.capability !== capability) blockers.push("GitHub approval record does not match the requested capability");
+  if (approval.gate !== gate) blockers.push("GitHub approval record does not match the required gate");
+  if (approval.orchestrationRevision !== orchestration?.registry?.revision) blockers.push("GitHub approval record is stale for the current orchestration revision");
+  if (!SAFE_APPROVAL_REF_RE.test(String(approval.approvedByRef || ""))) blockers.push("GitHub approval record requires a value-safe approver reference");
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(approval.approvedAt || ""))) {
+    blockers.push("GitHub approval record requires a UTC approval timestamp");
+  }
+  if (approval.expiresAt !== null && approval.expiresAt !== undefined) {
+    const expiresAt = Date.parse(approval.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) blockers.push("GitHub approval record is expired or has an invalid expiry");
+  }
+  return blockers;
+}
+
 export function createGithubChildEnvironment(profile, root, sourceEnv = process.env) {
   const childEnv = { ...sourceEnv };
   for (const name of GH_AMBIENT_CONTROL_ENV) delete childEnv[name];
@@ -495,6 +523,7 @@ function run(argv, io) {
     const node = orchestration?.registry ? (orchestration.registry.nodes || []).find((candidate) => candidate.id === nodeId) : null;
     if (!(node?.authority?.approvalGates || []).includes(requiredGate)) blockers.push(`GitHub capability requires inherited ${requiredGate} approval gate`);
     if (!approvalRef || !SAFE_APPROVAL_REF_RE.test(approvalRef)) blockers.push(`GitHub capability requires a value-safe --approval-ref for ${requiredGate}`);
+    else blockers.push(...validateApprovalRecord(approvalRef, { capability, gate: requiredGate, nodeId, orchestration }));
   }
 
   io.stdout(`github_profile: ${safeLine(profile.id)}`);

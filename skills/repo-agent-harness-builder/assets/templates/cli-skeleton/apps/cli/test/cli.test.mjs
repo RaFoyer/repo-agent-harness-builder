@@ -92,6 +92,12 @@ function writeOrchestrationRegistry(registry) {
   fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
 }
 
+function writeGithubApprovals(approvals) {
+  const ledgerPath = path.join(repoRoot, "ops", "github-approvals.json");
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  fs.writeFileSync(ledgerPath, `${JSON.stringify({ schemaVersion: 1, approvals }, null, 2)}\n`, "utf-8");
+}
+
 function orchestrationAuthority({
   reads = ["project"],
   writes = [],
@@ -1450,6 +1456,8 @@ fixtureTest("github repository targeting is command-specific", () => {
   assert.equal(validateRepositoryTarget(["pr", "list", "--repo", `github.com/${CONFIG.repoSlug}`]), null);
   assert.equal(validateRepositoryTarget(["repo", "view", "--web"]), null);
   assert.match(validateRepositoryTarget(["repo", "view", "--web", "other/repository"]), /outside this harness scope/);
+  assert.match(validateRepositoryTarget(["repo", "edit", "other/repository", "--enable-issues=false"]), /outside this harness scope/);
+  assert.match(validateRepositoryTarget(["repo", "edit", "--description", "Bounded repository", "other/repository"]), /outside this harness scope/);
   assert.match(validateRepositoryTarget(["pr", "view", "--web", "https://github.com/other/repository/pull/1"]), /outside this harness scope/);
   assert.equal(validateRepositoryTarget(["pr", "create", "--body", "https://github.com/other/repository/pull/1"]), null);
   assert.equal(validateRepositoryTarget(["release", "upload", "v1", "dist/app.zip"]), null);
@@ -1584,6 +1592,43 @@ fixtureTest("github cross-repository capabilities require explicit approval gate
     assert.match(result.err.join("\n"), /requires inherited cross-repository approval gate/);
     assert.match(result.err.join("\n"), /requires a value-safe --approval-ref for cross-repository/);
   }
+});
+
+fixtureTest("github high-risk actions require a current governed approval record", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.merge", "github.profile.example-github-worker");
+  for (const node of registry.nodes) node.authority.approvalGates.push("merge");
+  for (const node of registry.nodes) {
+    if (node.taskBinding) node.taskBinding = taskBindingForTest(registry, node);
+  }
+  writeOrchestrationRegistry(registry);
+
+  const connectionsPath = "ops/connections.json";
+  const connections = JSON.parse(fs.readFileSync(path.join(repoRoot, connectionsPath), "utf-8"));
+  connections.connectorProfiles.find((profile) => profile.id === "example-github-worker")
+    .githubAuthority.allowedCapabilities.push("github.pr.merge");
+
+  await withFile(connectionsPath, `${JSON.stringify(connections, null, 2)}\n`, async () => {
+    const missing = capture();
+    assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--approval-ref", "approval-merge-1", "--dry-run", "--", "pr", "merge", "1"], missing.io), 1);
+    assert.match(missing.err.join("\n"), /resolve to exactly one governed record/);
+
+    writeGithubApprovals([{
+      id: "approval-merge-1",
+      status: "approved",
+      repositoryRef: CONFIG.repoSlug,
+      nodeId: "boss",
+      capability: "github.pr.merge",
+      gate: "merge",
+      orchestrationRevision: registry.revision,
+      approvedByRef: "project-owner",
+      approvedAt: "2026-07-20T00:00:00Z",
+      expiresAt: null
+    }]);
+    const accepted = capture();
+    assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--approval-ref", "approval-merge-1", "--dry-run", "--", "pr", "merge", "1"], accepted.io), 0, accepted.err.join("\n"));
+  });
 });
 
 fixtureTest("orchestration validation intersects GitHub node and profile capabilities", async () => {
