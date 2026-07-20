@@ -57,13 +57,14 @@ Schema version 4 supports `managed` and `hybrid` coordination. Hybrid mode
 keeps the resident Boss and immutable parent relationships while allowing the
 configured `scope.ownerRef` to talk directly to Managers or Workers. A direct
 message never changes trust or authority by itself. Record a durable
-`ownerDirective` only when the instruction must survive task history or affects
-execution; bind it to the target node, parent snapshot, task/tracker reference,
-registry revision, and current work-contract hash. `within-contract` directives
-may proceed inside the existing envelope. Record target-bound acknowledgement
-and resolution evidence, plus immediate-parent reconciliation evidence for a
-non-Boss target. An open `replan-required` directive prevents scheduling and
-requires an active target to be `blocked` at its current boundary with
+`ownerDirectives` entry only when the instruction must survive task history or
+affects execution; bind it to `scope.ownerRef`, the target node, its immutable
+parent, a directive/task/tracker reference, registry revision at issue, and the
+current work-contract hash. `within-contract` directives may proceed inside the
+existing envelope. Record target-bound acknowledgement and resolution evidence,
+plus immediate-parent reconciliation evidence for a non-Boss target. An open
+`replan-required` directive prevents scheduling and requires an active target
+to be `blocked` at its current boundary with
 `blockedByDirectiveIds` naming the open directive until explicit replan or
 supersession.
 
@@ -192,6 +193,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration hierarchy
 ./{{CLI_NAME}} orchestration trust
 ./{{CLI_NAME}} orchestration validate
+./{{CLI_NAME}} orchestration directives
 ./{{CLI_NAME}} orchestration next
 ./{{CLI_NAME}} orchestration prompt boss
 ./{{CLI_NAME}} orchestration prompt <node-id>
@@ -213,8 +215,9 @@ The repository harness is agent-agnostic, so task creation belongs to a thin cli
 
 The inactive scaffold may keep `clientAdapter` null. A configured adapter names
 its client ID, profile, status, project-local `requiredSkill`, and task-creation
-grant posture. Active schema-version-3 adapters must declare their required
-skill explicitly; installation alone does not select or activate an adapter.
+grant posture. Active schema-version-3-or-newer adapters must declare their
+required skill explicitly; installation alone does not select or activate an
+adapter.
 
 1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`. Its ordered `requiredSkills` must begin with `project-orchestration`, then the selected client adapter, then `goal-graph-loop` for nodes governed by `GOAL-GRAPH` or its deprecated `GOAL-CHAIN` alias, followed by node-specific skills. Missing project-local skills block materialization.
 2. The active client verifies that the current user request or recorded scope grant authorizes task creation.
