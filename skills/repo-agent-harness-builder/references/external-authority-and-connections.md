@@ -45,7 +45,8 @@ Good profile-isolation patterns:
   invocation.
 - Neon CLI: pass a repository-specific `--config-dir` for each invocation.
 - GitHub CLI: set a repository-and-profile-specific `GH_CONFIG_DIR`, fix
-  `GH_REPO`, clear ambient `GH_TOKEN`/`GITHUB_TOKEN`, and inject only the
+  `GH_REPO`, clear ambient `GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`,
+  `GH_ENTERPRISE_TOKEN`, and `GITHUB_ENTERPRISE_TOKEN`, and inject only the
   selected process-local credential when the profile uses one.
 - Other provider CLIs: use the documented config-root environment variable,
   config-directory flag, or an explicit unsupported status when only one global

@@ -106,7 +106,7 @@ environment; it does not select or isolate an account.
 
 Give every GitHub profile a distinct repository-scoped `GH_CONFIG_DIR` under
 `agent-connectors/<repo-id>/github/<profile-id>`, fix `GH_REPO`, and remove
-ambient token variables before selecting the profile. Prefer short-lived
+ambient token, host, and enterprise-credential variables before selecting the profile. Prefer short-lived
 GitHub App installation tokens supplied process-locally for Workers. Broad
 human credentials are explicit operator profiles and must not be inherited.
 

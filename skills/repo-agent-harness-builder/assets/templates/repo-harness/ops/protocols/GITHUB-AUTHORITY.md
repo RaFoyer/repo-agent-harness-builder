@@ -84,11 +84,11 @@ Use:
 
 The wrapper must:
 
-- remove ambient `GH_TOKEN` and `GITHUB_TOKEN` before selecting the profile;
+- remove ambient `GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`, `GH_ENTERPRISE_TOKEN`, and `GITHUB_ENTERPRISE_TOKEN` before selecting the profile;
 - set `GH_CONFIG_DIR`, `GH_REPO`, `GH_PROMPT_DISABLED=1`, and a noninteractive pager;
 - use only the selected process-local credential source when configured;
 - classify the command into one exact `github.*` capability and reject unknown commands;
-- reject `--repo`, `-R`, transfer, or other targets outside the configured repository;
+- reject positional repository references, `--repo`, `-R`, host or owner selectors, transfers, and other targets outside the configured repository;
 - require an active orchestration node for writes and verify its capability and profile marker;
 - redact subprocess output before returning it to an agent;
 - refuse an inactive, missing, malformed, or uninitialized profile instead of using global auth.

@@ -1009,6 +1009,13 @@ function validateRegistry(registry) {
   return { blockers, warnings, nodes, nodesById };
 }
 
+export function validateCurrentOrchestrationRegistry() {
+  const loaded = loadRegistry();
+  if (!loaded.exists) return { registry: null, blockers: [`missing ${REGISTRY_REL_PATH}`], warnings: [], nodes: [], nodesById: new Map() };
+  if (loaded.error) return { registry: null, blockers: [`invalid JSON: ${loaded.error}`], warnings: [], nodes: [], nodesById: new Map() };
+  return { registry: loaded.registry, ...validateRegistry(loaded.registry) };
+}
+
 function printHelp(io) {
   io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [node-id]");
   io.stdout("");

@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { CONFIG } from "../config.mjs";
+import { validateCurrentOrchestrationRegistry } from "../orchestration/index.mjs";
 import { readOption } from "../util/args.mjs";
 import { redactSecrets } from "../util/secrets.mjs";
 import { renderHelpBlock, renderUsageError, safeLine, toonString } from "../util/agent-output.mjs";
@@ -12,6 +13,14 @@ const PROFILE_TIERS = new Set(["observer", "worker", "manager", "integrator", "o
 const AUTH_SOURCE_KINDS = new Set(["github-app-installation", "fine-grained-pat", "oauth-user", "classic-pat"]);
 const GH_PROCESS_AUTH_ENV = ["GH", "TOKEN"].join("_");
 const GITHUB_PROCESS_AUTH_ENV = ["GITHUB", "TOKEN"].join("_");
+const GH_AMBIENT_CONTROL_ENV = new Set([
+  GH_PROCESS_AUTH_ENV,
+  GITHUB_PROCESS_AUTH_ENV,
+  "GH_HOST",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN"
+]);
+const BROAD_AUTH_SOURCE_KINDS = new Set(["oauth-user", "classic-pat"]);
 const SAFE_CAPABILITY_RE = /^github\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
 const SAFE_ENV_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const SAFE_PROFILE_RE = /^[a-z][a-z0-9-]{0,63}$/;
@@ -88,10 +97,15 @@ const CAPABILITY_GATES = new Map([
   ["github.workflow.cancel", "workflow"],
   ["github.workflow.delete", "destructive"],
   ["github.repo.admin", "repo-admin"],
+  ["github.repo.fork", "cross-repository"],
   ["github.issue.delete", "destructive"],
+  ["github.issue.transfer", "cross-repository"],
   ["github.release.delete", "destructive"],
   ["github.label.delete", "destructive"]
 ]);
+const EXTERNALLY_SCOPED_COMMANDS = new Set(["repo:list", "repo:create", "repo:fork", "issue:transfer"]);
+const SCOPE_CHANGING_OPTIONS = ["--org", "--owner", "--hostname", "--host"];
+const REPOSITORY_REFERENCE_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 function loadJson(relativePath) {
   const target = path.join(CONFIG.repoRoot, relativePath);
@@ -135,6 +149,9 @@ function validateProfile(profile) {
   if (!SAFE_SUBDIR_RE.test(String(profile.cliAuth?.configRoot?.providerSubdir || ""))) blockers.push(`${profile.id} must use a safe GitHub config subdirectory`);
   if (!PROFILE_TIERS.has(config.tier)) blockers.push(`${profile.id} githubAuthority.tier is invalid`);
   if (!AUTH_SOURCE_KINDS.has(config.authSourceKind)) blockers.push(`${profile.id} githubAuthority.authSourceKind is invalid`);
+  if (BROAD_AUTH_SOURCE_KINDS.has(config.authSourceKind) && config.tier !== "operator") {
+    blockers.push(`${profile.id} broad GitHub credentials require an operator profile tier`);
+  }
   if (!Array.isArray(config.allowedCapabilities) || !config.allowedCapabilities.length) {
     blockers.push(`${profile.id} githubAuthority.allowedCapabilities must be a non-empty array`);
   } else {
@@ -155,6 +172,9 @@ function validateProfile(profile) {
   }
   if (runtimeAuth.strategy === "environment" && !SAFE_ENV_RE.test(String(runtimeAuth.env || ""))) {
     blockers.push(`${profile.id} environment runtime credential requires a safe env name`);
+  }
+  if (runtimeAuth.strategy === "environment" && GH_AMBIENT_CONTROL_ENV.has(runtimeAuth.env)) {
+    blockers.push(`${profile.id} environment runtime credential may not reuse an ambient GitHub control variable`);
   }
   if (["worker", "manager", "integrator"].includes(config.tier) && runtimeAuth.strategy !== "environment") {
     blockers.push(`${profile.id} bounded agent tiers require a process-local environment authentication source`);
@@ -213,29 +233,65 @@ function rejectWrapperArgs(argv, io, command, { run = false } = {}) {
 }
 
 function validateRepositoryTarget(args) {
+  const commandKey = `${args[0]}:${args[1]}`;
+  if (EXTERNALLY_SCOPED_COMMANDS.has(commandKey)) {
+    return "GitHub command cannot be constrained to this harness repository";
+  }
   const requested = explicitRepo(args, "--repo") || explicitRepo(args, "-R");
   if (requested && requested !== CONFIG.repoSlug) return "GitHub command targets a repository outside this harness scope";
   const transferTarget = explicitRepo(args, "--to-repo");
   if (transferTarget && transferTarget !== CONFIG.repoSlug) return "Cross-repository GitHub transfer requires separately registered authority";
+  for (const option of SCOPE_CHANGING_OPTIONS) {
+    if (explicitRepo(args, option) !== undefined) return "GitHub command changes the configured repository or host scope";
+  }
+  for (const argument of args.slice(2)) {
+    if (argument.startsWith("-")) continue;
+    if (REPOSITORY_REFERENCE_RE.test(argument) && argument !== CONFIG.repoSlug) {
+      return "GitHub command targets a repository outside this harness scope";
+    }
+    if (/^(?:https?:\/\/|git@)/i.test(argument)) {
+      return "GitHub command supplies an external repository reference outside this harness scope";
+    }
+  }
   return null;
 }
 
-function validateNode(capability, nodeId) {
+function validateNode(capability, nodeId, orchestration) {
   if (READ_CAPABILITIES.has(capability) && !nodeId) return [];
   if (!nodeId) return ["write-capable GitHub commands require --node <orchestration-node-id>"];
-  const loaded = loadJson("ops/orchestration.json");
-  if (!loaded.ok) return [loaded.error];
-  const registry = loaded.value;
-  if (registry.status !== "active") return ["write-capable GitHub commands require active project orchestration"];
+  if (!orchestration.registry) return orchestration.blockers;
+  const registry = orchestration.registry;
+  const blockers = orchestration.blockers.length
+    ? ["GitHub execution requires a valid orchestration registry", ...orchestration.blockers]
+    : [];
+  if (registry.status !== "active") return [...blockers, "write-capable GitHub commands require active project orchestration"];
   const node = (registry.nodes || []).find((candidate) => candidate.id === nodeId);
-  if (!node) return ["unknown orchestration node"];
-  if (!["working", "waiting", "blocked", "ready-for-parent"].includes(node.state)) return ["orchestration node is not active"];
+  if (!node) return [...blockers, "unknown orchestration node"];
+  if (!["working", "waiting", "blocked", "ready-for-parent"].includes(node.state)) return [...blockers, "orchestration node is not active"];
   if (!(node.authority?.allowedExternalActions || []).includes(capability)) {
-    return [`orchestration node does not allow ${capability}`];
+    return [...blockers, `orchestration node does not allow ${capability}`];
   }
   const profileMarkers = (node.authority?.allowedExternalActions || []).filter((action) => action.startsWith("github.profile."));
-  if (profileMarkers.length !== 1) return ["orchestration node must bind exactly one github.profile.<profile-id> authority marker"];
-  return [];
+  if (profileMarkers.length !== 1) return [...blockers, "orchestration node must bind exactly one github.profile.<profile-id> authority marker"];
+  return blockers;
+}
+
+export function createGithubChildEnvironment(profile, root, sourceEnv = process.env) {
+  const childEnv = { ...sourceEnv };
+  for (const name of GH_AMBIENT_CONTROL_ENV) delete childEnv[name];
+  const runtimeAuth = githubConfig(profile)?.runtimeAuth || {};
+  if (runtimeAuth.strategy === "environment") {
+    const authValue = sourceEnv[runtimeAuth.env];
+    if (!authValue) return { ok: false, env: childEnv };
+    childEnv[GH_PROCESS_AUTH_ENV] = authValue;
+  }
+  Object.assign(childEnv, {
+    GH_CONFIG_DIR: root,
+    GH_REPO: CONFIG.repoSlug,
+    GH_PROMPT_DISABLED: "1",
+    GH_PAGER: "cat"
+  });
+  return { ok: true, env: childEnv };
 }
 
 function help(io) {
@@ -336,10 +392,11 @@ function run(argv, io) {
   if (capability && !(config.allowedCapabilities || []).includes(capability)) blockers.push(`GitHub profile does not allow ${capability}`);
   const targetBlocker = validateRepositoryTarget(args);
   if (targetBlocker) blockers.push(targetBlocker);
-  if (capability) blockers.push(...validateNode(capability, nodeId));
+  const requiresOrchestration = Boolean(capability && (nodeId || !READ_CAPABILITIES.has(capability)));
+  const orchestration = requiresOrchestration ? validateCurrentOrchestrationRegistry() : null;
+  if (capability) blockers.push(...validateNode(capability, nodeId, orchestration || { registry: null, blockers: [] }));
   if (capability && nodeId) {
-    const orchestration = loadJson("ops/orchestration.json");
-    const node = orchestration.ok ? (orchestration.value.nodes || []).find((candidate) => candidate.id === nodeId) : null;
+    const node = orchestration?.registry ? (orchestration.registry.nodes || []).find((candidate) => candidate.id === nodeId) : null;
     if (node && !(node.authority?.allowedExternalActions || []).includes(`github.profile.${profile.id}`)) {
       blockers.push("selected GitHub profile does not match the orchestration node profile binding");
     }
@@ -347,8 +404,7 @@ function run(argv, io) {
   if (profile.status !== "configured" && !dryRun) blockers.push("GitHub profile must be configured before execution");
   const requiredGate = capability ? CAPABILITY_GATES.get(capability) : null;
   if (requiredGate) {
-    const orchestration = loadJson("ops/orchestration.json");
-    const node = orchestration.ok ? (orchestration.value.nodes || []).find((candidate) => candidate.id === nodeId) : null;
+    const node = orchestration?.registry ? (orchestration.registry.nodes || []).find((candidate) => candidate.id === nodeId) : null;
     if (!(node?.authority?.approvalGates || []).includes(requiredGate)) blockers.push(`GitHub capability requires inherited ${requiredGate} approval gate`);
     if (!approvalRef || !SAFE_APPROVAL_REF_RE.test(approvalRef)) blockers.push(`GitHub capability requires a value-safe --approval-ref for ${requiredGate}`);
   }
@@ -380,29 +436,16 @@ function run(argv, io) {
     return 1;
   }
   const executable = config.preferredCli === "gh" ? "gh" : "gh-axi";
-  const childEnv = { ...process.env };
-  delete childEnv[GH_PROCESS_AUTH_ENV];
-  delete childEnv[GITHUB_PROCESS_AUTH_ENV];
-  const runtimeAuth = config.runtimeAuth || {};
-  if (runtimeAuth.strategy === "environment") {
-    const authValue = process.env[runtimeAuth.env];
-    if (!authValue) {
-      io.stderr("blocker: selected process-local GitHub credential is unavailable");
-      return 1;
-    }
-    childEnv[GH_PROCESS_AUTH_ENV] = authValue;
+  const child = createGithubChildEnvironment(profile, root);
+  if (!child.ok) {
+    io.stderr("blocker: selected process-local GitHub credential is unavailable");
+    return 1;
   }
-  Object.assign(childEnv, {
-    GH_CONFIG_DIR: root,
-    GH_REPO: CONFIG.repoSlug,
-    GH_PROMPT_DISABLED: "1",
-    GH_PAGER: "cat"
-  });
   const result = spawnSync(executable, args, {
     cwd: CONFIG.repoRoot,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: childEnv
+    env: child.env
   });
   const stdout = redactSecrets(result.stdout || "").trimEnd();
   const stderr = redactSecrets(result.stderr || "").trimEnd();
