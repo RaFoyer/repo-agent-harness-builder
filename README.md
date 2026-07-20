@@ -51,7 +51,9 @@ The capability is installed per repository but remains inactive until a human
 configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository
 fleet orchestration is optional composition above independent repo-local
-Firstmates, never a prerequisite.
+Firstmates, never a prerequisite. The adapter does not require an external
+FirstMate repository or service; repositories that do not select it still use
+the self-contained portable orchestration and goal-graph surfaces normally.
 
 ## Global Skill Ownership
 

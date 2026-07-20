@@ -8,7 +8,9 @@ description: Use after project-orchestration when operating or configuring the i
 ## Boundary
 
 Load `$project-orchestration` first. Firstmate is the Codex-facing Boss profile,
-not a new role or portable control plane. The repository's
+not a new role, portable control plane, external repository, service, or
+runtime dependency. Repositories may leave this adapter inactive or omit it.
+The repository's
 `ops/protocols/AGENT-ORCHESTRATION.md` and `ops/orchestration.json` own roles,
 parentage, lifecycle, trust, authority, budgets, reservations, task bindings,
 and completion. Read them before using this adapter. For ticket-backed

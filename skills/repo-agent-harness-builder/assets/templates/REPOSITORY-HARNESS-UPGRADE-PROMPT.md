@@ -26,7 +26,7 @@ Bring this repository's harness, project-local skills, and CLI facade into align
 - `repo-agent-harness-builder` installs, migrates, and verifies the harness; it is not the runtime controller.
 - `project-orchestration` is the portable Boss/Manager/Worker control plane.
 - Schema-v4 hybrid coordination lets the configured project owner talk directly to Managers and Workers without reparenting or granting authority; durable instructions use governed owner directives and immediate-parent reconciliation.
-- A selected client adapter, such as `codex-native-firstmate`, maps the portable protocol to client-native tasks and worktrees.
+- A selected client adapter, such as `codex-native-firstmate`, maps the portable protocol to client-native tasks and worktrees. It is optional and repository-local; do not introduce a dependency on an external FirstMate repository, service, fleet registry, or runtime. Preserve another client mapping when the repository already has one.
 - `goal-graph-loop` is the Manager-owned ticket-backed dependency graph loop. A strict chain is only a linear graph topology.
 - `goal-chain-loop` is a deprecated compatibility alias, not a workflow for new launch contracts.
 - Project restart is not a maintained primary skill or protocol surface.

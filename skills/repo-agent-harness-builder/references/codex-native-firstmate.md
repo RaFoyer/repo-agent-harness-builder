@@ -9,6 +9,9 @@ not replace the Boss -> Manager -> Worker hierarchy.
 
 This profile is dependency-light. It prefers Codex tasks, managed worktrees,
 subagents, Goal mode, automations, hooks, Browser, and the app's Git surfaces.
+It is a thin repository-local adapter, not a dependency on an external
+FirstMate repository, service, or runtime. A repository may leave it inactive
+or omit it while continuing to use the portable orchestration and goal graph.
 Treehouse, tmux, `chrome-devtools-axi`, `lavish-axi`, `gh-axi`, and
 `no-mistakes` are not prerequisites. They may remain optional capability or
 completion adapters when the native surface does not cover a repository's

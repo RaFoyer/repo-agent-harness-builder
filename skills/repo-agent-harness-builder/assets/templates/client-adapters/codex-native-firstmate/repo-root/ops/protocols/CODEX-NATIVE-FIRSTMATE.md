@@ -48,6 +48,9 @@ proof fields, and any supplied `externalTitle` must match its registry-derived
 title exactly.
 
 Each generated repository carries its own resident capability and registry.
+This optional adapter does not depend on an external FirstMate repository,
+service, fleet registry, or runtime; the portable harness remains usable when
+the adapter is inactive or absent.
 The default active shape is one Firstmate/Boss task for this repository, with
 Managers and Workers bounded to it. No external or global project registry is
 required. Cross-repository fleet control is optional composition above multiple
