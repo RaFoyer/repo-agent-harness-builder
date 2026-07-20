@@ -1,12 +1,14 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "revision": 0,
   "status": "active",
+  "coordinationMode": "hybrid",
   "prefix": "EXAMPLE",
   "scope": {
     "id": "documentation-refresh",
     "kind": "project",
     "rootRef": "repository-root",
+    "ownerRef": "project-owner",
     "objective": "Deliver an evidence-backed documentation refresh."
   },
   "bindingAttestation": {
@@ -23,6 +25,7 @@
       "maxDelegationDepth": 2
     }
   },
+  "ownerDirectives": [],
   "nodes": [
     {
       "id": "boss",

@@ -6,8 +6,15 @@ import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 
 const REGISTRY_REL_PATH = "ops/orchestration.json";
-const REGISTRY_SCHEMA_VERSION = 3;
-const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3]);
+const REGISTRY_SCHEMA_VERSION = 4;
+const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4]);
+const COORDINATION_MODES = new Set(["managed", "hybrid"]);
+const DIRECTIVE_KINDS = new Set(["owner-directive", "owner-intervention"]);
+const DIRECTIVE_IMPACTS = new Set(["within-contract", "replan-required"]);
+const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "superseded", "cancelled"]);
+const DIRECTIVE_TERMINAL_STATES = new Set(["reconciled", "superseded", "cancelled"]);
+const SAFE_DIRECTIVE_ID_RE = /^[a-z][a-z0-9-]{0,95}$/;
+const SHA256_RE = /^[a-f0-9]{64}$/;
 const TRUST_LEVELS = [
   { id: "T0", name: "Observe", authority: "approved reads and reporting only" },
   { id: "T1", name: "Propose", authority: "plans, graphs, drafts, and prompts without project-state mutation" },
@@ -403,6 +410,7 @@ function materializedWorkContract(registry, node, parent) {
       : node.completionProfile
   };
   return canonicalize({
+    ...(registry.schemaVersion >= 4 ? { coordinationMode: registry.coordinationMode } : {}),
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
     node: nodeContract,
@@ -413,6 +421,57 @@ function materializedWorkContract(registry, node, parent) {
       authority: canonicalAuthority(parent.authority)
     } : null
   });
+}
+
+function validateOwnerDirectives(registry, nodesById, blockers) {
+  const directives = registry.ownerDirectives;
+  if (!Array.isArray(directives)) {
+    blockers.push("ownerDirectives must be an array");
+    return;
+  }
+  if (registry.coordinationMode !== "hybrid" && directives.length) {
+    blockers.push("ownerDirectives require coordinationMode hybrid");
+  }
+  const ids = new Set();
+  for (const directive of directives) {
+    const label = `owner directive ${directive?.id || "<missing-id>"}`;
+    if (!isObject(directive)) {
+      blockers.push("every ownerDirectives entry must be an object");
+      continue;
+    }
+    if (!SAFE_DIRECTIVE_ID_RE.test(String(directive.id || ""))) blockers.push(`${label}: id must be a safe lowercase slug`);
+    else if (ids.has(directive.id)) blockers.push(`duplicate owner directive id: ${directive.id}`);
+    else ids.add(directive.id);
+    if (!DIRECTIVE_KINDS.has(directive.kind)) blockers.push(`${label}: kind must be owner-directive or owner-intervention`);
+    if (directive.issuedByRef !== registry.scope?.ownerRef) blockers.push(`${label}: issuedByRef must match scope.ownerRef`);
+    if (!isNonEmptyString(directive.directiveRef)) blockers.push(`${label}: directiveRef must be a non-empty single-line reference`);
+    if (!DIRECTIVE_IMPACTS.has(directive.contractImpact)) blockers.push(`${label}: contractImpact must be within-contract or replan-required`);
+    if (!DIRECTIVE_STATES.has(directive.status)) blockers.push(`${label}: invalid status`);
+    if (!Number.isSafeInteger(directive.registryRevisionAtIssue) || directive.registryRevisionAtIssue < 0
+      || directive.registryRevisionAtIssue > registry.revision) {
+      blockers.push(`${label}: registryRevisionAtIssue must be a non-negative revision no newer than the registry`);
+    }
+    if (!isUtcRfc3339Timestamp(directive.createdAt)) blockers.push(`${label}: createdAt must be a UTC RFC3339 timestamp`);
+    const target = nodesById.get(directive.targetNodeId);
+    if (!target) blockers.push(`${label}: targetNodeId must reference a configured node`);
+    if (target && directive.targetParentIdAtIssue !== target.parentId) blockers.push(`${label}: targetParentIdAtIssue must match the target's immutable parent`);
+    if (!SHA256_RE.test(String(directive.workContractHashAtIssue || ""))) blockers.push(`${label}: workContractHashAtIssue must be a lowercase SHA-256 digest`);
+    if (target && ["issued", "acknowledged"].includes(directive.status)) {
+      const parent = target.parentId ? nodesById.get(target.parentId) : null;
+      if (directive.workContractHashAtIssue !== materializedWorkContractHash(registry, target, parent)) {
+        blockers.push(`${label}: open directive workContractHashAtIssue must match the current target contract`);
+      }
+    }
+    if (directive.status !== "issued" && !isUtcRfc3339Timestamp(directive.acknowledgedAt)) {
+      blockers.push(`${label}: acknowledgedAt is required after issuance`);
+    }
+    if (DIRECTIVE_TERMINAL_STATES.has(directive.status) && !isNonEmptyString(directive.resolutionRef)) {
+      blockers.push(`${label}: terminal directive status requires resolutionRef`);
+    }
+    if (DIRECTIVE_TERMINAL_STATES.has(directive.status) && target?.parentId && !isUtcRfc3339Timestamp(directive.parentObservedAt)) {
+      blockers.push(`${label}: terminal directive status requires parentObservedAt`);
+    }
+  }
 }
 
 export function materializedWorkContractHash(registry, node, parent) {
@@ -723,8 +782,9 @@ function validateRegistry(registry) {
   const warnings = [];
   const githubProfiles = loadGithubProfiles();
   if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
-  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2 or 3");
-  else if (registry.schemaVersion < REGISTRY_SCHEMA_VERSION) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 before relying on requiredSkills as immutable work-contract data");
+  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2, 3, or 4");
+  else if (registry.schemaVersion === 2) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 or newer before relying on requiredSkills as immutable work-contract data");
+  else if (registry.schemaVersion === 3) warnings.push("schemaVersion 3 is supported for existing bindings; migrate to 4 before enabling hybrid coordination and owner directives");
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 0) blockers.push("revision must be a non-negative safe integer");
   if (!["inactive", "active"].includes(registry.status)) blockers.push("status must be inactive or active");
   if (!isNonEmptyString(registry.prefix)) blockers.push("prefix must be a non-empty single-line string");
@@ -733,6 +793,10 @@ function validateRegistry(registry) {
   if (!SCOPE_KINDS.has(registry.scope?.kind)) blockers.push("scope.kind must be repository, project, program, personal-folder, or custom");
   if (!isNonEmptyString(registry.scope?.rootRef)) blockers.push("scope.rootRef must be a non-empty single-line reference");
   if (!isNonEmptyString(registry.scope?.objective)) blockers.push("scope.objective must be a non-empty single-line string");
+  if (registry.schemaVersion >= 4) {
+    if (!COORDINATION_MODES.has(registry.coordinationMode)) blockers.push("coordinationMode must be managed or hybrid");
+    if (!isNonEmptyString(registry.scope?.ownerRef)) blockers.push("scope.ownerRef must identify the project owner in schemaVersion 4");
+  }
   if (registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) {
     if (!isObject(registry.bindingAttestation)
       || registry.bindingAttestation.algorithm !== BINDING_ATTESTATION_ALGORITHM
@@ -748,7 +812,7 @@ function validateRegistry(registry) {
       if (!isNonEmptyString(adapter.profile)) blockers.push("clientAdapter.profile must be a non-empty single-line string");
       if (!['inactive', 'active'].includes(adapter.status)) blockers.push("clientAdapter.status must be inactive or active");
       if (adapter.status === "active" && registry.schemaVersion >= 3 && !isNonEmptyString(adapter.requiredSkill)) {
-        blockers.push("active schemaVersion 3 clientAdapter requires requiredSkill");
+        blockers.push("active schemaVersion 3 or newer clientAdapter requires requiredSkill");
       }
       if (adapter.requiredSkill !== undefined && (!isNonEmptyString(adapter.requiredSkill) || !SKILL_NAME_RE.test(adapter.requiredSkill))) {
         blockers.push("clientAdapter.requiredSkill must be a lowercase skill slug when configured");
@@ -794,6 +858,7 @@ function validateRegistry(registry) {
     if (nodesById.has(node.id)) blockers.push(`duplicate node id: ${node.id}`);
     nodesById.set(node.id, node);
   }
+  if (registry.schemaVersion >= 4) validateOwnerDirectives(registry, nodesById, blockers);
   const bosses = nodes.filter((node) => node.role === "boss");
   if (bosses.length > 1) blockers.push("only one Boss is allowed");
   if (registry.status === "active" && bosses.length !== 1) blockers.push("active orchestration requires exactly one Boss");
@@ -1026,6 +1091,7 @@ function printHelp(io) {
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
+  io.stdout("  directives         Show governed direct owner instructions and reconciliation state");
   io.stdout("  next               List dependency-eligible nodes");
   io.stdout("  prompt boss        Print a bounded Boss prompt");
   io.stdout("  prompt <node-id>   Print a bounded prompt for a configured node");
@@ -1177,6 +1243,18 @@ function firstmateActivationBlockers(registry, adapter) {
   if (!isNonEmptyString(adapter.reconciliationPolicy) || adapter.reconciliationPolicy === "unconfigured") {
     blockers.push("clientAdapter.reconciliationPolicy is required");
   }
+  if (registry.schemaVersion >= 4 && registry.coordinationMode === "hybrid") {
+    const direct = adapter.ownerDirectMessaging;
+    if (!isObject(direct)
+      || direct.enabled !== true
+      || !isStringArray(direct.targetRoles, { nonEmpty: true })
+      || !direct.targetRoles.every((role) => ["manager", "worker"].includes(role))
+      || direct.recordDirectivesInRegistry !== true
+      || direct.parentReconciliationRequired !== true
+      || direct.authorityExpansionFromMessage !== false) {
+      blockers.push("hybrid Firstmate coordination requires ownerDirectMessaging with governed registry records, parent reconciliation, and no authority expansion from messages");
+    }
+  }
 
   const attestorError = bindingAttestationConfigError(registry);
   if (attestorError) blockers.push(`binding assurance is required: ${attestorError}`);
@@ -1288,6 +1366,9 @@ function runStatus(io) {
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
+  io.stdout(`coordination_mode: ${toonString(loaded.registry.coordinationMode || "managed")}`);
+  io.stdout(`owner_ref: ${toonString(loaded.registry.scope?.ownerRef || "unconfigured")}`);
+  io.stdout(`owner_directives: ${arrayOrEmpty(loaded.registry.ownerDirectives).length}`);
   io.stdout(`client_adapter: ${toonString(loaded.registry.clientAdapter?.profile || "unconfigured")}`);
   io.stdout(`nodes: ${findings.nodes.length}`);
   io.stdout(`bosses: ${findings.nodes.filter((node) => node.role === "boss").length}`);
@@ -1297,6 +1378,26 @@ function runStatus(io) {
   for (const [state, count] of Object.entries(counts)) io.stdout(`  ${state}: ${count}`);
   printFindings(io, findings);
   io.stdout(renderHelpBlock([`Run ./${CONFIG.cliName} orchestration validate`, `Run ./${CONFIG.cliName} orchestration next`]));
+  return findings.blockers.length ? 1 : 0;
+}
+
+function runDirectives(io) {
+  const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stdout("directives: 0");
+    io.stdout(`reason: ${toonString(!loaded.exists ? `missing ${REGISTRY_REL_PATH}` : `invalid JSON: ${loaded.error}`)}`);
+    return 1;
+  }
+  const findings = validateRegistry(loaded.registry);
+  const directives = arrayOrEmpty(loaded.registry.ownerDirectives);
+  io.stdout(`coordination_mode: ${toonString(loaded.registry.coordinationMode || "managed")}`);
+  io.stdout(`directives: ${directives.length}`);
+  io.stdout(`records[${directives.length}]{id,target_node,impact,status,directive_ref}:`);
+  for (const directive of directives) {
+    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.directiveRef || "")}`);
+  }
+  if (!directives.length) io.stdout('message: "No governed owner directives"');
+  printFindings(io, findings);
   return findings.blockers.length ? 1 : 0;
 }
 
@@ -1408,6 +1509,9 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Governing protocols: ${node.governingProtocols.join(", ")}`);
   lines.push(`Required skills (load in order): ${requiredSkillsFor(registry, node).join(", ")}`);
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
+  lines.push(`Coordination mode: ${registry.coordinationMode || "managed"}`);
+  const directives = arrayOrEmpty(registry.ownerDirectives).filter((directive) => directive.targetNodeId === node.id && !DIRECTIVE_TERMINAL_STATES.has(directive.status));
+  lines.push(`Open owner directives: ${directives.map((directive) => `${directive.id} (${directive.contractImpact}; ${directive.directiveRef})`).join(", ") || "none"}`);
   lines.push(`State: ${node.state}`);
   lines.push(`Trust level: ${node.trustLevel}`);
   if (node.trustApproval) lines.push(`Trust approval: ${node.trustApproval.approvedBy} at ${node.trustApproval.approvedAt}`);
@@ -1549,6 +1653,7 @@ function runLaunchSpec(nodeId, io) {
   };
   io.stdout(JSON.stringify({
     schemaVersion: loaded.registry.schemaVersion,
+    coordinationMode: loaded.registry.coordinationMode || "managed",
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
@@ -1731,6 +1836,9 @@ export async function runOrchestration(argv, io) {
     case "validate":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration validate", hints: [`Run ./${CONFIG.cliName} orchestration validate`] })) return 2;
       return runValidate(io);
+    case "directives":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration directives", hints: [`Run ./${CONFIG.cliName} orchestration directives`] })) return 2;
+      return runDirectives(io);
     case "next":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration next", hints: [`Run ./${CONFIG.cliName} orchestration next`] })) return 2;
       return runNext(io);

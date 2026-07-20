@@ -47,6 +47,15 @@ Roles describe responsibility, not permission. Lifecycle, work domain, trust,
 authority, and completion are independent axes. A chain is a linear dependency
 topology, not a role or a separate orchestration model.
 
+## Coordination Modes
+
+- **managed:** durable work follows the resident Boss/Manager/Worker reporting hierarchy.
+- **hybrid:** the same hierarchy remains authoritative, while the configured project owner may talk directly to Managers or Workers. Direct messages do not reparent nodes or broaden trust, authority, gates, or budgets. Durable instructions are recorded as `ownerDirectives`; the target acknowledges them and its immediate parent reconciles terminal outcomes.
+
+Ordinary conversation inside the existing contract does not require a registry
+event. Scope, authority, dependency, completion, or budget changes require a
+governed directive and explicit replan or supersession.
+
 ## Operating Loop
 
 1. Observe repository instructions, tracker state, Git/PR evidence, the
@@ -67,6 +76,7 @@ topology, not a role or a separate orchestration model.
    proven.
 9. Mark responsibility terminal only after owned children are terminal and the
    completion profile's exact evidence is recorded.
+10. In hybrid mode, reconcile open owner directives without turning the Boss into a communication gatekeeper.
 
 ## Fail-Closed Rules
 

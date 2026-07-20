@@ -22,6 +22,14 @@ required. A cross-repository portfolio may later compose several independent
 repo-local Firstmates under separately authorized policy, but that is optional
 and must not become a hidden prerequisite.
 
+Schema-v4 hybrid coordination does not make Firstmate a communication
+gatekeeper. The configured project owner may enter Manager and Worker tasks
+directly. Tactical messages inside the sealed contract may proceed; durable or
+contract-relevant instructions become governed `ownerDirectives`, do not alter
+parentage or authority, and require immediate-parent reconciliation before
+terminal status. The adapter must expose this posture explicitly through
+`ownerDirectMessaging` rather than inferring it from task visibility.
+
 ## Portable Core And Adapter Boundary
 
 The portable core remains authoritative for:

@@ -165,6 +165,9 @@ branches, pull requests, or software delivery. Minimum behavior:
 
 - `orchestration status`: summarize the explicit registry scope, roles, states,
   and validation findings; an inactive valid registry exits successfully.
+- `orchestration directives`: show schema-v4 governed owner directives, target
+  nodes, contract impact, and parent-reconciliation state without mutating
+  tasks or treating task messages as authority.
 - `orchestration adapter-status`: inspect the local Codex-native Firstmate
   adapter posture, installed assets, activation blockers, and optional native
   capability plan without contacting Codex or changing configuration.

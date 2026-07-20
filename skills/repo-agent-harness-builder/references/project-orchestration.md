@@ -39,6 +39,25 @@ One `ops/orchestration.json` governs one explicit scope. Record:
 
 “One Boss” means one logical Boss per configured scope. It does not grant authority over other repositories, projects, tasks, accounts, or systems that happen to be visible.
 
+Schema version 4 adds an explicit `coordinationMode`, a stable
+`scope.ownerRef`, and governed `ownerDirectives`:
+
+- `managed` keeps all durable coordination on the resident hierarchy.
+- `hybrid` preserves that hierarchy while allowing the configured project owner
+  to talk directly to Managers and Workers. Direct conversation does not
+  reparent a node, replace its immediate-parent reporting duty, or expand its
+  trust, authority, gates, budget, or completion contract.
+
+Do not record ordinary conversation merely because it was direct. Record an
+owner directive when the instruction must survive task history or affects
+durable execution. Each record binds the owner, target node, immutable parent,
+task/tracker reference, registry revision, current work-contract hash, impact,
+and reconciliation state. `within-contract` instructions may proceed inside the
+existing envelope. `replan-required` instructions stop at the current boundary
+until explicit replan or supersession. A terminal directive requires resolution
+evidence and immediate-parent observation, except when the Boss itself is the
+target.
+
 For a repository harness, default to the repository itself as the complete
 scope: its own registry, one resident Boss capability, and repo-local Managers
 and Workers. The builder does not require a global project list. A program may
@@ -67,9 +86,11 @@ Every node should declare:
 - task ID only after the client materializes the graph node as a task, plus Ed25519-attested immutable `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and an immutable `parentTaskId` for every task-backed non-Boss node; Boss nodes have no bound `parentTaskId` and null binding parent metadata
 
 Schema version 3 includes the ordered required-skill composition in new work-
-contract hashes. Version 2 remains readable for existing externally attested
-bindings; migrate it deliberately before treating required skills as immutable
-binding data.
+contract hashes. Schema version 4 additionally seals coordination mode and
+owner identity into new contracts and validates owner directives without
+making chat messages a permission source. Versions 2 and 3 remain readable for
+existing externally attested bindings; migrate deliberately rather than
+silently rewriting their hashes.
 
 Queued and eligible nodes are graph state, not fake tasks. Working, waiting, blocked, ready-for-parent, and terminal nodes are task-backed. Terminal nodes record a disposition and every exact evidence identifier required by their completion profile.
 
@@ -156,6 +177,7 @@ adapters must declare their required skill explicitly.
 7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
 8. On a timeout, crash, ambiguous create, or failed bind, keep the reservation and reconcile the external task by `launchKey`; release and retry only after proving no task exists for that key.
 9. Require the child to report to its immediate parent and the parent to reconcile evidence.
+10. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
 
@@ -189,6 +211,7 @@ Reject designs that:
 - bind durable project semantics to one agent vendor's task API
 - promote trust globally from narrow evidence
 - let Managers silently absorb Worker implementation or Workers bypass their immediate parent for routine updates
+- treat a direct owner message as implicit authority, omit a contract-relevant owner directive from the registry, or mark one terminal without resolution and parent-observation evidence
 - let a Boss directly operate every goal graph, leave a graph without exactly one Manager owner, or create replacement Workers merely because previous task context is unavailable
 - generate a launch contract without ordered required skills or materialize it
   while a required project-local skill is missing

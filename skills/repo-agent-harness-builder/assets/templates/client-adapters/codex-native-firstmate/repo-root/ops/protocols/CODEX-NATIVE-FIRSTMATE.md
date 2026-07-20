@@ -53,6 +53,17 @@ Managers and Workers bounded to it. No external or global project registry is
 required. Cross-repository fleet control is optional composition above multiple
 repo-local Firstmates and needs separate explicit authority.
 
+## Hybrid Owner Conversation
+
+When schema-v4 `coordinationMode` is `hybrid`, the configured project owner may
+enter Manager and Worker tasks directly. Firstmate must not become a
+conversation relay or infer authority from a message. Tactical instructions
+inside the sealed work contract may proceed. Instructions that must survive
+task history or affect scope, dependencies, authority, budget, or completion
+are recorded as governed `ownerDirectives`; the target acknowledges them and
+its immediate parent reconciles the outcome before terminal status. Direct
+conversation never changes task parentage.
+
 ## Native Mapping
 
 - Boss/Firstmate: one persistent task owns this repository's recurring portfolio loop.

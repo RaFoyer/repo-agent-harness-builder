@@ -60,7 +60,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, repository-scoped `github`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
-- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust, authority, and loop ownership.
+- `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust, authority, loop ownership, hybrid direct-owner messaging, and parent reconciliation.
 - `assets/templates/client-adapters/codex-native-firstmate/`: opt-in Codex config examples, role profiles, Firstmate Boss overlay, protocol, and project-local adapter skill around the portable orchestration core.
 - `assets/templates/goal-graph/`: ticket-backed implementation DAGs, strict-chain topology, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
 - `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, project-orchestration, goal-graph-loop, and compatibility skill templates plus agent-client install guidance.
@@ -102,6 +102,7 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - External systems are auxiliary unless a protocol explicitly makes them authoritative for a named scope.
 - Connector packages may be global, but mutable authentication profiles must be repo-scoped by default unless a protocol explicitly marks a different boundary.
 - GitHub Workers must not inherit an ambient global `gh` login. Bind every write-capable GitHub launch to one repository profile and exact `github.*` capabilities; treat `git` network credentials as a separate boundary from `gh` authentication.
+- Hybrid coordination permits the project owner to talk directly to Managers and Workers without reparenting them or expanding authority. Record durable owner directives in the registry and require immediate-parent reconciliation; ordinary chat remains outside the control plane.
 - Never make Codex, Claude, Gemini, Kimi, Cursor, or any single client the conceptual owner of the harness. Client-specific files and commands are adapters around the shared protocol/CLI contract.
 - Downstream repositories may sync only their own project-specific skill names. They must never install, link, copy, replace, or back up shared fleet skill names; recoverable copies belong outside every discoverable skills root.
 - Advanced Flow-style hooks and artifact hubs are optional modules; do not make them the base harness.

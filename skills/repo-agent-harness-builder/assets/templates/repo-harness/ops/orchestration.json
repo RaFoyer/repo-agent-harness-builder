@@ -1,12 +1,14 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "revision": 0,
   "status": "inactive",
+  "coordinationMode": "hybrid",
   "prefix": {{PROJECT_NAME_JSON}},
   "scope": {
     "id": "project",
     "kind": "repository",
     "rootRef": "repository-root",
+    "ownerRef": "project-owner",
     "objective": "Coordinate bounded project work with explicit authority and evidence."
   },
   "bindingAttestation": null,
@@ -21,5 +23,6 @@
       "maxDelegationDepth": 2
     }
   },
-  "nodes": []
+  "nodes": [],
+  "ownerDirectives": []
 }

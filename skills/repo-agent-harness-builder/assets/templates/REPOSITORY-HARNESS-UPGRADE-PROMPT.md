@@ -18,17 +18,19 @@ Bring this repository's harness, project-local skills, and CLI facade into align
 6. Inspect any repository `skills status`, `skills sync`, bootstrap, self-update, or onboarding command. Record its exact allowlist, targets, backup behavior, overwrite rules, copy/link mode, approval gates, and tests.
 7. Compare the repository's CLI facade with the current builder contract. Preserve custom commands and behavior; identify which pieces are generated, forked, extended, or repository-owned before proposing regeneration.
 8. Search for maintained project-restart surfaces, active goal-chain workflow instructions, stale orchestration taxonomy, duplicate Boss/Manager/Worker hierarchies, or launch contracts that do not seal required skills.
-9. Audit GitHub and Git authentication before proposing migration: existing `gh`/`gh-axi` wrappers, `GH_CONFIG_DIR` and token handling, active accounts, remotes, SSH identities, credential helpers, GitHub Apps or PATs, custom PR/comment/review commands, CI bots, and repository-specific permission logic. Do not overwrite a working custom path with the generic facade.
+9. Inspect how the project owner communicates directly with Managers or Workers. Determine whether direct instructions are informal chat, durable governed directives, or accidental authority escalation; preserve intentional workflows and identify missing parent-reconciliation evidence.
+10. Audit GitHub and Git authentication before proposing migration: existing `gh`/`gh-axi` wrappers, `GH_CONFIG_DIR` and token handling, active accounts, remotes, SSH identities, credential helpers, GitHub Apps or PATs, custom PR/comment/review commands, CI bots, and repository-specific permission logic. Do not overwrite a working custom path with the generic facade.
 
 ## Current Architecture To Compare Against
 
 - `repo-agent-harness-builder` installs, migrates, and verifies the harness; it is not the runtime controller.
 - `project-orchestration` is the portable Boss/Manager/Worker control plane.
+- Schema-v4 hybrid coordination lets the configured project owner talk directly to Managers and Workers without reparenting or granting authority; durable instructions use governed owner directives and immediate-parent reconciliation.
 - A selected client adapter, such as `codex-native-firstmate`, maps the portable protocol to client-native tasks and worktrees.
 - `goal-graph-loop` is the Manager-owned ticket-backed dependency graph loop. A strict chain is only a linear graph topology.
 - `goal-chain-loop` is a deprecated compatibility alias, not a workflow for new launch contracts.
 - Project restart is not a maintained primary skill or protocol surface.
-- New schema-v3 launch contracts emit and hash-seal ordered `requiredSkills`; explicit schema-v2 compatibility remains bounded to legacy contracts and attestations.
+- Schema-v3 launch contracts emit and hash-seal ordered `requiredSkills`; schema-v4 adds sealed coordination mode, project-owner identity, and governed owner directives. Explicit schema-v2/v3 compatibility remains bounded to existing attestations until deliberate migration.
 - Shared fleet skills are globally owned by their authoritative distribution. A downstream repository may sync only its own project-specific skill names and must keep recoverable backups outside discoverable skill roots.
 - Repository-local skills remain project-owned and may be installed under the repository's `.agents/skills/` contract.
 - GitHub binaries may be global, but mutable account state and Worker credentials should be repository/profile scoped. `gh-axi` is the ergonomic executor, not the authentication or authority owner; Git transport needs its own explicit boundary.

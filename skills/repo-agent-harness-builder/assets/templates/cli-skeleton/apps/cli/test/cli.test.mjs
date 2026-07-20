@@ -205,14 +205,16 @@ function selfConsistentReservationValidity(registry, node, parent) {
 
 function validOrchestrationRegistry() {
   const registry = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     revision: 0,
     status: "active",
+    coordinationMode: "hybrid",
     prefix: CONFIG.projectName,
     scope: {
       id: "knowledge-refresh",
       kind: "project",
       rootRef: "repository-root",
+      ownerRef: "project-owner",
       objective: "Refresh project knowledge and record a research decision."
     },
     bindingAttestation: {
@@ -226,6 +228,7 @@ function validOrchestrationRegistry() {
       childMayExceedParent: false,
       limits: { maxActiveNodes: 6, maxDelegationDepth: 2 }
     },
+    ownerDirectives: [],
     nodes: [
       {
         id: "boss",
@@ -342,6 +345,13 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
       handoffPolicy: "parent-review-before-archive"
     },
     reconciliationPolicy: "quarantine-and-human-reconcile",
+    ownerDirectMessaging: {
+      enabled: true,
+      targetRoles: ["manager", "worker"],
+      recordDirectivesInRegistry: true,
+      parentReconciliationRequired: true,
+      authorityExpansionFromMessage: false
+    },
     legacyTaskBindings: []
   };
   const displayRoles = profile === "portable"
@@ -624,6 +634,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["heartbeat ownership", (registry) => { delete registry.clientAdapter.heartbeat.registryMutator; }, /heartbeat must configure mode, cadence, and registry mutator/],
     ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
     ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
+    ["owner direct messaging", (registry) => { registry.clientAdapter.ownerDirectMessaging.enabled = false; }, /ownerDirectMessaging/],
     ["binding assurance", (registry) => { registry.bindingAttestation = null; }, /registry must be valid/]
   ]) {
     const partialRegistry = validOrchestrationRegistry();
@@ -638,7 +649,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     if (name === "adapter skill") {
       const validation = capture();
       assert.equal(await main(["orchestration", "validate"], validation.io), 1);
-      assert.match(validation.out.join("\n"), /active schemaVersion 3 clientAdapter requires requiredSkill/);
+      assert.match(validation.out.join("\n"), /active schemaVersion 3 or newer clientAdapter requires requiredSkill/);
     }
   }
 
@@ -2115,17 +2126,93 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   assert.match(promptText, /Required skills \(load in order\): project-orchestration/);
   assert.match(promptText, /Completion profile: artifact/);
   assert.match(promptText, /Immediate parent task ID: task-boss/);
+  assert.match(promptText, /Coordination mode: hybrid/);
 
   const launch = capture();
   const launchCode = await main(["orchestration", "launch-spec", "manager-docs"], launch.io);
   assert.equal(launchCode, 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
   assert.equal(spec.parentTaskId, "task-boss");
+  assert.equal(spec.coordinationMode, "hybrid");
   assert.deepEqual(spec.requiredSkills, ["project-orchestration"]);
   assert.equal(spec.callback.mode, "update-node");
   assert.equal(spec.title, `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`);
   assert.ok(spec.callback.bind.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
   assert.ok(spec.callback.reconcile.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
+});
+
+fixtureTest("hybrid orchestration records direct owner instructions without changing authority", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.revision = 1;
+  registry.ownerDirectives.push({
+    id: "owner-directive-docs-1",
+    kind: "owner-directive",
+    issuedByRef: registry.scope.ownerRef,
+    targetNodeId: manager.id,
+    targetParentIdAtIssue: manager.parentId,
+    directiveRef: "task-message:docs-1",
+    contractImpact: "within-contract",
+    status: "issued",
+    registryRevisionAtIssue: 0,
+    workContractHashAtIssue: materializedWorkContractHash(registry, manager, boss),
+    createdAt: "2026-07-20T12:00:00Z"
+  });
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.out.concat(validation.err).join("\n"));
+
+  const directives = capture();
+  assert.equal(await main(["orchestration", "directives"], directives.io), 0, directives.err.join("\n"));
+  assert.match(directives.out.join("\n"), /owner-directive-docs-1.*manager-docs.*within-contract.*issued.*task-message:docs-1/);
+
+  const prompt = capture();
+  assert.equal(await main(["orchestration", "prompt", "manager-docs"], prompt.io), 0, prompt.err.join("\n"));
+  assert.match(prompt.out.join("\n"), /Open owner directives: owner-directive-docs-1 \(within-contract; task-message:docs-1\)/);
+
+  const originalAuthority = JSON.stringify(manager.authority);
+  registry.ownerDirectives[0].issuedByRef = "untrusted-visible-task";
+  writeOrchestrationRegistry(registry);
+  const rejected = capture();
+  assert.equal(await main(["orchestration", "validate"], rejected.io), 1);
+  assert.match(rejected.out.join("\n"), /issuedByRef must match scope\.ownerRef/);
+  assert.equal(JSON.stringify(manager.authority), originalAuthority);
+});
+
+fixtureTest("hybrid directive reconciliation requires parent observation and resolution evidence", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.revision = 2;
+  registry.ownerDirectives.push({
+    id: "owner-intervention-docs-2",
+    kind: "owner-intervention",
+    issuedByRef: registry.scope.ownerRef,
+    targetNodeId: manager.id,
+    targetParentIdAtIssue: manager.parentId,
+    directiveRef: "tracker:DOCS-4",
+    contractImpact: "replan-required",
+    status: "reconciled",
+    registryRevisionAtIssue: 1,
+    workContractHashAtIssue: materializedWorkContractHash(registry, manager, boss),
+    createdAt: "2026-07-20T12:00:00Z",
+    acknowledgedAt: "2026-07-20T12:01:00Z"
+  });
+  writeOrchestrationRegistry(registry);
+  const missingEvidence = capture();
+  assert.equal(await main(["orchestration", "validate"], missingEvidence.io), 1);
+  assert.match(missingEvidence.out.join("\n"), /terminal directive status requires resolutionRef/);
+  assert.match(missingEvidence.out.join("\n"), /terminal directive status requires parentObservedAt/);
+
+  Object.assign(registry.ownerDirectives[0], {
+    resolutionRef: "tracker:DOCS-4#owner-directive-reconciled",
+    parentObservedAt: "2026-07-20T12:02:00Z"
+  });
+  writeOrchestrationRegistry(registry);
+  const accepted = capture();
+  assert.equal(await main(["orchestration", "validate"], accepted.io), 0, accepted.out.concat(accepted.err).join("\n"));
 });
 
 fixtureTest("orchestration activates configured Boss callbacks", async () => {
@@ -3089,7 +3176,7 @@ fixtureTest("orchestration launch contracts compose goal graph and node skills i
   const launch = capture();
   assert.equal(await main(["orchestration", "launch-spec", manager.id], launch.io), 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
-  assert.equal(spec.schemaVersion, 3);
+  assert.equal(spec.schemaVersion, 4);
   assert.deepEqual(spec.requiredSkills, ["project-orchestration", "goal-graph-loop", "documentation-quality"]);
   assert.deepEqual(spec.workContract, { algorithm: "sha256", hash: spec.reservation.workContract.hash });
   assert.deepEqual(spec.reservation.workContract.payload.node.requiredSkills, spec.requiredSkills);

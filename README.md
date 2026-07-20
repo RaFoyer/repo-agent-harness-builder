@@ -28,7 +28,8 @@ The durable contract lives in ordinary files in the target repo or folder:
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
   trust, authority, budgets, completion evidence, and nested portfolio,
-  goal-graph, and bounded execution loops
+  goal-graph, bounded execution loops, and schema-v4 hybrid owner-to-node
+  conversation with governed directive reconciliation
 - project-local `project-orchestration`, `goal-graph-loop`, and
   `codex-native-firstmate` skills with a deprecated `goal-chain-loop` alias
 - an inactive-by-default Codex-native Firstmate adapter that gives each
@@ -80,6 +81,7 @@ see a read-only readiness result, such as:
 ./harness no-mistakes status
 ./harness lavish status
 ./harness orchestration status
+./harness orchestration directives
 ./harness orchestration adapter-status
 ./harness orchestration taxonomy
 ./harness github status
