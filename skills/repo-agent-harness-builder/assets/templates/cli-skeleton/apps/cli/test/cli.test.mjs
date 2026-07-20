@@ -1456,21 +1456,21 @@ fixtureTest("github profiles reserve broad credentials for explicit operators", 
 fixtureTest("github child environments clear ambient host and enterprise credentials", async () => {
   const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops/connections.json"), "utf-8"));
   const profile = registry.connectorProfiles.find((candidate) => candidate.provider === "github");
-  const child = createGithubChildEnvironment(profile, "/tmp/isolated-github-profile", {
-    GH_TOKEN: "ambient-gh-token",
-    GITHUB_TOKEN: "ambient-github-token",
+  const child = createGithubChildEnvironment(profile, "<isolated-github-profile>", {
+    GH_TOKEN: "<ambient-gh-token>",
+    GITHUB_TOKEN: "<ambient-github-token>",
     GH_HOST: "enterprise.example.test",
-    GH_ENTERPRISE_TOKEN: "ambient-gh-enterprise-token",
-    GITHUB_ENTERPRISE_TOKEN: "ambient-github-enterprise-token",
-    REPO_GITHUB_WORKER_TOKEN: "selected-worker-token"
+    GH_ENTERPRISE_TOKEN: "<ambient-gh-enterprise-token>",
+    GITHUB_ENTERPRISE_TOKEN: "<ambient-github-enterprise-token>",
+    REPO_GITHUB_WORKER_TOKEN: "<selected-worker-token>"
   });
   assert.equal(child.ok, true);
-  assert.equal(child.env.GH_TOKEN, "selected-worker-token");
+  assert.equal(child.env.GH_TOKEN, "<selected-worker-token>");
   assert.equal(child.env.GITHUB_TOKEN, undefined);
   assert.equal(child.env.GH_HOST, undefined);
   assert.equal(child.env.GH_ENTERPRISE_TOKEN, undefined);
   assert.equal(child.env.GITHUB_ENTERPRISE_TOKEN, undefined);
-  assert.equal(child.env.GH_CONFIG_DIR, "/tmp/isolated-github-profile");
+  assert.equal(child.env.GH_CONFIG_DIR, "<isolated-github-profile>");
   assert.equal(child.env.GH_REPO, CONFIG.repoSlug);
 });
 
