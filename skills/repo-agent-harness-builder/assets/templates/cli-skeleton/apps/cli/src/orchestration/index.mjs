@@ -529,8 +529,17 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
   }
 }
 
+function coordinationModeFor(registry) {
+  return registry?.schemaVersion === 4 && registry.coordinationMode === "hybrid" ? "hybrid" : "managed";
+}
+
+function governedOwnerDirectives(registry) {
+  if (registry?.schemaVersion !== 4) return [];
+  return arrayOrEmpty(registry.ownerDirectives).filter(isObject);
+}
+
 function openOwnerDirectivesFor(registry, nodeId) {
-  return arrayOrEmpty(registry.ownerDirectives).filter((directive) => (
+  return governedOwnerDirectives(registry).filter((directive) => (
     directive.targetNodeId === nodeId && !DIRECTIVE_TERMINAL_STATES.has(directive.status)
   ));
 }
@@ -1467,9 +1476,9 @@ function runStatus(io) {
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
-  io.stdout(`coordination_mode: ${toonString(loaded.registry.coordinationMode || "managed")}`);
+  io.stdout(`coordination_mode: ${toonString(coordinationModeFor(loaded.registry))}`);
   io.stdout(`owner_ref: ${toonString(loaded.registry.scope?.ownerRef || "unconfigured")}`);
-  io.stdout(`owner_directives: ${arrayOrEmpty(loaded.registry.ownerDirectives).length}`);
+  io.stdout(`owner_directives: ${governedOwnerDirectives(loaded.registry).length}`);
   io.stdout(`client_adapter: ${toonString(loaded.registry.clientAdapter?.profile || "unconfigured")}`);
   io.stdout(`nodes: ${findings.nodes.length}`);
   io.stdout(`bosses: ${findings.nodes.filter((node) => node.role === "boss").length}`);
@@ -1490,8 +1499,8 @@ function runDirectives(io) {
     return 1;
   }
   const findings = validateRegistry(loaded.registry);
-  const directives = arrayOrEmpty(loaded.registry.ownerDirectives);
-  io.stdout(`coordination_mode: ${toonString(loaded.registry.coordinationMode || "managed")}`);
+  const directives = governedOwnerDirectives(loaded.registry);
+  io.stdout(`coordination_mode: ${toonString(coordinationModeFor(loaded.registry))}`);
   io.stdout(`directives: ${directives.length}`);
   io.stdout(`records[${directives.length}]{id,target_node,target_parent,impact,status,acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref,directive_ref}:`);
   for (const directive of directives) {
@@ -1614,7 +1623,7 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Governing protocols: ${node.governingProtocols.join(", ")}`);
   lines.push(`Required skills (load in order): ${requiredSkillsFor(registry, node).join(", ")}`);
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
-  lines.push(`Coordination mode: ${registry.coordinationMode || "managed"}`);
+  lines.push(`Coordination mode: ${coordinationModeFor(registry)}`);
   const directives = openOwnerDirectivesFor(registry, node.id);
   const replanDirectiveIds = openReplanDirectiveIdsFor(registry, node.id);
   lines.push(`Open owner directives: ${directives.map((directive) => `${directive.id} (${directive.contractImpact}; ${directive.directiveRef})`).join(", ") || "none"}`);

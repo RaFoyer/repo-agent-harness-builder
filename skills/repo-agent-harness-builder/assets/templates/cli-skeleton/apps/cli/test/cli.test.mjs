@@ -3301,6 +3301,39 @@ fixtureTest("orchestration preserves the schema-v3 launch-spec shape", async () 
   assert.deepEqual(spec.requiredSkills, ["project-orchestration"]);
 });
 
+fixtureTest("orchestration contains malformed and legacy owner directives", async () => {
+  const malformed = validOrchestrationRegistry();
+  malformed.ownerDirectives = [null];
+  writeOrchestrationRegistry(malformed);
+
+  for (const command of [["validate"], ["status"], ["next"], ["directives"]]) {
+    const result = capture();
+    assert.equal(await main(["orchestration", ...command], result.io), 1);
+    assert.match(result.out.concat(result.err).join("\n"), /every ownerDirectives entry must be an object/);
+  }
+
+  const promptWithMalformedDirective = capture();
+  assert.equal(await main(["orchestration", "prompt", "manager-docs"], promptWithMalformedDirective.io), 1);
+  assert.match(promptWithMalformedDirective.err.join("\n"), /Orchestration registry has blockers/);
+
+  const legacy = validOrchestrationRegistry();
+  legacy.schemaVersion = 3;
+  legacy.coordinationMode = "hybrid";
+  const boss = legacy.nodes.find((node) => node.id === "boss");
+  boss.taskBinding = taskBindingForTest(legacy, boss);
+  writeOrchestrationRegistry(legacy);
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 0, status.err.join("\n"));
+  assert.match(status.out.join("\n"), /coordination_mode: "managed"/);
+  assert.match(status.out.join("\n"), /owner_directives: 0/);
+
+  const prompt = capture();
+  assert.equal(await main(["orchestration", "prompt", "manager-docs"], prompt.io), 0, prompt.err.join("\n"));
+  assert.match(prompt.out.join("\n"), /Coordination mode: managed/);
+  assert.match(prompt.out.join("\n"), /Open owner directives: none/);
+});
+
 fixtureTest("orchestration rejects owner directives before schema-v4", async () => {
   for (const schemaVersion of [2, 3]) {
     const registry = validOrchestrationRegistry();
