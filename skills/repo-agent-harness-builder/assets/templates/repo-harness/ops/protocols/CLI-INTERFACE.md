@@ -52,7 +52,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `connections env` | Print value-safe provider config-root environment or flag guidance |
 | `github status` | Validate repository-scoped GitHub profile contracts without live auth |
 | `github plan --profile <id>` | Show one value-safe GitHub profile and authority plan |
-| `github run --profile <id> [--node <id>] [--dry-run] -- <args>` | Run a classified `gh-axi` command through isolated repository auth |
+| `github run --profile <id> [--node <id>] [--approval-ref <ref>] [--dry-run] -- <args>` | Run a classified GitHub CLI command—normally `gh-axi`—through isolated repository auth |
 | `orchestration` | Inspect project hierarchy, lifecycle, trust, authority, eligibility, prompts, and adapter launch contracts |
 | `goals` | Inspect ticket-backed goal graphs, strict-chain compatibility paths, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |

@@ -98,7 +98,9 @@ metadata-only inventory report and a written plan before any file changes.
 - Node.js 18 or newer and `npx` for skill installation and generated CLI tests.
 - Python 3 for scaffold and packaging scripts.
 - `git` for repository mode.
-- `gh` only if you want the agent to create or publish GitHub repositories.
+- `gh`, plus the profile-selected executor (normally `gh-axi`), only if you
+  activate a repository GitHub profile. `gh-axi` invokes upstream `gh`; the
+  facade's read-only status and plan commands do not require a credential.
 - `no-mistakes` only if you want the branch-to-PR validation gate; generated
   `no-mistakes status` reports when it is unavailable.
 - `lavish-axi` only if you want optional HTML artifact review sessions;

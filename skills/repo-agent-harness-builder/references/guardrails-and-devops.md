@@ -12,7 +12,8 @@ Check:
 - CLI availability
 - protocol presence
 - local skill freshness
-- required tools such as `git`, `node`, and `gh` when applicable
+- required tools such as `git`, `node`, and, for an active GitHub facade,
+  `gh` plus the profile-selected executor (normally `gh-axi`)
 
 When preflight finds drift, print the command that would fix it and ask for approval before mutating anything.
 

@@ -22,7 +22,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `self` | recommended | Check/update repo harness safely |
 | `secrets` | optional | Value-safe secret inventory and command wrapper |
 | `connections` | recommended | Validate permanent external-authority connection metadata, connector profiles, auth plans, and config-root guidance |
-| `github` | recommended | Validate repository-scoped GitHub profiles and run capability-classified `gh-axi` operations without ambient auth fallback |
+| `github` | recommended | Validate repository-scoped GitHub profiles and run capability-classified GitHub CLI operations—normally `gh-axi`—without ambient auth fallback |
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `orchestration` | recommended | Inspect project-wide hierarchy, lifecycle, autonomy, authority, budgets, eligibility, prompts, and adapter launch contracts |
@@ -218,7 +218,7 @@ Scaffold `github` as the repository-scoped GitHub facade. Minimum behavior:
   inactive credentials.
 - `github plan --profile <id>`: show value-safe repository, boundary, tier,
   credential kind, preferred CLI, and maximum capability metadata.
-- `github run --profile <id> [--node <id>] [--dry-run] -- <gh-axi args>`:
+- `github run --profile <id> [--node <id>] [--approval-ref <ref>] [--dry-run] -- <GitHub CLI args>`:
   classify the command into one exact `github.*` capability, reject unknown or
   cross-repository targets, intersect profile and node authority, and execute
   with isolated `GH_CONFIG_DIR`, fixed `GH_REPO`, prompts disabled, and no
@@ -226,10 +226,11 @@ Scaffold `github` as the repository-scoped GitHub facade. Minimum behavior:
 
 Write-capable execution requires an active orchestration node that allows both
 the capability and exactly one matching `github.profile.<profile-id>` marker.
-Prefer `gh-axi` for supported operational commands. Use upstream `gh` inside
-the same isolated profile only for authentication or a deliberately supported
-surface. Keep Git transport authority explicit because `git push` can bypass
-the GitHub CLI environment.
+High-risk classified capabilities also require their inherited approval gate and
+a value-safe `--approval-ref`. Prefer `gh-axi` for supported operational
+commands. Use upstream `gh` inside the same isolated profile only for
+authentication or a deliberately supported surface. Keep Git transport
+authority explicit because `git push` can bypass the GitHub CLI environment.
 
 ## Goal Graph Command Contract
 

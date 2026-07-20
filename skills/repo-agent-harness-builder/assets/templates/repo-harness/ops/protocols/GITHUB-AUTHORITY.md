@@ -69,7 +69,11 @@ github.repo.admin
 
 A write-capable node must also carry exactly one `github.profile.<profile-id>` marker in `allowedExternalActions`. Because external actions are sealed into the orchestration work contract, this binds the profile without deriving permission from the role name. Parent-to-child authority inheritance applies to both the capability and the profile marker.
 
-Merge, workflow modification or dispatch, secrets, repository administration, destructive operations, and cross-repository actions require explicit gates and should not appear in ordinary Worker profiles.
+Merge, workflow modification or dispatch, secrets, repository administration,
+and destructive operations require explicit gates and should not appear in
+ordinary Worker profiles. The provided facade rejects cross-repository targets;
+perform such work only through the separately scoped repository harness and its
+own authority profile and gates.
 
 ## Repository Facade
 
@@ -80,6 +84,7 @@ Use:
 ./{{CLI_NAME}} github plan --profile <profile-id>
 ./{{CLI_NAME}} github run --profile <profile-id> --dry-run -- pr list
 ./{{CLI_NAME}} github run --profile <profile-id> --node <node-id> -- pr create ...
+./{{CLI_NAME}} github run --profile <profile-id> --node <node-id> --approval-ref <approval-id> -- pr merge ...
 ```
 
 The wrapper must:
@@ -92,6 +97,12 @@ The wrapper must:
 - require an active orchestration node for writes and verify its capability and profile marker;
 - redact subprocess output before returning it to an agent;
 - refuse an inactive, missing, malformed, or uninitialized profile instead of using global auth.
+
+For merge/revert, workflow dispatch/cancel/delete, repository administration,
+and destructive issue/release/label actions, the wrapper also requires
+the node's inherited gate and a value-safe `--approval-ref`. A gate is not
+evidence by itself: the approval reference must identify the approval required
+by the repository's governing protocol.
 
 The wrapper is a policy boundary only when Workers are launched in an environment that prevents direct use of other GitHub or Git credentials. A human shell or unsandboxed process can bypass documentation by invoking `gh`, `curl`, or `git` directly.
 
