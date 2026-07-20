@@ -161,7 +161,7 @@ The inactive scaffold may keep `clientAdapter` null. A configured adapter
 record names its client ID, profile, status, project-local required skill, and whether a standing task-
 creation grant exists; client-specific policy may add base/worktree,
 integration, heartbeat, retention, and reconciliation fields. Installing an
-adapter capability does not select or activate it. Active schema-version-3
+adapter capability does not select or activate it. Active schema-version-3-or-newer
 adapters must declare their required skill explicitly.
 
 1. Validate the registry.

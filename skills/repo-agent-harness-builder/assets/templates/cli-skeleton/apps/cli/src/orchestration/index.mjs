@@ -455,6 +455,9 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     const target = nodesById.get(directive.targetNodeId);
     if (!target) blockers.push(`${label}: targetNodeId must reference a configured node`);
     if (target && directive.targetParentIdAtIssue !== target.parentId) blockers.push(`${label}: targetParentIdAtIssue must match the target's immutable parent`);
+    if (target?.state === "terminal" && !DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
+      blockers.push(`${label}: an open directive cannot target a terminal node`);
+    }
     if (!SHA256_RE.test(String(directive.workContractHashAtIssue || ""))) blockers.push(`${label}: workContractHashAtIssue must be a lowercase SHA-256 digest`);
     if (target && ["issued", "acknowledged"].includes(directive.status)) {
       const parent = target.parentId ? nodesById.get(target.parentId) : null;
@@ -472,6 +475,16 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
       blockers.push(`${label}: terminal directive status requires parentObservedAt`);
     }
   }
+}
+
+function openOwnerDirectivesFor(registry, nodeId) {
+  return arrayOrEmpty(registry.ownerDirectives).filter((directive) => (
+    directive.targetNodeId === nodeId && !DIRECTIVE_TERMINAL_STATES.has(directive.status)
+  ));
+}
+
+function hasOpenReplanDirective(registry, nodeId) {
+  return openOwnerDirectivesFor(registry, nodeId).some((directive) => directive.contractImpact === "replan-required");
 }
 
 export function materializedWorkContractHash(registry, node, parent) {
@@ -662,6 +675,9 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   if (!["queued", "eligible"].includes(node.state) || isNonEmptyString(node.taskId)) {
     block("task-identity", "launch eligibility requires a queued or eligible node without taskId");
   }
+  if (hasOpenReplanDirective(registry, node.id)) {
+    block("owner-replan", "launch eligibility requires every replan-required owner directive to be resolved and reconciled");
+  }
   if (node.parentTaskId !== undefined && node.parentTaskId !== null) {
     block("parent-task-identity", "launch eligibility requires no bound parentTaskId");
   }
@@ -718,6 +734,8 @@ function launchSpecFailure(node, parent, blocker) {
       return `Node ${node.id} cannot launch because parent ${parent?.id || node.parentId} is not in an active managing state.`;
     case "dependencies":
       return `Node ${node.id} cannot launch before all dependencies are completed.`;
+    case "owner-replan":
+      return `Node ${node.id} cannot launch while a replan-required owner directive remains open.`;
     case "reservation":
       return `Node ${node.id} has a pending launch reservation and cannot be materialized again.`;
     case "registry-status":
@@ -1471,7 +1489,11 @@ function runNext(io) {
     io.stdout('reason: "orchestration is inactive"');
     return 0;
   }
-  const eligible = findings.nodes.filter((node) => node.role !== "boss" && ["queued", "eligible"].includes(node.state) && !hasLaunchReservation(node) && dependenciesSatisfied(node, findings.nodesById));
+  const eligible = findings.nodes.filter((node) => node.role !== "boss"
+    && ["queued", "eligible"].includes(node.state)
+    && !hasLaunchReservation(node)
+    && !hasOpenReplanDirective(loaded.registry, node.id)
+    && dependenciesSatisfied(node, findings.nodesById));
   io.stdout(`eligible: ${eligible.length}`);
   io.stdout(`nodes[${eligible.length}]{id,role,work_ref,work_kind,state,title}:`);
   for (const node of eligible) {
@@ -1510,7 +1532,7 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Required skills (load in order): ${requiredSkillsFor(registry, node).join(", ")}`);
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
   lines.push(`Coordination mode: ${registry.coordinationMode || "managed"}`);
-  const directives = arrayOrEmpty(registry.ownerDirectives).filter((directive) => directive.targetNodeId === node.id && !DIRECTIVE_TERMINAL_STATES.has(directive.status));
+  const directives = openOwnerDirectivesFor(registry, node.id);
   lines.push(`Open owner directives: ${directives.map((directive) => `${directive.id} (${directive.contractImpact}; ${directive.directiveRef})`).join(", ") || "none"}`);
   lines.push(`State: ${node.state}`);
   lines.push(`Trust level: ${node.trustLevel}`);
@@ -1653,7 +1675,7 @@ function runLaunchSpec(nodeId, io) {
   };
   io.stdout(JSON.stringify({
     schemaVersion: loaded.registry.schemaVersion,
-    coordinationMode: loaded.registry.coordinationMode || "managed",
+    ...(loaded.registry.schemaVersion >= 4 ? { coordinationMode: loaded.registry.coordinationMode } : {}),
     operation: "create-task",
     nodeId: node.id,
     role: node.role,

@@ -2215,6 +2215,50 @@ fixtureTest("hybrid directive reconciliation requires parent observation and res
   assert.equal(await main(["orchestration", "validate"], accepted.io), 0, accepted.out.concat(accepted.err).join("\n"));
 });
 
+fixtureTest("replan-required owner directives fail closed for scheduling and terminal completion", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.revision = 1;
+  registry.ownerDirectives.push({
+    id: "owner-replan-docs-1",
+    kind: "owner-intervention",
+    issuedByRef: registry.scope.ownerRef,
+    targetNodeId: manager.id,
+    targetParentIdAtIssue: manager.parentId,
+    directiveRef: "tracker:DOCS-4#scope-change",
+    contractImpact: "replan-required",
+    status: "acknowledged",
+    registryRevisionAtIssue: 0,
+    workContractHashAtIssue: materializedWorkContractHash(registry, manager, boss),
+    createdAt: "2026-07-20T12:00:00Z",
+    acknowledgedAt: "2026-07-20T12:01:00Z"
+  });
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.out.concat(validation.err).join("\n"));
+
+  const next = capture();
+  assert.equal(await main(["orchestration", "next"], next.io), 0, next.err.join("\n"));
+  assert.doesNotMatch(next.out.join("\n"), /manager-docs/);
+
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", manager.id], launch.io), 1);
+  assert.match(launch.err.join("\n"), /cannot launch while a replan-required owner directive remains open/);
+
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = boss.taskId;
+  manager.terminalDisposition = "completed";
+  manager.completionEvidence = ["approved documentation artifact"];
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+  const terminal = capture();
+  assert.equal(await main(["orchestration", "validate"], terminal.io), 1);
+  assert.match(terminal.out.join("\n"), /an open directive cannot target a terminal node/);
+});
+
 fixtureTest("orchestration activates configured Boss callbacks", async () => {
   const registry = validOrchestrationRegistry();
   const boss = registry.nodes.find((node) => node.id === "boss");
@@ -3079,8 +3123,24 @@ fixtureTest("orchestration accepts explicitly inventoried legacy schema-v2 bindi
   assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
   const spec = JSON.parse(launch.out.join("\n"));
   assert.equal(spec.schemaVersion, 2);
+  assert.equal(Object.hasOwn(spec, "coordinationMode"), false);
   assert.equal(Object.hasOwn(spec, "requiredSkills"), false);
   assert.equal(Object.hasOwn(spec.reservation.workContract.payload.node, "requiredSkills"), false);
+});
+
+fixtureTest("orchestration preserves the schema-v3 launch-spec shape", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 3;
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.schemaVersion, 3);
+  assert.equal(Object.hasOwn(spec, "coordinationMode"), false);
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration"]);
 });
 
 fixtureTest("orchestration rejects supplied binding titles that do not match the registry", async () => {
