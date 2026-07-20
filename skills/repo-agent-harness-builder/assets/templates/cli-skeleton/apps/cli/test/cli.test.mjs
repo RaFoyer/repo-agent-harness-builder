@@ -1447,7 +1447,11 @@ fixtureTest("github facade fails closed on unclassified and cross-repository com
 fixtureTest("github repository targeting is command-specific", () => {
   assert.match(validateRepositoryTarget(["repo", "view", "github.com/other/repository"]), /outside this harness scope/);
   assert.equal(validateRepositoryTarget(["repo", "view", `github.com/${CONFIG.repoSlug}`]), null);
+  assert.equal(validateRepositoryTarget(["pr", "list", "--repo", `github.com/${CONFIG.repoSlug}`]), null);
   assert.equal(validateRepositoryTarget(["repo", "view", "--web"]), null);
+  assert.match(validateRepositoryTarget(["repo", "view", "--web", "other/repository"]), /outside this harness scope/);
+  assert.match(validateRepositoryTarget(["pr", "view", "--web", "https://github.com/other/repository/pull/1"]), /outside this harness scope/);
+  assert.equal(validateRepositoryTarget(["pr", "create", "--body", "https://github.com/other/repository/pull/1"]), null);
   assert.equal(validateRepositoryTarget(["release", "upload", "v1", "dist/app.zip"]), null);
   assert.equal(validateRepositoryTarget(["run", "download", "123", "--dir", "artifacts/run"]), null);
   assert.equal(validateRepositoryTarget(["pr", "create", "--body-file", "docs/pr.md"]), null);

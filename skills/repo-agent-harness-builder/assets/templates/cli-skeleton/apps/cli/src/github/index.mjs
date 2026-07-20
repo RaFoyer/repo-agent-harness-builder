@@ -113,6 +113,11 @@ const RESOURCE_POSITIONAL_COMMANDS = new Set([
   "pr:view", "pr:checks", "pr:diff", "pr:edit", "pr:ready", "pr:update-branch", "pr:close",
   "pr:reopen", "pr:comment", "pr:review", "pr:merge", "pr:checkout", "pr:revert"
 ]);
+const RESOURCE_CONTENT_OPTIONS = new Set(["--body", "-b", "--body-file", "--title", "-t"]);
+const REPOSITORY_VALUE_OPTIONS = new Map([
+  ["repo:view", new Set(["--branch", "-b", "--jq", "-q", "--json", "--template", "-t"])],
+  ["repo:clone", new Set(["--upstream-remote-name"])]
+]);
 
 function loadJson(relativePath) {
   const target = path.join(CONFIG.repoRoot, relativePath);
@@ -239,6 +244,26 @@ function repositoryFromReference(value) {
   return `${urlMatch[2]}/${urlMatch[3].replace(/\.git$/i, "")}`;
 }
 
+function isConfiguredRepository(value) {
+  const repository = repositoryFromReference(value);
+  return typeof repository === "string" && repository.toLowerCase() === String(CONFIG.repoSlug).toLowerCase();
+}
+
+function firstRepositoryPositional(args, commandKey) {
+  const valueOptions = REPOSITORY_VALUE_OPTIONS.get(commandKey) || new Set();
+  for (let index = 2; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--") return null;
+    if (valueOptions.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) continue;
+    return argument;
+  }
+  return null;
+}
+
 function rejectWrapperArgs(argv, io, command, { run = false } = {}) {
   const boundary = run ? argv.indexOf("--") : argv.length;
   const wrapperArgs = boundary < 0 ? argv : argv.slice(0, boundary);
@@ -268,7 +293,7 @@ export function validateRepositoryTarget(args) {
   }
   const requestedRepositories = optionValues(args, ["--repo", "-R"]);
   if (requestedRepositories.length > 1) return "GitHub command supplies duplicate repository selectors";
-  if (requestedRepositories.some((requested) => requested !== CONFIG.repoSlug)) {
+  if (requestedRepositories.some((requested) => !isConfiguredRepository(requested))) {
     return "GitHub command targets a repository outside this harness scope";
   }
   const transferTargets = optionValues(args, ["--to-repo"]);
@@ -279,15 +304,22 @@ export function validateRepositoryTarget(args) {
   for (const option of SCOPE_CHANGING_OPTIONS) {
     if (optionValues(args, [option]).length) return "GitHub command changes the configured repository or host scope";
   }
-  const positional = args[2];
+  const positional = firstRepositoryPositional(args, commandKey);
   if (REPOSITORY_POSITIONAL_COMMANDS.has(commandKey)) {
-    if (commandKey === "repo:view" && (!positional || positional.startsWith("-"))) return null;
-    const repository = repositoryFromReference(positional);
-    if (!repository || repository !== CONFIG.repoSlug) return "GitHub command targets a repository outside this harness scope";
+    if (positional && !isConfiguredRepository(positional)) return "GitHub command targets a repository outside this harness scope";
   }
-  if (RESOURCE_POSITIONAL_COMMANDS.has(commandKey) && /^(?:https?:\/\/|git@)/i.test(positional || "")) {
-    const repository = repositoryFromReference(positional);
-    if (!repository || repository !== CONFIG.repoSlug) return "GitHub command targets a repository outside this harness scope";
+  if (RESOURCE_POSITIONAL_COMMANDS.has(commandKey)) {
+    for (let index = 2; index < args.length; index += 1) {
+      const argument = args[index];
+      if (RESOURCE_CONTENT_OPTIONS.has(argument)) {
+        index += 1;
+        continue;
+      }
+      if ([...RESOURCE_CONTENT_OPTIONS].some((option) => argument.startsWith(`${option}=`))) continue;
+      if (/^(?:https?:\/\/|git@)/i.test(argument) && !isConfiguredRepository(argument)) {
+        return "GitHub command targets a repository outside this harness scope";
+      }
+    }
   }
   return null;
 }
