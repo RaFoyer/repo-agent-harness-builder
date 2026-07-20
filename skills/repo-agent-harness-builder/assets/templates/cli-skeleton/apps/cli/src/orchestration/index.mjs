@@ -849,6 +849,11 @@ function validateRegistry(registry) {
   if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2, 3, or 4");
   else if (registry.schemaVersion === 2) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 or newer before relying on requiredSkills as immutable work-contract data");
   else if (registry.schemaVersion === 3) warnings.push("schemaVersion 3 is supported for existing bindings; migrate to 4 before enabling hybrid coordination and owner directives");
+  if (registry.schemaVersion < 4
+    && registry.ownerDirectives !== undefined
+    && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
+    blockers.push("ownerDirectives require schemaVersion 4");
+  }
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 0) blockers.push("revision must be a non-negative safe integer");
   if (!["inactive", "active"].includes(registry.status)) blockers.push("status must be inactive or active");
   if (!isNonEmptyString(registry.prefix)) blockers.push("prefix must be a non-empty single-line string");

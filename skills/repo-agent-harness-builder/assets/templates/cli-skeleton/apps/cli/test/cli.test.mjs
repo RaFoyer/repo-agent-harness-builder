@@ -3250,6 +3250,29 @@ fixtureTest("orchestration preserves the schema-v3 launch-spec shape", async () 
   assert.deepEqual(spec.requiredSkills, ["project-orchestration"]);
 });
 
+fixtureTest("orchestration rejects owner directives before schema-v4", async () => {
+  for (const schemaVersion of [2, 3]) {
+    const registry = validOrchestrationRegistry();
+    registry.schemaVersion = schemaVersion;
+    const boss = registry.nodes.find((node) => node.id === "boss");
+    boss.taskBinding = taskBindingForTest(registry, boss, { requiresVerifiedTitle: false });
+    registry.ownerDirectives = [{ id: "ungoverned-directive" }];
+    writeOrchestrationRegistry(registry);
+
+    const validation = capture();
+    assert.equal(await main(["orchestration", "validate"], validation.io), 1);
+    assert.match(validation.out.join("\n"), /ownerDirectives require schemaVersion 4/);
+
+    const next = capture();
+    assert.equal(await main(["orchestration", "next"], next.io), 1);
+    assert.match(next.out.join("\n"), /ownerDirectives require schemaVersion 4/);
+
+    const launch = capture();
+    assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 1);
+    assert.match(launch.err.join("\n"), /Orchestration registry has blockers/);
+  }
+});
+
 fixtureTest("orchestration rejects supplied binding titles that do not match the registry", async () => {
   const registry = validOrchestrationRegistry();
   const boss = registry.nodes.find((node) => node.id === "boss");
