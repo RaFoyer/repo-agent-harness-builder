@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
-import { createGithubChildEnvironment } from "../src/github/index.mjs";
+import { createGithubChildEnvironment, validateProfileRoot, validateRepositoryTarget } from "../src/github/index.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
 import { materializedWorkContractHash, taskBindingAttestationPayload, taskBindingLegacyAttestationDigest } from "../src/orchestration/index.mjs";
@@ -1427,6 +1427,10 @@ fixtureTest("github facade fails closed on unclassified and cross-repository com
   assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "-Rother/repository"], compactCrossRepo.io), 1);
   assert.match(compactCrossRepo.err.join("\n"), /outside this harness scope/);
 
+  const duplicateRepo = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "--repo", CONFIG.repoSlug, "--repo", "other/repository"], duplicateRepo.io), 1);
+  assert.match(duplicateRepo.err.join("\n"), /duplicate repository selectors/);
+
   for (const args of [
     ["repo", "view", "other/repository"],
     ["repo", "clone", "other/repository"],
@@ -1437,6 +1441,32 @@ fixtureTest("github facade fails closed on unclassified and cross-repository com
     const scoped = capture();
     assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", ...args], scoped.io), 1, args.join(" "));
     assert.match(scoped.err.join("\n"), /repository|host scope/i, args.join(" "));
+  }
+});
+
+fixtureTest("github repository targeting is command-specific", () => {
+  assert.match(validateRepositoryTarget(["repo", "view", "github.com/other/repository"]), /outside this harness scope/);
+  assert.equal(validateRepositoryTarget(["repo", "view", `github.com/${CONFIG.repoSlug}`]), null);
+  assert.equal(validateRepositoryTarget(["repo", "view", "--web"]), null);
+  assert.equal(validateRepositoryTarget(["release", "upload", "v1", "dist/app.zip"]), null);
+  assert.equal(validateRepositoryTarget(["run", "download", "123", "--dir", "artifacts/run"]), null);
+  assert.equal(validateRepositoryTarget(["pr", "create", "--body-file", "docs/pr.md"]), null);
+  assert.equal(validateRepositoryTarget(["pr", "create", "--body", "https://example.test/docs/path"]), null);
+});
+
+fixtureTest("github profile roots reject symlinked configuration components", () => {
+  const previousConfigHome = process.env.XDG_CONFIG_HOME;
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "github-profile-home-"));
+  const redirected = fs.mkdtempSync(path.join(os.tmpdir(), "github-profile-shared-"));
+  const connectors = path.join(configHome, "agent-connectors");
+  fs.mkdirSync(path.join(redirected, "repo", "github", "worker"), { recursive: true });
+  fs.symlinkSync(redirected, connectors, "dir");
+  process.env.XDG_CONFIG_HOME = configHome;
+  try {
+    assert.match(validateProfileRoot(path.join(connectors, "repo", "github", "worker")), /must not contain symlinks/);
+  } finally {
+    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousConfigHome;
   }
 });
 

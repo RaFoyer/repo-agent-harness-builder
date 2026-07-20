@@ -105,7 +105,14 @@ const CAPABILITY_GATES = new Map([
 ]);
 const EXTERNALLY_SCOPED_COMMANDS = new Set(["repo:list", "repo:create", "repo:fork", "issue:transfer"]);
 const SCOPE_CHANGING_OPTIONS = ["--org", "--owner", "--hostname", "--host"];
-const REPOSITORY_REFERENCE_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const REPOSITORY_REFERENCE_RE = /^(?:github\.com\/)?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/i;
+const REPOSITORY_POSITIONAL_COMMANDS = new Set(["repo:view", "repo:clone"]);
+const RESOURCE_POSITIONAL_COMMANDS = new Set([
+  "issue:view", "issue:edit", "issue:close", "issue:reopen", "issue:comment", "issue:delete",
+  "issue:lock", "issue:unlock", "issue:pin", "issue:unpin", "issue:subissue",
+  "pr:view", "pr:checks", "pr:diff", "pr:edit", "pr:ready", "pr:update-branch", "pr:close",
+  "pr:reopen", "pr:comment", "pr:review", "pr:merge", "pr:checkout", "pr:revert"
+]);
 
 function loadJson(relativePath) {
   const target = path.join(CONFIG.repoRoot, relativePath);
@@ -199,15 +206,37 @@ function classifyCommand(args) {
   return COMMAND_CAPABILITIES.get(`${command}:${subcommand}`) || null;
 }
 
-function explicitRepo(args, flag) {
-  const inline = args.find((arg) => arg.startsWith(`${flag}=`));
-  if (inline) return inline.slice(flag.length + 1);
-  const index = args.indexOf(flag);
-  if (flag === "-R") {
-    const compact = args.find((arg) => arg.startsWith("-R") && arg.length > 2);
-    if (compact) return compact.slice(2);
+function optionValues(args, flags) {
+  const values = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    for (const flag of flags) {
+      if (argument === flag) {
+        values.push(args[index + 1]);
+        index += 1;
+        break;
+      }
+      if (argument.startsWith(`${flag}=`)) {
+        values.push(argument.slice(flag.length + 1));
+        break;
+      }
+      if (flag === "-R" && argument.startsWith("-R") && argument.length > 2) {
+        values.push(argument.slice(2));
+        break;
+      }
+    }
   }
-  return index >= 0 ? args[index + 1] : undefined;
+  return values;
+}
+
+function repositoryFromReference(value) {
+  if (typeof value !== "string") return null;
+  const repositoryMatch = REPOSITORY_REFERENCE_RE.exec(value);
+  if (repositoryMatch) return repositoryMatch[1];
+  const urlMatch = /^https?:\/\/([^/]+)\/([^/]+)\/([^/#]+)(?:[\/#].*)?$/i.exec(value);
+  if (!urlMatch) return null;
+  if (urlMatch[1].toLowerCase() !== "github.com") return "__external_host__";
+  return `${urlMatch[2]}/${urlMatch[3].replace(/\.git$/i, "")}`;
 }
 
 function rejectWrapperArgs(argv, io, command, { run = false } = {}) {
@@ -232,27 +261,54 @@ function rejectWrapperArgs(argv, io, command, { run = false } = {}) {
   return true;
 }
 
-function validateRepositoryTarget(args) {
+export function validateRepositoryTarget(args) {
   const commandKey = `${args[0]}:${args[1]}`;
   if (EXTERNALLY_SCOPED_COMMANDS.has(commandKey)) {
     return "GitHub command cannot be constrained to this harness repository";
   }
-  const requested = explicitRepo(args, "--repo") || explicitRepo(args, "-R");
-  if (requested && requested !== CONFIG.repoSlug) return "GitHub command targets a repository outside this harness scope";
-  const transferTarget = explicitRepo(args, "--to-repo");
-  if (transferTarget && transferTarget !== CONFIG.repoSlug) return "Cross-repository GitHub transfer requires separately registered authority";
+  const requestedRepositories = optionValues(args, ["--repo", "-R"]);
+  if (requestedRepositories.length > 1) return "GitHub command supplies duplicate repository selectors";
+  if (requestedRepositories.some((requested) => requested !== CONFIG.repoSlug)) {
+    return "GitHub command targets a repository outside this harness scope";
+  }
+  const transferTargets = optionValues(args, ["--to-repo"]);
+  if (transferTargets.length > 1) return "GitHub command supplies duplicate transfer repository selectors";
+  if (transferTargets.some((target) => target !== CONFIG.repoSlug)) {
+    return "Cross-repository GitHub transfer requires separately registered authority";
+  }
   for (const option of SCOPE_CHANGING_OPTIONS) {
-    if (explicitRepo(args, option) !== undefined) return "GitHub command changes the configured repository or host scope";
+    if (optionValues(args, [option]).length) return "GitHub command changes the configured repository or host scope";
   }
-  for (const argument of args.slice(2)) {
-    if (argument.startsWith("-")) continue;
-    if (REPOSITORY_REFERENCE_RE.test(argument) && argument !== CONFIG.repoSlug) {
-      return "GitHub command targets a repository outside this harness scope";
-    }
-    if (/^(?:https?:\/\/|git@)/i.test(argument)) {
-      return "GitHub command supplies an external repository reference outside this harness scope";
-    }
+  const positional = args[2];
+  if (REPOSITORY_POSITIONAL_COMMANDS.has(commandKey)) {
+    if (commandKey === "repo:view" && (!positional || positional.startsWith("-"))) return null;
+    const repository = repositoryFromReference(positional);
+    if (!repository || repository !== CONFIG.repoSlug) return "GitHub command targets a repository outside this harness scope";
   }
+  if (RESOURCE_POSITIONAL_COMMANDS.has(commandKey) && /^(?:https?:\/\/|git@)/i.test(positional || "")) {
+    const repository = repositoryFromReference(positional);
+    if (!repository || repository !== CONFIG.repoSlug) return "GitHub command targets a repository outside this harness scope";
+  }
+  return null;
+}
+
+export function validateProfileRoot(root) {
+  if (pathInsideRepo(root)) return "isolated GitHub profile root must remain outside the repository";
+  if (!fs.existsSync(root)) return "isolated GitHub profile root is not initialized; use the repository auth plan before login";
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const relative = path.relative(path.resolve(base), path.resolve(root));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return "isolated GitHub profile root must remain inside the selected configuration home";
+  }
+  const components = [path.resolve(base)];
+  for (const part of relative.split(path.sep)) components.push(path.join(components.at(-1), part));
+  for (const component of components) {
+    if (!fs.existsSync(component)) return "isolated GitHub profile root has an incomplete configuration path";
+    if (fs.lstatSync(component).isSymbolicLink()) return "isolated GitHub profile path must not contain symlinks";
+  }
+  const realRoot = fs.realpathSync(root);
+  if (pathInsideRepo(realRoot)) return "isolated GitHub profile real path must remain outside the repository";
+  if (!fs.statSync(realRoot).isDirectory()) return "isolated GitHub profile root must be a directory";
   return null;
 }
 
@@ -423,16 +479,9 @@ function run(argv, io) {
   }
 
   const root = profileRoot(profile);
-  if (pathInsideRepo(root)) {
-    io.stderr("blocker: isolated GitHub profile root must remain outside the repository");
-    return 1;
-  }
-  if (!fs.existsSync(root)) {
-    io.stderr("blocker: isolated GitHub profile root is not initialized; use the repository auth plan before login");
-    return 1;
-  }
-  if (fs.lstatSync(root).isSymbolicLink()) {
-    io.stderr("blocker: isolated GitHub profile root must not be a symlink");
+  const rootBlocker = validateProfileRoot(root);
+  if (rootBlocker) {
+    io.stderr(`blocker: ${rootBlocker}`);
     return 1;
   }
   const executable = config.preferredCli === "gh" ? "gh" : "gh-axi";
