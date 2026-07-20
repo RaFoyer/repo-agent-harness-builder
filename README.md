@@ -22,6 +22,8 @@ The durable contract lives in ordinary files in the target repo or folder:
   update checks, and tracker-decision capture before ticket-backed goals
 - setup checklists with `active`, `inactive`, and `not-applicable` states
 - value-safe secrets, external-authority, and connector boundaries
+- repository-scoped GitHub profiles with `gh-axi` command classification,
+  process-local credential support, and orchestration capability intersection
 - repository-scoped connector authentication profiles for browser and CLI login flows
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
@@ -80,6 +82,9 @@ see a read-only readiness result, such as:
 ./harness orchestration status
 ./harness orchestration adapter-status
 ./harness orchestration taxonomy
+./harness github status
+./harness github plan --profile example-github-worker
+./harness github run --profile example-github-worker --dry-run -- pr list
 ./harness context
 ./harness preflight
 ```

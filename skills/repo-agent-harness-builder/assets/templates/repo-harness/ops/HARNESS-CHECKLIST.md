@@ -40,6 +40,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Lavish review surface | inactive | `ops/protocols/LAVISH-REVIEW.md`, `./{{CLI_NAME}} lavish status`; optional visual review and tracker-decision capture |
 | External system registry | inactive | `ops/connections.json`, `./{{CLI_NAME}} connections status` |
 | Connector auth profiles | inactive | `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, `./{{CLI_NAME}} connections auth-plan --profile <profile-id>` |
+| Repository-scoped GitHub authority | inactive | `ops/protocols/GITHUB-AUTHORITY.md`, GitHub profile metadata in `ops/connections.json`, and `./{{CLI_NAME}} github status`; activate only after profile, node-capability, approval, revocation, and Git transport boundaries are tested |
 
 ## Optional Modules
 

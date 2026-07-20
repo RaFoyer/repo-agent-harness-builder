@@ -44,6 +44,9 @@ Good profile-isolation patterns:
 - Google Cloud CLI: set a repository-specific `CLOUDSDK_CONFIG` for each
   invocation.
 - Neon CLI: pass a repository-specific `--config-dir` for each invocation.
+- GitHub CLI: set a repository-and-profile-specific `GH_CONFIG_DIR`, fix
+  `GH_REPO`, clear ambient `GH_TOKEN`/`GITHUB_TOKEN`, and inject only the
+  selected process-local credential when the profile uses one.
 - Other provider CLIs: use the documented config-root environment variable,
   config-directory flag, or an explicit unsupported status when only one global
   mutable session exists.
@@ -69,6 +72,34 @@ Browser-flow rules:
   cookies, or browser storage.
 - Verify completion with the originating process exit status and read-only
   identity checks for the selected repository profile.
+
+## GitHub CLI And AXI Boundary
+
+Install `gh` and `gh-axi` globally if desired, but keep their responsibilities
+separate. `gh-axi` is the preferred agent-facing executor for its supported
+GitHub operations and compact structured output. It invokes upstream `gh` and
+inherits the process environment; it is not an authentication store, profile
+selector, or authority system.
+
+The repository facade owns profile selection and must fail closed rather than
+falling back to `~/.config/gh`. Give every profile its own root under
+`agent-connectors/<repo-id>/github/<profile-id>`. Separate roots permit multiple
+repositories and accounts to operate concurrently; `gh auth switch` in one
+shared config directory does not.
+
+For bounded Workers, prefer short-lived GitHub App installation tokens supplied
+as process-local `GH_TOKEN` values by an approved secret broker or launch
+environment. Fine-grained PATs are an interim option. Broad OAuth or classic
+PAT credentials are explicit operator profiles, never ambient Worker defaults.
+The registry stores only safe metadata and environment-variable names, never
+credential values.
+
+Treat `git` transport separately. `GH_CONFIG_DIR` does not isolate SSH keys,
+credential helpers, remotes, or `git push`. A harness must define a tested
+repository-specific Git transport path before claiming that branch pushes are
+enforced by the GitHub profile. Direct `gh`, `curl`, or `git` invocation also
+bypasses a facade unless the Worker launch environment or supervisor prevents
+it.
 
 ## Connector Discovery Pattern
 

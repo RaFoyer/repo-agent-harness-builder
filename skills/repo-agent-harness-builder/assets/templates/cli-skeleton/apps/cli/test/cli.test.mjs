@@ -613,6 +613,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["Browser boundary", (registry) => { registry.clientAdapter.browserAuthenticationBoundary = null; }, /browserAuthenticationBoundary/],
     ["GitHub choice", (registry) => { registry.clientAdapter.githubIntegration = "unconfigured"; }, /githubIntegration/],
     ["GitHub boundary", (registry) => { registry.clientAdapter.githubAuthenticationBoundary = null; }, /githubAuthenticationBoundary/],
+    ["GitHub profile policy", (registry) => { registry.clientAdapter.githubIntegration = "repository-facade"; }, /githubProfilePolicy/],
     ["heartbeat ownership", (registry) => { delete registry.clientAdapter.heartbeat.registryMutator; }, /heartbeat must configure mode, cadence, and registry mutator/],
     ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
     ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
@@ -699,7 +700,7 @@ test("no args renders content-first agent home view", async () => {
   const text = out.join("\n");
   assert.match(text, new RegExp(`bin: "\\./${CONFIG.cliName}"`));
   assert.match(text, /description:/);
-  assert.match(text, /commands\[10\]\{command,purpose\}:/);
+  assert.match(text, /commands\[11\]\{command,purpose\}:/);
   assert.match(text, /"preflight","Run read-only session-start checks"/);
   assert.match(text, /"ergonomics status","Audit agent-facing CLI ergonomics"/);
   assert.match(text, /"no-mistakes status","Check branch-to-PR validation gate setup"/);
@@ -1368,7 +1369,7 @@ fixtureTest("connections env renders env-var config-root guidance without local 
   assert.match(text, /Connector auth environment: example-gcloud/);
   assert.match(text, /strategy: env/);
   assert.match(text, /env: CLOUDSDK_CONFIG/);
-  assert.match(text, /export CLOUDSDK_CONFIG=\\?"\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/agent-connectors\/[a-z0-9-]+--[a-f0-9]{12}\/gcloud\\?"/);
+  assert.match(text, /export CLOUDSDK_CONFIG=\\?"\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/agent-connectors\/[a-z0-9-]+--[a-f0-9]{12}\/gcloud\/example-gcloud\\?"/);
   assert.doesNotMatch(text, localPathPattern());
 });
 
@@ -1382,6 +1383,94 @@ fixtureTest("connections env renders config-dir flag guidance for Neon-style CLI
   assert.match(text, /executable: neonctl/);
   assert.match(text, /command_hint: "neonctl --config-dir/);
   assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("github status and plan expose value-safe repository profile metadata", async () => {
+  const statusCapture = capture();
+  const statusCode = await main(["github", "status"], statusCapture.io);
+  assert.equal(statusCode, 0, statusCapture.err.join("\n"));
+  assert.match(statusCapture.out.join("\n"), /example-github-worker.*inactive.*worker.*github-app-installation/);
+
+  const planCapture = capture();
+  const planCode = await main(["github", "plan", "--profile", "example-github-worker"], planCapture.io);
+  assert.equal(planCode, 0, planCapture.err.join("\n"));
+  const text = planCapture.out.join("\n");
+  assert.match(text, /profile_boundary: repository/);
+  assert.match(text, /config_root_env: GH_CONFIG_DIR/);
+  assert.match(text, /preferred_cli: gh-axi/);
+  assert.match(text, /runtime_auth: environment/);
+  assert.match(text, /ambient_global_login_used: false/);
+  assert.doesNotMatch(text, localPathPattern());
+});
+
+fixtureTest("github dry-run classifies reads without requiring live auth", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list"], io);
+  assert.equal(code, 0, err.join("\n"));
+  const text = out.join("\n");
+  assert.match(text, /capability: github\.pr\.read/);
+  assert.match(text, /execution: skipped/);
+  assert.match(text, /ambient_global_login_used: false/);
+});
+
+fixtureTest("github facade fails closed on unclassified and cross-repository commands", async () => {
+  const unknown = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "api", "repos"], unknown.io), 1);
+  assert.match(unknown.err.join("\n"), /fail-closed command capability map/);
+
+  const crossRepo = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "--repo", "other/repository"], crossRepo.io), 1);
+  assert.match(crossRepo.err.join("\n"), /outside this harness scope/);
+
+  const compactCrossRepo = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "pr", "list", "-Rother/repository"], compactCrossRepo.io), 1);
+  assert.match(compactCrossRepo.err.join("\n"), /outside this harness scope/);
+});
+
+fixtureTest("GitHub and connector profiles reject path-shaped ids", async () => {
+  const registryPath = "ops/connections.json";
+  const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, registryPath), "utf-8"));
+  registry.connectorProfiles.find((profile) => profile.provider === "github").id = "../operator";
+  await withFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, async () => {
+    const githubCapture = capture();
+    assert.equal(await main(["github", "status"], githubCapture.io), 1);
+    assert.match(githubCapture.err.join("\n"), /safe lowercase slug/);
+    const connectionCapture = capture();
+    assert.equal(await main(["connections", "status"], connectionCapture.io), 1);
+    assert.match(connectionCapture.err.join("\n"), /safe lowercase slug/);
+  });
+});
+
+fixtureTest("github writes require active node capability and matching profile binding", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.create", "github.profile.example-github-worker");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const accepted = capture();
+  const acceptedCode = await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], accepted.io);
+  assert.equal(acceptedCode, 0, accepted.err.join("\n"));
+  assert.match(accepted.out.join("\n"), /capability: github\.pr\.create/);
+
+  boss.authority.allowedExternalActions = boss.authority.allowedExternalActions.filter((action) => !action.startsWith("github.profile."));
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const rejected = capture();
+  assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], rejected.io), 1);
+  assert.match(rejected.err.join("\n"), /bind exactly one github\.profile/);
+});
+
+fixtureTest("orchestration validation intersects GitHub node and profile capabilities", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.merge", "github.profile.example-github-worker");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const { io, out } = capture();
+  const code = await main(["orchestration", "validate"], io);
+  assert.equal(code, 1);
+  assert.match(out.join("\n"), /github\.pr\.merge exceeds GitHub profile example-github-worker/);
 });
 
 fixtureTest("connections status blocks unsafe auth profile config-root metadata", async () => {

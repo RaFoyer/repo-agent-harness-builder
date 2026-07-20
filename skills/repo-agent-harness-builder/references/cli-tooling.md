@@ -22,6 +22,7 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `self` | recommended | Check/update repo harness safely |
 | `secrets` | optional | Value-safe secret inventory and command wrapper |
 | `connections` | recommended | Validate permanent external-authority connection metadata, connector profiles, auth plans, and config-root guidance |
+| `github` | recommended | Validate repository-scoped GitHub profiles and run capability-classified `gh-axi` operations without ambient auth fallback |
 | `qa` | optional | Inspect browser/Playwright/UI QA lanes and artifacts without live credentials |
 | `loops` | optional | Validate and dry-run bounded loops, heartbeats, or scheduled work definitions |
 | `orchestration` | recommended | Inspect project-wide hierarchy, lifecycle, autonomy, authority, budgets, eligibility, prompts, and adapter launch contracts |
@@ -58,6 +59,7 @@ apps/cli/src/no-mistakes/index.mjs
 apps/cli/src/skills/sync.mjs
 apps/cli/src/secrets/index.mjs
 apps/cli/src/connections/index.mjs
+apps/cli/src/github/index.mjs
 apps/cli/src/orchestration/index.mjs
 apps/cli/src/goals/index.mjs
 apps/cli/src/design/index.mjs
@@ -207,6 +209,27 @@ contract immediately before external task creation, use the launch key as the
 task API idempotency key, and write the returned task ID and working state back
 only with the matching current reservation contract.
 This separates a portable repository contract from client-specific task APIs.
+
+## GitHub Command Contract
+
+Scaffold `github` as the repository-scoped GitHub facade. Minimum behavior:
+
+- `github status`: validate profile shape without reading tokens or requiring
+  inactive credentials.
+- `github plan --profile <id>`: show value-safe repository, boundary, tier,
+  credential kind, preferred CLI, and maximum capability metadata.
+- `github run --profile <id> [--node <id>] [--dry-run] -- <gh-axi args>`:
+  classify the command into one exact `github.*` capability, reject unknown or
+  cross-repository targets, intersect profile and node authority, and execute
+  with isolated `GH_CONFIG_DIR`, fixed `GH_REPO`, prompts disabled, and no
+  ambient token fallback.
+
+Write-capable execution requires an active orchestration node that allows both
+the capability and exactly one matching `github.profile.<profile-id>` marker.
+Prefer `gh-axi` for supported operational commands. Use upstream `gh` inside
+the same isolated profile only for authentication or a deliberately supported
+surface. Keep Git transport authority explicit because `git push` can bypass
+the GitHub CLI environment.
 
 ## Goal Graph Command Contract
 

@@ -44,6 +44,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - Non-technical installation, personal folders, and safe file stewardship: read `references/nontechnical-and-personal-harness.md`.
 - External authority, permanent Drive/email/document/database connections, and role-based permission boundaries: read `references/external-authority-and-connections.md`.
 - Repository-scoped CLI and connector authentication profiles, browser login boundaries, and config-root isolation: read `references/external-authority-and-connections.md`.
+- Repository-scoped GitHub accounts, `gh-axi`/`gh` layering, process-local credentials, Git transport boundaries, and orchestration capability profiles: read `references/external-authority-and-connections.md`, then `references/project-orchestration.md`.
 - Agent-agnostic distribution, `npx skills add`, and client adapters: read `references/agent-agnostic-distribution.md`.
 - Global skill ownership, downstream sync boundaries, non-discoverable backup archives, and local-install repair: read `references/skill-install-ownership.md`.
 - Automations, heartbeats, hooks, goal/loop modes, noninteractive runs, and scheduled work across agent clients: read `references/automations-and-loops.md`.
@@ -56,7 +57,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 
 - `assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md`: preservation-first message for auditing and discussing another repository's harness, CLI, skill provenance, and migration plan before edits.
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, protocol templates, no-mistakes repo policy, and setup script.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, repository-scoped `github`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/orchestration/`: project-wide registry, ledger, and Boss/Manager/Worker prompts with explicit trust, authority, and loop ownership.
@@ -100,6 +101,7 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - Repositories hold non-privileged internal documentation; role-restricted material belongs in an external authority with explicit permission boundaries.
 - External systems are auxiliary unless a protocol explicitly makes them authoritative for a named scope.
 - Connector packages may be global, but mutable authentication profiles must be repo-scoped by default unless a protocol explicitly marks a different boundary.
+- GitHub Workers must not inherit an ambient global `gh` login. Bind every write-capable GitHub launch to one repository profile and exact `github.*` capabilities; treat `git` network credentials as a separate boundary from `gh` authentication.
 - Never make Codex, Claude, Gemini, Kimi, Cursor, or any single client the conceptual owner of the harness. Client-specific files and commands are adapters around the shared protocol/CLI contract.
 - Downstream repositories may sync only their own project-specific skill names. They must never install, link, copy, replace, or back up shared fleet skill names; recoverable copies belong outside every discoverable skills root.
 - Advanced Flow-style hooks and artifact hubs are optional modules; do not make them the base harness.

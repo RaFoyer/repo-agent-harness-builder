@@ -27,6 +27,7 @@ export const CONFIG = {
     "PRIVILEGED-DOCUMENTS.md",
     "EXTERNAL-SYSTEMS.md",
     "CONNECTOR-AUTH-PROFILES.md",
+    "GITHUB-AUTHORITY.md",
     "NO-MISTAKES-GATE.md",
     "AGENT-ORCHESTRATION.md",
     "GOAL-GRAPH.md",

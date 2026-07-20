@@ -23,6 +23,12 @@
   "browserAuthenticationBoundary": null,
   "githubIntegration": "unconfigured",
   "githubAuthenticationBoundary": null,
+  "githubProfilePolicy": {
+    "facadeCommand": "./{{CLI_NAME}} github run",
+    "requireNodeProfileBindingForWrites": true,
+    "forbidAmbientGlobalAuth": true,
+    "gitTransportBoundary": null
+  },
   "heartbeat": {
     "mode": "disabled",
     "cadence": null,

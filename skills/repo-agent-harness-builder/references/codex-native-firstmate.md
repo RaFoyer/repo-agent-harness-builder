@@ -151,7 +151,10 @@ instead of guessing or creating a duplicate.
   inactive scaffold, task inspection, or non-merge completion profiles.
 - A GitHub connector or CLI may cover operations not exposed by the Git UI.
   Authentication remains repository-scoped unless policy explicitly says
-  otherwise.
+  otherwise. The selected launch contract binds one GitHub profile marker and
+  exact `github.*` capabilities; the facade intersects those with the profile
+  ceiling and actual credential. `gh-axi` is an ergonomic executor, not the
+  authority source. Git transport remains a separate configured boundary.
 - Chrome may be selected when work requires the user's regular Chrome profile,
   file upload, or another capability unavailable in Browser.
 - Lavish may be selected when a human explicitly wants a richer collaborative

@@ -18,6 +18,7 @@ Bring this repository's harness, project-local skills, and CLI facade into align
 6. Inspect any repository `skills status`, `skills sync`, bootstrap, self-update, or onboarding command. Record its exact allowlist, targets, backup behavior, overwrite rules, copy/link mode, approval gates, and tests.
 7. Compare the repository's CLI facade with the current builder contract. Preserve custom commands and behavior; identify which pieces are generated, forked, extended, or repository-owned before proposing regeneration.
 8. Search for maintained project-restart surfaces, active goal-chain workflow instructions, stale orchestration taxonomy, duplicate Boss/Manager/Worker hierarchies, or launch contracts that do not seal required skills.
+9. Audit GitHub and Git authentication before proposing migration: existing `gh`/`gh-axi` wrappers, `GH_CONFIG_DIR` and token handling, active accounts, remotes, SSH identities, credential helpers, GitHub Apps or PATs, custom PR/comment/review commands, CI bots, and repository-specific permission logic. Do not overwrite a working custom path with the generic facade.
 
 ## Current Architecture To Compare Against
 
@@ -30,6 +31,7 @@ Bring this repository's harness, project-local skills, and CLI facade into align
 - New schema-v3 launch contracts emit and hash-seal ordered `requiredSkills`; explicit schema-v2 compatibility remains bounded to legacy contracts and attestations.
 - Shared fleet skills are globally owned by their authoritative distribution. A downstream repository may sync only its own project-specific skill names and must keep recoverable backups outside discoverable skill roots.
 - Repository-local skills remain project-owned and may be installed under the repository's `.agents/skills/` contract.
+- GitHub binaries may be global, but mutable account state and Worker credentials should be repository/profile scoped. `gh-axi` is the ergonomic executor, not the authentication or authority owner; Git transport needs its own explicit boundary.
 
 ## Findings To Present Before Changes
 
@@ -39,6 +41,7 @@ Return:
 2. A table of relevant files, skills, CLI commands, provenance, customization, drift, and proposed disposition: preserve, adapt, regenerate, migrate, archive, or remove.
 3. The current skill-ownership map, including every global symlink or duplicate discoverable backup that could affect this repository.
 4. A CLI migration map showing existing custom behavior and the current builder capability it would compose with.
+   Include the proposed GitHub profile/capability mapping and identify any Git or direct-API path that could bypass the facade.
 5. Risks, compatibility constraints, dirty-worktree collisions, and decisions that require human input.
 6. A phased implementation and verification plan with exact intended files and commands.
 

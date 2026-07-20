@@ -27,6 +27,8 @@ REQUIRED_PROTOCOLS = [
     "QA-BROWSER.md",
     "PRIVILEGED-DOCUMENTS.md",
     "EXTERNAL-SYSTEMS.md",
+    "CONNECTOR-AUTH-PROFILES.md",
+    "GITHUB-AUTHORITY.md",
     "NO-MISTAKES-GATE.md",
     "SESSION-PREFLIGHT.md",
     "PRE-COMMIT.md",
@@ -45,6 +47,7 @@ COMMAND_SMOKE_TESTS = [
     ["qa", "status"],
     ["secrets", "help"],
     ["connections", "status"],
+    ["github", "status"],
     ["goals", "status"],
     ["orchestration", "status"],
     ["orchestration", "adapter-status"],
@@ -159,6 +162,7 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
         ".agents/skills/goal-chain-loop/SKILL.md": ["name: goal-chain-loop", "$goal-graph-loop", "compatibility"],
         ".agents/skills/codex-native-firstmate/SKILL.md": ["name: codex-native-firstmate", "$project-orchestration"],
         "apps/cli/src/orchestration/index.mjs": ["requiredSkills", "missing required project-local skills"],
+        "apps/cli/src/github/index.mjs": ["GH_CONFIG_DIR", "GH_REPO", "github.profile.", "ambient_global_login_used: false"],
     }
     for rel_path, required_fragments in contracts.items():
         path = target / rel_path
