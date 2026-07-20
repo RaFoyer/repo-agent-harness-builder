@@ -61,8 +61,9 @@ message never changes trust or authority by itself. Record a durable
 affects execution; bind it to `scope.ownerRef`, the target node, its immutable
 parent, a directive/task/tracker reference, registry revision at issue, and the
 current work-contract hash. `within-contract` directives may proceed inside the
-existing envelope. Record target-bound acknowledgement and resolution evidence,
-plus immediate-parent reconciliation evidence for a non-Boss target. An open
+existing envelope. Acknowledgement and resolution require a live target task
+and evidence bound to both its node and task IDs; immediate-parent
+reconciliation likewise binds the live parent node and task IDs. An open
 `replan-required` directive prevents scheduling and requires an active target
 to be `blocked` at its current boundary with
 `blockedByDirectiveIds` naming the open directive until explicit replan or

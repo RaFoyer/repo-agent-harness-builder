@@ -635,6 +635,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
     ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
     ["owner direct messaging", (registry) => { registry.clientAdapter.ownerDirectMessaging.enabled = false; }, /ownerDirectMessaging/],
+    ["owner direct target roles", (registry) => { registry.clientAdapter.ownerDirectMessaging.targetRoles = ["manager"]; }, /ownerDirectMessaging/],
     ["binding assurance", (registry) => { registry.bindingAttestation = null; }, /registry must be valid/]
   ]) {
     const partialRegistry = validOrchestrationRegistry();
@@ -2167,7 +2168,7 @@ fixtureTest("hybrid orchestration records direct owner instructions without chan
   const directives = capture();
   assert.equal(await main(["orchestration", "directives"], directives.io), 0, directives.err.join("\n"));
   assert.match(directives.out.join("\n"), /owner-directive-docs-1.*manager-docs.*within-contract.*issued.*task-message:docs-1/);
-  assert.match(directives.out.join("\n"), /acknowledged_at,acknowledged_by,acknowledgement_ref,resolution_ref,resolved_at,resolved_by,parent_observed_at,parent_observed_by,parent_reconciliation_ref/);
+  assert.match(directives.out.join("\n"), /acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref/);
 
   const prompt = capture();
   assert.equal(await main(["orchestration", "prompt", "manager-docs"], prompt.io), 0, prompt.err.join("\n"));
@@ -2187,6 +2188,11 @@ fixtureTest("hybrid directive reconciliation requires parent observation and res
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
   const boss = registry.nodes.find((node) => node.id === "boss");
   registry.revision = 2;
+  manager.state = "working";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = boss.taskId;
+  manager.nextAction = "Reconcile the owner directive.";
+  manager.taskBinding = taskBindingForTest(registry, manager);
   registry.ownerDirectives.push({
     id: "owner-intervention-docs-2",
     kind: "owner-intervention",
@@ -2201,6 +2207,7 @@ fixtureTest("hybrid directive reconciliation requires parent observation and res
     createdAt: "2026-07-20T12:00:00Z",
     acknowledgedAt: "2026-07-20T12:01:00Z",
     acknowledgedByNodeId: manager.id,
+    acknowledgedByTaskId: manager.taskId,
     acknowledgementRef: "task:manager-docs#acknowledged"
   });
   writeOrchestrationRegistry(registry);
@@ -2213,8 +2220,10 @@ fixtureTest("hybrid directive reconciliation requires parent observation and res
     resolutionRef: "tracker:DOCS-4#owner-directive-reconciled",
     resolvedAt: "2026-07-20T12:02:00Z",
     resolvedByNodeId: manager.id,
+    resolvedByTaskId: manager.taskId,
     parentObservedAt: "2026-07-20T12:03:00Z",
     parentObservedByNodeId: boss.id,
+    parentObservedByTaskId: boss.taskId,
     parentReconciliationRef: "task:boss#directive-reconciled"
   });
   writeOrchestrationRegistry(registry);
@@ -2235,13 +2244,10 @@ fixtureTest("replan-required owner directives fail closed for scheduling and ter
     targetParentIdAtIssue: manager.parentId,
     directiveRef: "tracker:DOCS-4#scope-change",
     contractImpact: "replan-required",
-    status: "acknowledged",
+    status: "issued",
     registryRevisionAtIssue: 0,
     workContractHashAtIssue: materializedWorkContractHash(registry, manager, boss),
-    createdAt: "2026-07-20T12:00:00Z",
-    acknowledgedAt: "2026-07-20T12:01:00Z",
-    acknowledgedByNodeId: manager.id,
-    acknowledgementRef: "task:manager-docs#acknowledged"
+    createdAt: "2026-07-20T12:00:00Z"
   });
   writeOrchestrationRegistry(registry);
 
@@ -2273,6 +2279,11 @@ fixtureTest("hybrid directive lifecycle binds acknowledgement, resolution, and r
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
   const boss = registry.nodes.find((node) => node.id === "boss");
   registry.revision = 2;
+  manager.state = "working";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = boss.taskId;
+  manager.nextAction = "Apply the within-contract directive.";
+  manager.taskBinding = taskBindingForTest(registry, manager);
   registry.ownerDirectives.push({
     id: "owner-directive-docs-evidence",
     kind: "owner-directive",
@@ -2287,11 +2298,14 @@ fixtureTest("hybrid directive lifecycle binds acknowledgement, resolution, and r
     createdAt: "2026-07-20T12:00:00Z",
     acknowledgedAt: "2026-07-20T12:01:00Z",
     acknowledgedByNodeId: boss.id,
+    acknowledgedByTaskId: boss.taskId,
     resolutionRef: "tracker:DOCS-4#resolved",
     resolvedAt: "2026-07-20T12:02:00Z",
     resolvedByNodeId: boss.id,
+    resolvedByTaskId: boss.taskId,
     parentObservedAt: "2026-07-20T12:03:00Z",
-    parentObservedByNodeId: manager.id
+    parentObservedByNodeId: manager.id,
+    parentObservedByTaskId: manager.taskId
   });
   writeOrchestrationRegistry(registry);
 
@@ -2299,21 +2313,57 @@ fixtureTest("hybrid directive lifecycle binds acknowledgement, resolution, and r
   assert.equal(await main(["orchestration", "validate"], rejected.io), 1);
   const text = rejected.out.join("\n");
   assert.match(text, /acknowledgedByNodeId must identify the target node/);
+  assert.match(text, /acknowledgedByTaskId must identify the target's live task/);
   assert.match(text, /acknowledgementRef is required after issuance/);
   assert.match(text, /resolvedByNodeId must identify the target node/);
+  assert.match(text, /resolvedByTaskId must identify the target's live task/);
   assert.match(text, /parentObservedByNodeId must identify the target's immediate parent/);
+  assert.match(text, /parentObservedByTaskId must identify the immediate parent's live task/);
   assert.match(text, /parentReconciliationRef/);
 
   Object.assign(registry.ownerDirectives[0], {
     acknowledgedByNodeId: manager.id,
+    acknowledgedByTaskId: manager.taskId,
     acknowledgementRef: "task:manager-docs#acknowledged",
     resolvedByNodeId: manager.id,
+    resolvedByTaskId: manager.taskId,
     parentObservedByNodeId: boss.id,
+    parentObservedByTaskId: boss.taskId,
     parentReconciliationRef: "task:boss#directive-reconciled"
   });
   writeOrchestrationRegistry(registry);
   const accepted = capture();
   assert.equal(await main(["orchestration", "validate"], accepted.io), 0, accepted.out.concat(accepted.err).join("\n"));
+});
+
+fixtureTest("hybrid directive acknowledgement requires a live target task identity", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.revision = 1;
+  registry.ownerDirectives.push({
+    id: "owner-directive-unmaterialized-target",
+    kind: "owner-directive",
+    issuedByRef: registry.scope.ownerRef,
+    targetNodeId: manager.id,
+    targetParentIdAtIssue: manager.parentId,
+    directiveRef: "tracker:DOCS-4#premature-ack",
+    contractImpact: "within-contract",
+    status: "acknowledged",
+    registryRevisionAtIssue: 0,
+    workContractHashAtIssue: materializedWorkContractHash(registry, manager, boss),
+    createdAt: "2026-07-20T12:00:00Z",
+    acknowledgedAt: "2026-07-20T12:01:00Z",
+    acknowledgedByNodeId: manager.id,
+    acknowledgedByTaskId: "task-manager-docs",
+    acknowledgementRef: "task:manager-docs#acknowledged"
+  });
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 1);
+  assert.match(validation.out.join("\n"), /acknowledgement requires a live target task/);
+  assert.match(validation.out.join("\n"), /acknowledgedByTaskId must identify the target's live task/);
 });
 
 fixtureTest("open replan directives stop active targets at a bound blocked boundary", async () => {
@@ -2340,6 +2390,7 @@ fixtureTest("open replan directives stop active targets at a bound blocked bound
     createdAt: "2026-07-20T12:00:00Z",
     acknowledgedAt: "2026-07-20T12:01:00Z",
     acknowledgedByNodeId: manager.id,
+    acknowledgedByTaskId: manager.taskId,
     acknowledgementRef: "task:manager-docs#acknowledged"
   });
   writeOrchestrationRegistry(registry);

@@ -453,15 +453,16 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     }
     if (!isUtcRfc3339Timestamp(directive.createdAt)) blockers.push(`${label}: createdAt must be a UTC RFC3339 timestamp`);
     const target = nodesById.get(directive.targetNodeId);
+    const targetParent = target?.parentId ? nodesById.get(target.parentId) : null;
     if (!target) blockers.push(`${label}: targetNodeId must reference a configured node`);
+    if (target && !["manager", "worker"].includes(target.role)) blockers.push(`${label}: targetNodeId must identify a Manager or Worker`);
     if (target && directive.targetParentIdAtIssue !== target.parentId) blockers.push(`${label}: targetParentIdAtIssue must match the target's immutable parent`);
     if (target?.state === "terminal" && !DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
       blockers.push(`${label}: an open directive cannot target a terminal node`);
     }
     if (!SHA256_RE.test(String(directive.workContractHashAtIssue || ""))) blockers.push(`${label}: workContractHashAtIssue must be a lowercase SHA-256 digest`);
     if (target && ["issued", "acknowledged"].includes(directive.status)) {
-      const parent = target.parentId ? nodesById.get(target.parentId) : null;
-      if (directive.workContractHashAtIssue !== materializedWorkContractHash(registry, target, parent)) {
+      if (directive.workContractHashAtIssue !== materializedWorkContractHash(registry, target, targetParent)) {
         blockers.push(`${label}: open directive workContractHashAtIssue must match the current target contract`);
       }
     }
@@ -469,8 +470,14 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
       blockers.push(`${label}: acknowledgedAt is required after issuance`);
     }
     if (directive.status !== "issued") {
+      if (!isTaskBackedNode(target)) {
+        blockers.push(`${label}: acknowledgement requires a live target task`);
+      }
       if (directive.acknowledgedByNodeId !== directive.targetNodeId) {
         blockers.push(`${label}: acknowledgedByNodeId must identify the target node`);
+      }
+      if (directive.acknowledgedByTaskId !== target?.taskId) {
+        blockers.push(`${label}: acknowledgedByTaskId must identify the target's live task`);
       }
       if (!isNonEmptyString(directive.acknowledgementRef)) {
         blockers.push(`${label}: acknowledgementRef is required after issuance`);
@@ -491,6 +498,9 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
       if (directive.resolvedByNodeId !== directive.targetNodeId) {
         blockers.push(`${label}: resolvedByNodeId must identify the target node`);
       }
+      if (directive.resolvedByTaskId !== target?.taskId) {
+        blockers.push(`${label}: resolvedByTaskId must identify the target's live task`);
+      }
       if (isUtcRfc3339Timestamp(directive.resolvedAt)
         && isUtcRfc3339Timestamp(directive.acknowledgedAt)
         && Date.parse(directive.resolvedAt) < Date.parse(directive.acknowledgedAt)) {
@@ -502,6 +512,9 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
         }
         if (directive.parentObservedByNodeId !== directive.targetParentIdAtIssue) {
           blockers.push(`${label}: parentObservedByNodeId must identify the target's immediate parent`);
+        }
+        if (directive.parentObservedByTaskId !== targetParent?.taskId) {
+          blockers.push(`${label}: parentObservedByTaskId must identify the immediate parent's live task`);
         }
         if (!isNonEmptyString(directive.parentReconciliationRef)) {
           blockers.push(`${label}: terminal directive status requires parentReconciliationRef`);
@@ -1330,10 +1343,13 @@ function firstmateActivationBlockers(registry, adapter) {
   }
   if (registry.schemaVersion >= 4 && registry.coordinationMode === "hybrid") {
     const direct = adapter.ownerDirectMessaging;
+    const directTargetRoles = new Set(arrayOrEmpty(direct?.targetRoles));
     if (!isObject(direct)
       || direct.enabled !== true
       || !isStringArray(direct.targetRoles, { nonEmpty: true })
-      || !direct.targetRoles.every((role) => ["manager", "worker"].includes(role))
+      || direct.targetRoles.length !== 2
+      || directTargetRoles.size !== 2
+      || !["manager", "worker"].every((role) => directTargetRoles.has(role))
       || direct.recordDirectivesInRegistry !== true
       || direct.parentReconciliationRequired !== true
       || direct.authorityExpansionFromMessage !== false) {
@@ -1477,9 +1493,9 @@ function runDirectives(io) {
   const directives = arrayOrEmpty(loaded.registry.ownerDirectives);
   io.stdout(`coordination_mode: ${toonString(loaded.registry.coordinationMode || "managed")}`);
   io.stdout(`directives: ${directives.length}`);
-  io.stdout(`records[${directives.length}]{id,target_node,target_parent,impact,status,acknowledged_at,acknowledged_by,acknowledgement_ref,resolution_ref,resolved_at,resolved_by,parent_observed_at,parent_observed_by,parent_reconciliation_ref,directive_ref}:`);
+  io.stdout(`records[${directives.length}]{id,target_node,target_parent,impact,status,acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref,directive_ref}:`);
   for (const directive of directives) {
-    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.targetParentIdAtIssue || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.acknowledgedAt || "")},${toonString(directive.acknowledgedByNodeId || "")},${toonString(directive.acknowledgementRef || "")},${toonString(directive.resolutionRef || "")},${toonString(directive.resolvedAt || "")},${toonString(directive.resolvedByNodeId || "")},${toonString(directive.parentObservedAt || "")},${toonString(directive.parentObservedByNodeId || "")},${toonString(directive.parentReconciliationRef || "")},${toonString(directive.directiveRef || "")}`);
+    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.targetParentIdAtIssue || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.acknowledgedAt || "")},${toonString(directive.acknowledgedByNodeId || "")},${toonString(directive.acknowledgedByTaskId || "")},${toonString(directive.acknowledgementRef || "")},${toonString(directive.resolutionRef || "")},${toonString(directive.resolvedAt || "")},${toonString(directive.resolvedByNodeId || "")},${toonString(directive.resolvedByTaskId || "")},${toonString(directive.parentObservedAt || "")},${toonString(directive.parentObservedByNodeId || "")},${toonString(directive.parentObservedByTaskId || "")},${toonString(directive.parentReconciliationRef || "")},${toonString(directive.directiveRef || "")}`);
   }
   if (!directives.length) io.stdout('message: "No governed owner directives"');
   printFindings(io, findings);

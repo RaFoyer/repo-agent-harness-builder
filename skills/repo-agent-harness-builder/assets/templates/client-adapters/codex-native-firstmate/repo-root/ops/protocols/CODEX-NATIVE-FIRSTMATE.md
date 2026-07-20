@@ -60,9 +60,10 @@ enter Manager and Worker tasks directly. Firstmate must not become a
 conversation relay or infer authority from a message. Tactical instructions
 inside the sealed work contract may proceed. Instructions that must survive
 task history or affect scope, dependencies, authority, budget, or completion
-are recorded as governed `ownerDirectives`; target-bound acknowledgement and
-resolution evidence plus immediate-parent reconciliation are required before
-terminal status. An open `replan-required` directive blocks the active target
+are recorded as governed `ownerDirectives`; acknowledgement and resolution
+evidence must bind the live target node and task, and reconciliation must bind
+the live immediate-parent node and task before terminal status. An open
+`replan-required` directive blocks the active target
 at its current boundary until replan or supersession. Direct conversation never
 changes task parentage.
 

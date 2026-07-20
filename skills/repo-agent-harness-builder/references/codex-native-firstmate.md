@@ -26,8 +26,9 @@ Schema-v4 hybrid coordination does not make Firstmate a communication
 gatekeeper. The configured project owner may enter Manager and Worker tasks
 directly. Tactical messages inside the sealed contract may proceed; durable or
 contract-relevant instructions become governed `ownerDirectives`, do not alter
-parentage or authority, and require target-bound acknowledgement and resolution
-evidence plus immediate-parent reconciliation before terminal status. An open
+parentage or authority, and require acknowledgement and resolution bound to the
+live target node and task plus reconciliation bound to the live immediate-
+parent node and task before terminal status. An open
 `replan-required` directive blocks the active target at its current boundary
 until replan or supersession. The adapter must expose this posture explicitly
 through `ownerDirectMessaging` rather than inferring it from task visibility.

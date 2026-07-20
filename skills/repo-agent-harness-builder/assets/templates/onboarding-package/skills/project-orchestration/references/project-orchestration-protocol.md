@@ -52,10 +52,11 @@ Do not record ordinary conversation merely because it was direct. Record an
 owner directive when the instruction must survive task history or affects
 durable execution. Each record binds the owner, target node, immutable parent,
 task/tracker reference, registry revision, current work-contract hash, impact,
-and reconciliation state. Acknowledgement records the target node, timestamp,
-and evidence reference; terminal resolution records the target node, timestamp,
-and evidence reference; a non-Boss target additionally requires its immutable
-immediate parent, timestamp, and reconciliation evidence reference. `within-contract`
+and reconciliation state. Acknowledgement and terminal resolution require a
+live target task and bind both the target node and task IDs, timestamp, and
+evidence reference; the target's immutable immediate parent must likewise have
+a live task and record both parent node and task IDs, timestamp, and
+reconciliation evidence reference. `within-contract`
 instructions may proceed inside the existing envelope. An open `replan-required`
 directive prevents scheduling and requires an active target to be `blocked` at
 its current boundary with `blockedByDirectiveIds` naming every open replan
