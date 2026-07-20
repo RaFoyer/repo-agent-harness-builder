@@ -58,16 +58,17 @@ keeps the resident Boss and immutable parent relationships while allowing the
 configured `scope.ownerRef` to talk directly to Managers or Workers. A direct
 message never changes trust or authority by itself. Record a durable
 `ownerDirectives` entry only when the instruction must survive task history or
-affects execution; bind it to `scope.ownerRef`, the target node, its immutable
-parent, a directive/task/tracker reference, registry revision at issue, and the
-current work-contract hash. `within-contract` directives may proceed inside the
-existing envelope. Acknowledgement and resolution require a live target task
-and evidence bound to both its node and task IDs; immediate-parent
-reconciliation likewise binds the live parent node and task IDs. An open
-`replan-required` directive prevents scheduling and requires an active target
-to be `blocked` at its current boundary with
-`blockedByDirectiveIds` naming the open directive until explicit replan or
-supersession.
+affects execution; bind it to `scope.ownerRef`, the target node and live task,
+its immutable parent and live task, a typed task, task-message, or tracker
+reference, registry revision at issue, and the current work-contract hash.
+`within-contract` directives may proceed inside the existing envelope.
+Acknowledgement and resolution require evidence bound to both target node and
+task IDs; immediate-parent reconciliation likewise binds the live parent node
+and task IDs. An open `replan-required` directive prevents scheduling the
+target and its descendants, invalidates stale reservations before creation,
+binding, or reconciliation, and requires an active target to be `blocked` at
+its current boundary with `blockedByDirectiveIds` naming the open directive
+until explicit replan or supersession.
 
 Every node records:
 

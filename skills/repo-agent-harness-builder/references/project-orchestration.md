@@ -50,17 +50,19 @@ Schema version 4 adds an explicit `coordinationMode`, a stable
 
 Do not record ordinary conversation merely because it was direct. Record an
 owner directive when the instruction must survive task history or affects
-durable execution. Each record binds the owner, target node, immutable parent,
-task/tracker reference, registry revision, current work-contract hash, impact,
-and reconciliation state. Acknowledgement and terminal resolution require a
-live target task and bind both the target node and task IDs, timestamp, and
+durable execution. Each record binds the owner, target node and live target
+task, immutable parent and live parent task, a typed task, task-message, or
+tracker reference, registry revision, current work-contract hash, impact, and
+reconciliation state. Acknowledgement and terminal resolution bind both the
+target node and task IDs, timestamp, and
 evidence reference; the target's immutable immediate parent must likewise have
 a live task and record both parent node and task IDs, timestamp, and
 reconciliation evidence reference. `within-contract`
 instructions may proceed inside the existing envelope. An open `replan-required`
-directive prevents scheduling and requires an active target to be `blocked` at
-its current boundary with `blockedByDirectiveIds` naming every open replan
-directive until explicit replan or supersession.
+directive prevents scheduling its target and descendants, invalidates a stale
+reservation before create, bind, or reconciliation, and requires an active
+target to be `blocked` at its current boundary with `blockedByDirectiveIds`
+naming every open replan directive until explicit replan or supersession.
 
 For a repository harness, default to the repository itself as the complete
 scope: its own registry, one resident Boss capability, and repo-local Managers
@@ -178,7 +180,7 @@ adapters must declare their required skill explicitly.
 4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision and status, target node task identity/trust/full authority including approval gates, parent state/task ID/trust/full authority including approval gates, capacity preconditions, and the canonical SHA-256 materialized-work-contract hash. That hash covers scope, budgets, title, objective, work reference and kind, governing protocols, ordered required skills, completion profile, dependencies, trust, authority, and the immediate-parent launch envelope; the contract-derived launch key is the durable idempotency key. On success the reservation records the key and hash and advances the revision.
 5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
 6. Configure a complete Boss, including its eventual delegation authority and budgets, before bootstrapping it; the empty inactive scaffold is intentionally not launchable. Immediately before create and again at bind, compare the current registry to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside `ops/orchestration.json` and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and the immutable parent task ID for a non-Boss child, set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan. Boss bootstrap reservation also activates the registry.
-7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
+7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, the open replan-directive boundary, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, open replan boundary, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
 8. On a timeout, crash, ambiguous create, or failed bind, keep the reservation and reconcile the external task by `launchKey`; release and retry only after proving no task exists for that key.
 9. Require the child to report to its immediate parent and the parent to reconcile evidence.
 10. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.

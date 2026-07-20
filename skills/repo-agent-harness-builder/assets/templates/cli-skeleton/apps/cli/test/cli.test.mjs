@@ -188,6 +188,7 @@ function selfConsistentReservationValidity(registry, node, parent) {
       trustLevel: parent.trustLevel,
       authority: canonicalAuthorityForTest(parent.authority)
     } : null,
+    openReplanBoundaryDirectiveIds: [],
     capacity: {
       activeNodeCount,
       reservedNodeCount,
@@ -2140,6 +2141,9 @@ fixtureTest("orchestration supports non-ticket artifact and decision work throug
   assert.equal(spec.title, `${CONFIG.projectName} - Manager - DOCS-4 Documentation refresh`);
   assert.ok(spec.callback.bind.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
   assert.ok(spec.callback.reconcile.requiredUpdates.includes("parentTaskId=immediate parent taskId"));
+  assert.deepEqual(spec.callback.preCreate.openReplanBoundaryDirectiveIds, []);
+  assert.deepEqual(spec.callback.bind.openReplanBoundaryDirectiveIds, []);
+  assert.deepEqual(spec.callback.reconcile.requiredCurrentEligibility.openReplanBoundaryDirectiveIds, []);
 });
 
 fixtureTest("hybrid orchestration records direct owner instructions without changing authority", async () => {
@@ -2147,12 +2151,19 @@ fixtureTest("hybrid orchestration records direct owner instructions without chan
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
   const boss = registry.nodes.find((node) => node.id === "boss");
   registry.revision = 1;
+  manager.state = "working";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = boss.taskId;
+  manager.nextAction = "Apply the owner instruction.";
+  manager.taskBinding = taskBindingForTest(registry, manager);
   registry.ownerDirectives.push({
     id: "owner-directive-docs-1",
     kind: "owner-directive",
     issuedByRef: registry.scope.ownerRef,
     targetNodeId: manager.id,
     targetParentIdAtIssue: manager.parentId,
+    targetTaskIdAtIssue: manager.taskId,
+    targetParentTaskIdAtIssue: boss.taskId,
     directiveRef: "task-message:docs-1",
     contractImpact: "within-contract",
     status: "issued",
@@ -2168,7 +2179,7 @@ fixtureTest("hybrid orchestration records direct owner instructions without chan
   const directives = capture();
   assert.equal(await main(["orchestration", "directives"], directives.io), 0, directives.err.join("\n"));
   assert.match(directives.out.join("\n"), /owner-directive-docs-1.*manager-docs.*within-contract.*issued.*task-message:docs-1/);
-  assert.match(directives.out.join("\n"), /acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref/);
+  assert.match(directives.out.join("\n"), /target_task_at_issue,target_parent,target_parent_task_at_issue,impact,status/);
 
   const prompt = capture();
   assert.equal(await main(["orchestration", "prompt", "manager-docs"], prompt.io), 0, prompt.err.join("\n"));
@@ -2181,6 +2192,13 @@ fixtureTest("hybrid orchestration records direct owner instructions without chan
   assert.equal(await main(["orchestration", "validate"], rejected.io), 1);
   assert.match(rejected.out.join("\n"), /issuedByRef must match scope\.ownerRef/);
   assert.equal(JSON.stringify(manager.authority), originalAuthority);
+
+  registry.ownerDirectives[0].issuedByRef = registry.scope.ownerRef;
+  registry.ownerDirectives[0].directiveRef = "direct-chat-without-record";
+  writeOrchestrationRegistry(registry);
+  const unboundReference = capture();
+  assert.equal(await main(["orchestration", "validate"], unboundReference.io), 1);
+  assert.match(unboundReference.out.join("\n"), /directiveRef must be a task, task-message, or tracker reference/);
 });
 
 fixtureTest("hybrid directive reconciliation requires parent observation and resolution evidence", async () => {
@@ -2199,6 +2217,8 @@ fixtureTest("hybrid directive reconciliation requires parent observation and res
     issuedByRef: registry.scope.ownerRef,
     targetNodeId: manager.id,
     targetParentIdAtIssue: manager.parentId,
+    targetTaskIdAtIssue: manager.taskId,
+    targetParentTaskIdAtIssue: boss.taskId,
     directiveRef: "tracker:DOCS-4",
     contractImpact: "replan-required",
     status: "reconciled",
@@ -2235,13 +2255,43 @@ fixtureTest("replan-required owner directives fail closed for scheduling and ter
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
   const boss = registry.nodes.find((node) => node.id === "boss");
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
   registry.revision = 1;
+  Object.assign(manager, {
+    state: "blocked",
+    taskId: "task-manager-docs",
+    parentTaskId: boss.taskId,
+    trustLevel: "T3",
+    trustApproval: {
+      approvedBy: registry.scope.ownerRef,
+      approvedAt: "2026-07-20",
+      evidence: ["bounded workstream delegation approval"]
+    },
+    authority: orchestrationAuthority({
+      writes: ["project-files"],
+      external: ["tracker-update"],
+      canDelegate: true,
+      maxActiveChildren: 1
+    }),
+    blocker: "Awaiting scope confirmation.",
+    unblockAction: "Record the replan decision.",
+    blockedByDirectiveIds: ["owner-replan-docs-1"]
+  });
+  Object.assign(worker, {
+    parentId: manager.id,
+    dependencies: [],
+    state: "eligible",
+    title: `${CONFIG.projectName} - Worker for Manager DOCS-4 - RES-2 Research decision`
+  });
+  manager.taskBinding = taskBindingForTest(registry, manager);
   registry.ownerDirectives.push({
     id: "owner-replan-docs-1",
     kind: "owner-intervention",
     issuedByRef: registry.scope.ownerRef,
     targetNodeId: manager.id,
     targetParentIdAtIssue: manager.parentId,
+    targetTaskIdAtIssue: manager.taskId,
+    targetParentTaskIdAtIssue: boss.taskId,
     directiveRef: "tracker:DOCS-4#scope-change",
     contractImpact: "replan-required",
     status: "issued",
@@ -2256,17 +2306,13 @@ fixtureTest("replan-required owner directives fail closed for scheduling and ter
 
   const next = capture();
   assert.equal(await main(["orchestration", "next"], next.io), 0, next.err.join("\n"));
-  assert.doesNotMatch(next.out.join("\n"), /manager-docs/);
-
-  const launch = capture();
-  assert.equal(await main(["orchestration", "launch-spec", manager.id], launch.io), 1);
-  assert.match(launch.err.join("\n"), /cannot launch while a replan-required owner directive remains open/);
+  assert.doesNotMatch(next.out.join("\n"), /worker-research/);
 
   manager.state = "terminal";
-  manager.taskId = "task-manager-docs";
-  manager.parentTaskId = boss.taskId;
   manager.terminalDisposition = "completed";
   manager.completionEvidence = ["approved documentation artifact"];
+  delete manager.blocker;
+  delete manager.unblockAction;
   manager.taskBinding = taskBindingForTest(registry, manager);
   writeOrchestrationRegistry(registry);
   const terminal = capture();
@@ -2290,6 +2336,8 @@ fixtureTest("hybrid directive lifecycle binds acknowledgement, resolution, and r
     issuedByRef: registry.scope.ownerRef,
     targetNodeId: manager.id,
     targetParentIdAtIssue: manager.parentId,
+    targetTaskIdAtIssue: manager.taskId,
+    targetParentTaskIdAtIssue: boss.taskId,
     directiveRef: "tracker:DOCS-4#evidence",
     contractImpact: "within-contract",
     status: "reconciled",
@@ -2336,7 +2384,7 @@ fixtureTest("hybrid directive lifecycle binds acknowledgement, resolution, and r
   assert.equal(await main(["orchestration", "validate"], accepted.io), 0, accepted.out.concat(accepted.err).join("\n"));
 });
 
-fixtureTest("hybrid directive acknowledgement requires a live target task identity", async () => {
+fixtureTest("hybrid directive issuance requires live target task identities", async () => {
   const registry = validOrchestrationRegistry();
   const manager = registry.nodes.find((node) => node.id === "manager-docs");
   const boss = registry.nodes.find((node) => node.id === "boss");
@@ -2347,6 +2395,8 @@ fixtureTest("hybrid directive acknowledgement requires a live target task identi
     issuedByRef: registry.scope.ownerRef,
     targetNodeId: manager.id,
     targetParentIdAtIssue: manager.parentId,
+    targetTaskIdAtIssue: "task-manager-docs",
+    targetParentTaskIdAtIssue: boss.taskId,
     directiveRef: "tracker:DOCS-4#premature-ack",
     contractImpact: "within-contract",
     status: "acknowledged",
@@ -2362,7 +2412,7 @@ fixtureTest("hybrid directive acknowledgement requires a live target task identi
 
   const validation = capture();
   assert.equal(await main(["orchestration", "validate"], validation.io), 1);
-  assert.match(validation.out.join("\n"), /acknowledgement requires a live target task/);
+  assert.match(validation.out.join("\n"), /issuance requires a live target task/);
   assert.match(validation.out.join("\n"), /acknowledgedByTaskId must identify the target's live task/);
 });
 
@@ -2382,6 +2432,8 @@ fixtureTest("open replan directives stop active targets at a bound blocked bound
     issuedByRef: registry.scope.ownerRef,
     targetNodeId: manager.id,
     targetParentIdAtIssue: manager.parentId,
+    targetTaskIdAtIssue: manager.taskId,
+    targetParentTaskIdAtIssue: boss.taskId,
     directiveRef: "tracker:DOCS-4#new-scope",
     contractImpact: "replan-required",
     status: "acknowledged",

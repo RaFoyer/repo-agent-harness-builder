@@ -15,6 +15,7 @@ const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "super
 const DIRECTIVE_TERMINAL_STATES = new Set(["reconciled", "superseded", "cancelled"]);
 const SAFE_DIRECTIVE_ID_RE = /^[a-z][a-z0-9-]{0,95}$/;
 const SHA256_RE = /^[a-f0-9]{64}$/;
+const DIRECTIVE_REFERENCE_RE = /^(?:task|task-message|tracker):[A-Za-z0-9][A-Za-z0-9._/-]*(?:#[A-Za-z0-9][A-Za-z0-9._/-]*)?$/;
 const TRUST_LEVELS = [
   { id: "T0", name: "Observe", authority: "approved reads and reporting only" },
   { id: "T1", name: "Propose", authority: "plans, graphs, drafts, and prompts without project-state mutation" },
@@ -444,7 +445,9 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     else ids.add(directive.id);
     if (!DIRECTIVE_KINDS.has(directive.kind)) blockers.push(`${label}: kind must be owner-directive or owner-intervention`);
     if (directive.issuedByRef !== registry.scope?.ownerRef) blockers.push(`${label}: issuedByRef must match scope.ownerRef`);
-    if (!isNonEmptyString(directive.directiveRef)) blockers.push(`${label}: directiveRef must be a non-empty single-line reference`);
+    if (!DIRECTIVE_REFERENCE_RE.test(String(directive.directiveRef || ""))) {
+      blockers.push(`${label}: directiveRef must be a task, task-message, or tracker reference`);
+    }
     if (!DIRECTIVE_IMPACTS.has(directive.contractImpact)) blockers.push(`${label}: contractImpact must be within-contract or replan-required`);
     if (!DIRECTIVE_STATES.has(directive.status)) blockers.push(`${label}: invalid status`);
     if (!Number.isSafeInteger(directive.registryRevisionAtIssue) || directive.registryRevisionAtIssue < 0
@@ -457,6 +460,16 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     if (!target) blockers.push(`${label}: targetNodeId must reference a configured node`);
     if (target && !["manager", "worker"].includes(target.role)) blockers.push(`${label}: targetNodeId must identify a Manager or Worker`);
     if (target && directive.targetParentIdAtIssue !== target.parentId) blockers.push(`${label}: targetParentIdAtIssue must match the target's immutable parent`);
+    if (!isTaskBackedNode(target)) {
+      blockers.push(`${label}: issuance requires a live target task`);
+    } else if (directive.targetTaskIdAtIssue !== target.taskId) {
+      blockers.push(`${label}: targetTaskIdAtIssue must identify the target's live task`);
+    }
+    if (!isTaskBackedNode(targetParent)) {
+      blockers.push(`${label}: issuance requires a live immediate-parent task`);
+    } else if (directive.targetParentTaskIdAtIssue !== targetParent.taskId) {
+      blockers.push(`${label}: targetParentTaskIdAtIssue must identify the immediate parent's live task`);
+    }
     if (target?.state === "terminal" && !DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
       blockers.push(`${label}: an open directive cannot target a terminal node`);
     }
@@ -555,6 +568,18 @@ function openReplanDirectiveIdsFor(registry, nodeId) {
     .filter(isNonEmptyString));
 }
 
+function replanBoundaryDirectiveIdsFor(registry, node, nodesById) {
+  const ids = [];
+  const seen = new Set();
+  let current = node;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    ids.push(...openReplanDirectiveIdsFor(registry, current.id));
+    current = current.parentId ? nodesById.get(current.parentId) : null;
+  }
+  return canonicalValues(ids);
+}
+
 export function materializedWorkContractHash(registry, node, parent) {
   return createHash("sha256").update(JSON.stringify(materializedWorkContract(registry, node, parent))).digest("hex");
 }
@@ -590,6 +615,7 @@ function reservationCapacity(nodes, parent, maxActiveNodes) {
 
 function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation) {
   const workContractHash = materializedWorkContractHash(registry, node, parent);
+  const nodesById = new Map(nodes.map((candidate) => [candidate.id, candidate]));
   return {
     expectedRegistryRevision: registry.revision,
     expectedRegistryStatus: registry.status,
@@ -605,6 +631,9 @@ function reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, r
     },
     expectedParent: parentSnapshot(parent),
     capacity: reservationCapacity(nodes, parent, maxActiveNodes),
+    ...(registry.schemaVersion >= 4 ? {
+      openReplanBoundaryDirectiveIds: replanBoundaryDirectiveIdsFor(registry, node, nodesById)
+    } : {}),
     materializedWorkContractHash: workContractHash
   };
 }
@@ -743,7 +772,7 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   if (!["queued", "eligible"].includes(node.state) || isNonEmptyString(node.taskId)) {
     block("task-identity", "launch eligibility requires a queued or eligible node without taskId");
   }
-  if (hasOpenReplanDirective(registry, node.id)) {
+  if (replanBoundaryDirectiveIdsFor(registry, node, nodesById).length) {
     block("owner-replan", "launch eligibility requires every replan-required owner directive to be resolved and reconciled");
   }
   if (node.parentTaskId !== undefined && node.parentTaskId !== null) {
@@ -1502,9 +1531,9 @@ function runDirectives(io) {
   const directives = governedOwnerDirectives(loaded.registry);
   io.stdout(`coordination_mode: ${toonString(coordinationModeFor(loaded.registry))}`);
   io.stdout(`directives: ${directives.length}`);
-  io.stdout(`records[${directives.length}]{id,target_node,target_parent,impact,status,acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref,directive_ref}:`);
+  io.stdout(`records[${directives.length}]{id,target_node,target_task_at_issue,target_parent,target_parent_task_at_issue,impact,status,acknowledged_at,acknowledged_by_node,acknowledged_by_task,acknowledgement_ref,resolution_ref,resolved_at,resolved_by_node,resolved_by_task,parent_observed_at,parent_observed_by_node,parent_observed_by_task,parent_reconciliation_ref,directive_ref}:`);
   for (const directive of directives) {
-    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.targetParentIdAtIssue || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.acknowledgedAt || "")},${toonString(directive.acknowledgedByNodeId || "")},${toonString(directive.acknowledgedByTaskId || "")},${toonString(directive.acknowledgementRef || "")},${toonString(directive.resolutionRef || "")},${toonString(directive.resolvedAt || "")},${toonString(directive.resolvedByNodeId || "")},${toonString(directive.resolvedByTaskId || "")},${toonString(directive.parentObservedAt || "")},${toonString(directive.parentObservedByNodeId || "")},${toonString(directive.parentObservedByTaskId || "")},${toonString(directive.parentReconciliationRef || "")},${toonString(directive.directiveRef || "")}`);
+    io.stdout(`  ${toonString(directive.id || "")},${toonString(directive.targetNodeId || "")},${toonString(directive.targetTaskIdAtIssue || "")},${toonString(directive.targetParentIdAtIssue || "")},${toonString(directive.targetParentTaskIdAtIssue || "")},${toonString(directive.contractImpact || "")},${toonString(directive.status || "")},${toonString(directive.acknowledgedAt || "")},${toonString(directive.acknowledgedByNodeId || "")},${toonString(directive.acknowledgedByTaskId || "")},${toonString(directive.acknowledgementRef || "")},${toonString(directive.resolutionRef || "")},${toonString(directive.resolvedAt || "")},${toonString(directive.resolvedByNodeId || "")},${toonString(directive.resolvedByTaskId || "")},${toonString(directive.parentObservedAt || "")},${toonString(directive.parentObservedByNodeId || "")},${toonString(directive.parentObservedByTaskId || "")},${toonString(directive.parentReconciliationRef || "")},${toonString(directive.directiveRef || "")}`);
   }
   if (!directives.length) io.stdout('message: "No governed owner directives"');
   printFindings(io, findings);
@@ -1584,7 +1613,7 @@ function runNext(io) {
   const eligible = findings.nodes.filter((node) => node.role !== "boss"
     && ["queued", "eligible"].includes(node.state)
     && !hasLaunchReservation(node)
-    && !hasOpenReplanDirective(loaded.registry, node.id)
+    && !replanBoundaryDirectiveIdsFor(loaded.registry, node, findings.nodesById).length
     && dependenciesSatisfied(node, findings.nodesById));
   io.stdout(`eligible: ${eligible.length}`);
   io.stdout(`nodes[${eligible.length}]{id,role,work_ref,work_kind,state,title}:`);
@@ -1625,7 +1654,7 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
   lines.push(`Coordination mode: ${coordinationModeFor(registry)}`);
   const directives = openOwnerDirectivesFor(registry, node.id);
-  const replanDirectiveIds = openReplanDirectiveIdsFor(registry, node.id);
+  const replanDirectiveIds = replanBoundaryDirectiveIdsFor(registry, node, new Map(registry.nodes.map((candidate) => [candidate.id, candidate])));
   lines.push(`Open owner directives: ${directives.map((directive) => `${directive.id} (${directive.contractImpact}; ${directive.directiveRef})`).join(", ") || "none"}`);
   lines.push(`State: ${node.state}`);
   lines.push(`Trust level: ${node.trustLevel}`);
@@ -1892,6 +1921,7 @@ function runLaunchSpec(nodeId, io) {
             }
           } : {}),
           capacityRequired: true,
+          ...(loaded.registry.schemaVersion >= 4 ? { openReplanBoundaryDirectiveIds: [] } : {}),
           materializedWorkContractHash: workContractHash
         },
         requiredUpdates: [
