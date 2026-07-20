@@ -382,7 +382,9 @@ function validateApprovalRecord(approvalRef, { capability, gate, nodeId, orchest
   if (approval.gate !== gate) blockers.push("GitHub approval record does not match the required gate");
   if (approval.orchestrationRevision !== orchestration?.registry?.revision) blockers.push("GitHub approval record is stale for the current orchestration revision");
   if (!SAFE_APPROVAL_REF_RE.test(String(approval.approvedByRef || ""))) blockers.push("GitHub approval record requires a value-safe approver reference");
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(approval.approvedAt || ""))) {
+  const approvedAt = Date.parse(approval.approvedAt);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(approval.approvedAt || ""))
+    || !Number.isFinite(approvedAt) || approvedAt > Date.now()) {
     blockers.push("GitHub approval record requires a UTC approval timestamp");
   }
   if (approval.expiresAt !== null && approval.expiresAt !== undefined) {
