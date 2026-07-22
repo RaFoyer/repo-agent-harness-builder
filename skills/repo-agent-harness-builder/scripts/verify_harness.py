@@ -156,7 +156,8 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
             f"orchestration example contains unsupported or runtime fields: {label} "
             f"({', '.join(unexpected_root_fields)})"
         )
-    if registry.get("schemaVersion") not in {2, 3, 4, 5}:
+    schema_version = registry.get("schemaVersion")
+    if schema_version not in (2, 3, 4, 5):
         errors.append(f"orchestration example has unsupported schema version: {label}")
     if registry.get("revision") != 0:
         errors.append(f"orchestration example must start at revision 0: {label}")
@@ -166,12 +167,10 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must not contain live nodes: {label}")
     if registry.get("ownerDirectives", []) != []:
         errors.append(f"orchestration example must not contain owner directives: {label}")
-    schema_version = registry.get("schemaVersion")
-    if schema_version in {4, 5}:
-        if "clientAdapter" not in registry or registry.get("clientAdapter") is not None:
-            errors.append(f"orchestration example must not select a client adapter: {label}")
-        if "bindingAttestation" not in registry or registry.get("bindingAttestation") is not None:
-            errors.append(f"orchestration example must not contain binding attestation data: {label}")
+    if registry.get("clientAdapter") is not None or (schema_version in (4, 5) and "clientAdapter" not in registry):
+        errors.append(f"orchestration example must not select a client adapter: {label}")
+    if registry.get("bindingAttestation") is not None or (schema_version in (4, 5) and "bindingAttestation" not in registry):
+        errors.append(f"orchestration example must not contain binding attestation data: {label}")
     scope = registry.get("scope")
     if not isinstance(scope, dict):
         errors.append(f"orchestration example scope must be an object: {label}")
@@ -185,7 +184,9 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
             )
         if scope.get("rootRef") != "repository-root":
             errors.append(f"orchestration example rootRef must remain the identity-free repository-root placeholder: {label}")
-        if schema_version in {4, 5} and scope.get("ownerRef") != "project-owner":
+        if ("ownerRef" in scope and scope.get("ownerRef") != "project-owner") or (
+            schema_version in (4, 5) and "ownerRef" not in scope
+        ):
             errors.append(f"orchestration example ownerRef must remain the identity-free project-owner placeholder: {label}")
     root_control = registry.get("rootControl")
     if root_control is not None:

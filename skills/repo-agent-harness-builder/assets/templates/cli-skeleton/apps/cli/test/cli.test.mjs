@@ -1854,6 +1854,7 @@ test("verify dry-run lists delegated checks", async () => {
   assert.match(out.join("\n"), /ergonomics status/);
   assert.match(out.join("\n"), /no-mistakes status/);
   assert.match(out.join("\n"), /lavish status/);
+  assert.match(out.join("\n"), /orchestration status --example/);
   assert.match(out.join("\n"), /qa no-masking/);
   assert.match(out.join("\n"), /precommit --all/);
 });
@@ -5418,9 +5419,22 @@ fixtureTest("verify does not fail closed on non-browser qa scripts", async () =>
   };
   fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n", "utf-8");
 
-  const { io, err } = capture();
-  const code = await main(["verify"], io);
-  assert.equal(code, 0, err.join("\n"));
+  const previousOperator = process.env.REPO_ORCHESTRATION_OPERATOR;
+  const previousInstance = process.env.REPO_ORCHESTRATION_INSTANCE;
+  process.env.REPO_ORCHESTRATION_OPERATOR = "../../untrusted";
+  process.env.REPO_ORCHESTRATION_INSTANCE = "../untrusted-instance";
+  try {
+    const { io, out, err } = capture();
+    const code = await main(["verify"], io);
+    assert.equal(code, 0, err.join("\n"));
+    assert.match(out.join("\n"), /== orchestration status --example ==/);
+    assert.match(out.join("\n"), /registry_source: "tracked-example"/);
+  } finally {
+    if (previousOperator === undefined) delete process.env.REPO_ORCHESTRATION_OPERATOR;
+    else process.env.REPO_ORCHESTRATION_OPERATOR = previousOperator;
+    if (previousInstance === undefined) delete process.env.REPO_ORCHESTRATION_INSTANCE;
+    else process.env.REPO_ORCHESTRATION_INSTANCE = previousInstance;
+  }
 });
 
 fixtureTest("connections doctor validates connector profile identity and path boundaries", async () => {

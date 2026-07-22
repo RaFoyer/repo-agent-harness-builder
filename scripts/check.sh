@@ -472,6 +472,58 @@ path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
 PY
 python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
 
+for private_field in clientAdapter bindingAttestation ownerRef; do
+  damaged="$TMP/generated-repo-schema-v3-private-$private_field"
+  cp -R "$TMP/generated-repo" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$private_field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+private_field = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["schemaVersion"] = 3
+for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]:
+    registry.pop(field, None)
+registry["scope"].pop("ownerRef", None)
+if private_field == "clientAdapter":
+    registry[private_field] = {"profile": "private-adapter"}
+elif private_field == "bindingAttestation":
+    registry[private_field] = {"keyId": "private-attestor"}
+else:
+    registry["scope"][private_field] = "private-owner"
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject private $private_field state in a schema-v3 tracked example" >&2
+    exit 1
+  fi
+done
+
+damaged="$TMP/generated-repo-invalid-schema-type"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["schemaVersion"] = {"invalid": True}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness \
+  >"$TMP/invalid-schema-type.out" 2>"$TMP/invalid-schema-type.err"; then
+  echo "expected verifier to reject a non-scalar orchestration schema version" >&2
+  exit 1
+fi
+if grep -q "Traceback" "$TMP/invalid-schema-type.err"; then
+  cat "$TMP/invalid-schema-type.err" >&2
+  echo "expected verifier to contain invalid schema-version types without a traceback" >&2
+  exit 1
+fi
+
 mkdir -p "$TMP/firstmate-profile-collision/.codex/agents"
 printf 'name = "boss"\n' > "$TMP/firstmate-profile-collision/.codex/agents/boss.toml"
 python3 "$SKILL/scripts/scaffold_harness.py" \
