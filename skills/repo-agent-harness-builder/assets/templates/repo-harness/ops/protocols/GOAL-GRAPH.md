@@ -132,4 +132,4 @@ A goal is complete only when:
 
 ## Update Rules
 
-When this protocol changes, update `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help/tests, and any goal-graph templates in the same change. Changes to roles, lifecycle, trust, authority, titles, or launch contracts belong in `AGENT-ORCHESTRATION.md` and the selected named private orchestration instance first.
+When this protocol changes, update `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help/tests, and any goal-graph templates in the same change. Changes to portable roles, lifecycle, trust, authority, titles, or launch contracts belong in `AGENT-ORCHESTRATION.md` and the tracked inactive orchestration example; migrate private instances deliberately rather than rewriting them as a side effect.

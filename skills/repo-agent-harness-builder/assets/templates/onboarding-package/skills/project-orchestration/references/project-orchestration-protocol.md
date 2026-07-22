@@ -118,13 +118,13 @@ Every node should declare:
 - trust level and promotion evidence when above the default
 - authority envelope
 - completion profile and required evidence
-- task ID only after the client materializes the graph node as a task, plus Ed25519-attested immutable `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and an immutable `parentTaskId` for every task-backed non-Boss node; Boss nodes have no bound `parentTaskId` and null binding parent metadata
+- task ID only after the client materializes the graph node as a task, plus Ed25519-attested immutable `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time); task-bound non-Boss nodes record an immutable `parentTaskId`, while schema-v5 logical Managers record their Boss node identity and a null `parentTaskId`; Boss nodes have null binding parent metadata
 
 Schema version 3 includes the ordered required-skill composition in new work-
 contract hashes. Schema version 4 additionally seals coordination mode and
 owner identity into new contracts and validates owner directives without
-making chat messages a permission source. Versions 2 and 3 remain readable for
-existing externally attested bindings; migrate deliberately rather than
+making chat messages a permission source. Versions 2 through 4 remain readable
+for existing externally attested bindings; migrate deliberately rather than
 silently rewriting their hashes.
 
 Queued and eligible nodes are graph state, not fake tasks. Working, waiting, blocked, ready-for-parent, and terminal nodes are task-backed. Terminal nodes record a disposition and every exact evidence identifier required by their completion profile.
