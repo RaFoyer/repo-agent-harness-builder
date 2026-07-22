@@ -431,7 +431,7 @@ path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
 PY
 python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
 
-for runtime_field in taskId task_id externalTaskId TaskID threadId status operator instance ownerRef rootRef authority approvalGates; do
+for runtime_field in taskId task_id externalTaskId TaskID taskRef threadRef taskIdentifier threadIdentifier status operator instance ownerRef rootRef authority approvalGates; do
   damaged="$TMP/generated-repo-$runtime_field-orchestration-extension"
   cp -R "$TMP/generated-repo" "$damaged"
   python3 - "$damaged/ops/orchestration.example.json" "$runtime_field" <<'PY'
@@ -477,7 +477,7 @@ extension = {
 if invalid_case == "envelope":
     extension["runtimeConfig"] = {"enabled": True}
 elif invalid_case == "runtime_reference":
-    extension["policy"]["workReference"] = "codex://threads/local-runtime-task"
+    extension["policy"]["workReference"] = "codex://tasks/local-runtime-task"
 registry["extensions"] = {namespace: extension}
 path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
 PY

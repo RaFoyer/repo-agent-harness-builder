@@ -2234,6 +2234,31 @@ fixtureTest("orchestration keeps the tracked scaffold inert and initializes a pr
   assert.equal(await main(["orchestration", "validate", "--example"], exampleValidation.io), 0, exampleValidation.err.join("\n"));
   assert.match(exampleValidation.out.join("\n"), /target: "tracked-example"/);
 
+  for (const [field, value] of [
+    ["developerIdentity", { taskId: "private-task" }],
+    ["taskRef", "private-task"],
+    ["threadRef", "private-thread"],
+    ["taskIdentifier", "private-task"],
+    ["workReference", "codex://tasks/private-task"]
+  ]) {
+    const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
+    if (field === "developerIdentity") registry[field] = value;
+    else {
+      registry.extensions = {
+        "example.tracked-policy": {
+          kind: "tracked-policy",
+          schemaVersion: 1,
+          policy: { [field]: value }
+        }
+      };
+    }
+    await withFile("ops/orchestration.example.json", `${JSON.stringify(registry, null, 2)}\n`, async () => {
+      const invalidExample = capture();
+      assert.equal(await main(["orchestration", "validate", "--example"], invalidExample.io), 1);
+      assert.match(invalidExample.out.join("\n"), /tracked example/);
+    });
+  }
+
   const previousOperator = process.env.REPO_ORCHESTRATION_OPERATOR;
   const previousInstance = process.env.REPO_ORCHESTRATION_INSTANCE;
   process.env.REPO_ORCHESTRATION_OPERATOR = "../../untrusted";

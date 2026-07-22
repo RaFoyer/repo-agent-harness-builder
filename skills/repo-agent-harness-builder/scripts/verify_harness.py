@@ -68,6 +68,13 @@ EXTENSION_NAMESPACE_RE = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
 )
 TRACKED_POLICY_EXTENSION_FIELDS = {"kind", "schemaVersion", "policy"}
+RUNTIME_EXTENSION_FIELD_WORDS = {
+    "account", "acknowledged", "authority", "binding", "budget", "completed",
+    "completion", "created", "delegation", "developer", "email", "evidence", "identity",
+    "instance", "issued", "launch", "lifecycle", "maintainer", "node", "operator", "owner",
+    "parent", "reservation", "resolved", "revision", "role", "root", "scope", "signature",
+    "state", "status", "task", "thread", "trust", "updated", "user", "workcontract",
+}
 RUNTIME_EXTENSION_FIELDS = {
     "accountid", "acknowledgedbyref", "allowedexternalactions", "allowedreads", "allowedwrites",
     "approvalgates", "authority", "bindingattestation", "boundat", "budgets", "candelegate",
@@ -81,8 +88,8 @@ RUNTIME_EXTENSION_FIELDS = {
     "titleverification", "trustlevel", "trustpolicy", "updatedat", "updatedby", "userid", "username",
     "workcontracthash",
 }
-RUNTIME_EXTENSION_FIELD_SUFFIXES = ("taskid", "taskids", "threadid", "threadids")
-RUNTIME_EXTENSION_VALUE_RE = re.compile(r"^(?:codex://threads/|task(?:-message)?:)", re.IGNORECASE)
+RUNTIME_EXTENSION_FIELD_SUFFIXES = ("taskid", "taskids", "taskref", "taskrefs", "taskidentifier", "taskidentifiers", "threadid", "threadids", "threadref", "threadrefs", "threadidentifier", "threadidentifiers")
+RUNTIME_EXTENSION_VALUE_RE = re.compile(r"(?:codex://(?:tasks|threads)/|(?:task|thread)(?:[-_ ]?(?:message|id|ref|identifier))?:)", re.IGNORECASE)
 LOCAL_PATH_PARTS = [
     PATH_SEP + "Users" + PATH_SEP + r"[^\s)'\"]+",
     PATH_SEP + "home" + PATH_SEP + r"[^\s)'\"]+",
@@ -123,11 +130,26 @@ def normalized_extension_field(value: object) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value).lower())
 
 
+def extension_field_words(value: object) -> set[str]:
+    return {
+        word.lower()
+        for word in re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value)).replace("_", " ").replace("-", " ").split()
+    }
+
+
+def is_runtime_extension_field(value: object) -> bool:
+    normalized = normalized_extension_field(value)
+    return (
+        normalized in RUNTIME_EXTENSION_FIELDS
+        or normalized.endswith(RUNTIME_EXTENSION_FIELD_SUFFIXES)
+        or bool(extension_field_words(value) & RUNTIME_EXTENSION_FIELD_WORDS)
+    )
+
+
 def runtime_extension_fields(value: object) -> set[str]:
     if isinstance(value, dict):
         return ({str(key) for key in value
-                 if normalized_extension_field(key) in RUNTIME_EXTENSION_FIELDS
-                 or normalized_extension_field(key).endswith(RUNTIME_EXTENSION_FIELD_SUFFIXES)}
+                 if is_runtime_extension_field(key)}
                 | set().union(*(runtime_extension_fields(item) for item in value.values())))
     if isinstance(value, list):
         return set().union(*(runtime_extension_fields(item) for item in value))

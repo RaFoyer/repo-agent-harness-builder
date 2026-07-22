@@ -17,6 +17,37 @@ const COORDINATION_MODES = new Set(["managed", "hybrid"]);
 const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
 const PARENT_BINDING_MODES = new Set(["task", "logical"]);
 const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy"]);
+const TRACKED_POLICY_EXTENSION_FIELDS = new Set(["kind", "schemaVersion", "policy"]);
+const TRACKED_EXAMPLE_ROOT_FIELDS = new Set([
+  "schemaVersion", "revision", "status", "coordinationMode", "rootControl", "prefix", "scope",
+  "bindingAttestation", "clientAdapter", "trustPolicy", "nodes", "ownerDirectives", "extensions"
+]);
+const TRACKED_EXAMPLE_SCOPE_FIELDS = new Set(["id", "kind", "rootRef", "ownerRef", "objective"]);
+const TRACKED_EXAMPLE_TRUST_POLICY_FIELDS = new Set([
+  "defaultLevel", "maxLevel", "promotionRequiresHumanApproval", "childMayExceedParent", "limits"
+]);
+const TRACKED_EXAMPLE_TRUST_LIMIT_FIELDS = new Set(["maxActiveNodes", "maxDelegationDepth"]);
+const EXTENSION_NAMESPACE_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+const RUNTIME_EXTENSION_FIELD_WORDS = new Set([
+  "account", "acknowledged", "authority", "binding", "budget", "completed", "completion",
+  "created", "delegation", "developer", "email", "evidence", "identity", "instance", "issued",
+  "launch", "lifecycle", "maintainer", "node", "operator", "owner", "parent", "reservation",
+  "resolved", "revision", "role", "root", "scope", "signature", "state", "status", "task", "thread",
+  "trust", "updated", "user", "workcontract"
+]);
+const RUNTIME_EXTENSION_FIELDS = new Set([
+  "accountid", "acknowledgedbyref", "allowedexternalactions", "allowedreads", "allowedwrites", "approvalgates",
+  "authority", "bindingattestation", "boundat", "budgets", "candelegate", "clientadapter", "completedat",
+  "completionevidence", "completionprofile", "coordinationmode", "createdat", "createdby", "dependencies",
+  "developer", "developeridentity", "email", "evidence", "instance", "issuedbyref", "launchkey", "launchedat",
+  "launchreservation", "lifecycle", "maintainer", "maxactivechildren", "nodes", "observedbyref", "operator",
+  "ownerdirectives", "ownerref", "parentbindingmode", "parentid", "parenttaskid", "reservation", "resolvedbyref",
+  "revision", "role", "rootcontrol", "rootref", "scope", "signature", "state", "status", "stopconditions",
+  "taskbinding", "taskid", "taskids", "threadid", "threadids", "titleverification", "trustlevel", "trustpolicy",
+  "updatedat", "updatedby", "userid", "username", "workcontracthash"
+]);
+const RUNTIME_EXTENSION_FIELD_SUFFIXES = ["taskid", "taskids", "taskref", "taskrefs", "taskidentifier", "taskidentifiers", "threadid", "threadids", "threadref", "threadrefs", "threadidentifier", "threadidentifiers"];
+const RUNTIME_EXTENSION_VALUE_RE = /(?:codex:\/\/(?:tasks|threads)\/|(?:task|thread)(?:[-_ ]?(?:message|id|ref|identifier))?:)/i;
 const GIT_TOPOLOGY_OVERRIDE_ENV = [
   "GIT_DIR",
   "GIT_WORK_TREE",
@@ -448,6 +479,7 @@ function runInit(instanceName, io) {
     return 1;
   }
   const findings = validateRegistry(source.registry);
+  findings.blockers.push(...validateTrackedExampleRegistry(source.registry));
   if (findings.blockers.length) {
     io.stderr(`Tracked example is invalid; run orchestration validate before initializing (${findings.blockers[0]}).`);
     return 1;
@@ -517,6 +549,107 @@ function loadGithubProfiles() {
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizedExtensionField(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function extensionFieldWords(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function runtimeExtensionFields(value) {
+  if (isObject(value)) {
+    return Object.entries(value).flatMap(([key, item]) => {
+      const normalized = normalizedExtensionField(key);
+      const isRuntimeField = RUNTIME_EXTENSION_FIELDS.has(normalized)
+        || RUNTIME_EXTENSION_FIELD_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+        || extensionFieldWords(key).some((word) => RUNTIME_EXTENSION_FIELD_WORDS.has(word));
+      return [...(isRuntimeField ? [key] : []), ...runtimeExtensionFields(item)];
+    });
+  }
+  if (Array.isArray(value)) return value.flatMap(runtimeExtensionFields);
+  return typeof value === "string" && RUNTIME_EXTENSION_VALUE_RE.test(value.trim()) ? ["<runtime-reference-value>"] : [];
+}
+
+function validateTrackedExampleRegistry(registry) {
+  const blockers = [];
+  if (!isObject(registry)) return ["tracked example root must be a JSON object"];
+  const unexpectedRootFields = Object.keys(registry).filter((field) => !TRACKED_EXAMPLE_ROOT_FIELDS.has(field));
+  if (unexpectedRootFields.length) blockers.push(`tracked example contains unsupported or runtime fields: ${unexpectedRootFields.sort().join(", ")}`);
+  const schemaVersion = registry.schemaVersion;
+  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(schemaVersion)) blockers.push("tracked example has unsupported schema version");
+  if (registry.revision !== 0) blockers.push("tracked example must start at revision 0");
+  if (registry.status !== "inactive") blockers.push("tracked example must be inactive");
+  if (!Array.isArray(registry.nodes) || registry.nodes.length) blockers.push("tracked example must not contain live nodes");
+  if (registry.ownerDirectives !== undefined && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
+    blockers.push("tracked example must not contain owner directives");
+  }
+  if (registry.clientAdapter !== null || (schemaVersion >= 4 && !("clientAdapter" in registry))) {
+    blockers.push("tracked example must not select a client adapter");
+  }
+  if (registry.bindingAttestation !== null || (schemaVersion >= 4 && !("bindingAttestation" in registry))) {
+    blockers.push("tracked example must not contain binding attestation data");
+  }
+  const extensions = registry.extensions;
+  if (extensions !== undefined) {
+    if (!isObject(extensions)) blockers.push("tracked example extensions must be an object");
+    else {
+      for (const [namespace, extension] of Object.entries(extensions)) {
+        if (!EXTENSION_NAMESPACE_RE.test(namespace)) {
+          blockers.push("tracked example extension keys must be lowercase dotted namespaces");
+          continue;
+        }
+        if (!isObject(extension)) {
+          blockers.push(`tracked example extension ${namespace} must be an object`);
+          continue;
+        }
+        const unexpectedExtensionFields = Object.keys(extension).filter((field) => !TRACKED_POLICY_EXTENSION_FIELDS.has(field));
+        if (unexpectedExtensionFields.length) blockers.push(`tracked example extension ${namespace} contains unsupported envelope fields: ${unexpectedExtensionFields.sort().join(", ")}`);
+        if (extension.kind !== "tracked-policy") blockers.push(`tracked example extension ${namespace} kind must be tracked-policy`);
+        if (!Number.isInteger(extension.schemaVersion) || extension.schemaVersion < 1) {
+          blockers.push(`tracked example extension ${namespace} schemaVersion must be a positive integer`);
+        }
+        if (!isObject(extension.policy)) {
+          blockers.push(`tracked example extension ${namespace} policy must be an object`);
+          continue;
+        }
+        const runtimeFields = [...new Set(runtimeExtensionFields(extension.policy))].sort();
+        if (runtimeFields.length) {
+          blockers.push(`tracked example extension ${namespace} contains runtime, identity, or core-authority fields: ${runtimeFields.join(", ")}`);
+        }
+      }
+    }
+  }
+  const scope = registry.scope;
+  if (!isObject(scope)) blockers.push("tracked example scope must be an object");
+  else {
+    const unexpectedScopeFields = Object.keys(scope).filter((field) => !TRACKED_EXAMPLE_SCOPE_FIELDS.has(field));
+    if (unexpectedScopeFields.length) blockers.push(`tracked example scope contains unsupported or identity fields: ${unexpectedScopeFields.sort().join(", ")}`);
+    if (scope.rootRef !== "repository-root") blockers.push("tracked example rootRef must remain the identity-free repository-root placeholder");
+    if (("ownerRef" in scope && scope.ownerRef !== "project-owner") || (schemaVersion >= 4 && !("ownerRef" in scope))) {
+      blockers.push("tracked example ownerRef must remain the identity-free project-owner placeholder");
+    }
+  }
+  if (registry.rootControl !== undefined && (!isObject(registry.rootControl) || Object.keys(registry.rootControl).length !== 1 || !("materialization" in registry.rootControl))) {
+    blockers.push("tracked example rootControl contains unsupported fields");
+  }
+  const trustPolicy = registry.trustPolicy;
+  if (!isObject(trustPolicy)) blockers.push("tracked example trustPolicy must be an object");
+  else {
+    const unexpectedTrustFields = Object.keys(trustPolicy).filter((field) => !TRACKED_EXAMPLE_TRUST_POLICY_FIELDS.has(field));
+    if (unexpectedTrustFields.length) blockers.push(`tracked example trustPolicy contains unsupported or runtime fields: ${unexpectedTrustFields.sort().join(", ")}`);
+    if (!isObject(trustPolicy.limits) || Object.keys(trustPolicy.limits).some((field) => !TRACKED_EXAMPLE_TRUST_LIMIT_FIELDS.has(field))) {
+      blockers.push("tracked example trustPolicy.limits contains unsupported fields");
+    }
+  }
+  return blockers;
 }
 
 function isCodexNativeFirstmateAdapter(adapter) {
@@ -1677,6 +1810,12 @@ function validateRegistry(registry) {
   return { blockers, warnings, nodes, nodesById };
 }
 
+function validateLoadedRegistry(loaded) {
+  const findings = validateRegistry(loaded.registry);
+  if (loaded.source === "tracked-example") findings.blockers.push(...validateTrackedExampleRegistry(loaded.registry));
+  return findings;
+}
+
 export function validateCurrentOrchestrationRegistry() {
   const loaded = loadRegistry({ liveRequired: true, selection: environmentLocalSelection(), trackedExampleOnly: false });
   if (!loaded.exists) return { registry: null, blockers: [loaded.error || `missing ${registryLabel(loaded)}`], warnings: [], nodes: [], nodesById: new Map() };
@@ -1886,7 +2025,7 @@ function runAdapterStatus(io) {
   }));
   const presentCount = assets.filter((asset) => asset.present).length;
   const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
-  const registryValid = Boolean(loaded.exists && !loaded.error && validateRegistry(loaded.registry).blockers.length === 0);
+  const registryValid = Boolean(loaded.exists && !loaded.error && validateLoadedRegistry(loaded).blockers.length === 0);
   const activationBlockers = registryValid ? firstmateActivationBlockers(loaded.registry, adapter) : ["registry must be valid"];
   if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
 
@@ -1983,7 +2122,7 @@ function runStatus(io) {
     io.stdout(`error: ${toonString(loaded.error)}`);
     return 1;
   }
-  const findings = validateRegistry(loaded.registry);
+  const findings = validateLoadedRegistry(loaded);
   const counts = Object.fromEntries([...STATES].map((state) => [state, findings.nodes.filter((node) => node.state === state).length]));
   io.stdout(`state: ${toonString(loaded.live ? loaded.registry.status : "unconfigured")}`);
   io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
@@ -2066,7 +2205,7 @@ function runValidate(io) {
     io.stdout(`blockers[1]: ${toonString(`invalid registry: ${loaded.error}`)}`);
     return 1;
   }
-  const findings = validateRegistry(loaded.registry);
+  const findings = validateLoadedRegistry(loaded);
   io.stdout(`valid: ${findings.blockers.length === 0}`);
   io.stdout(`target: ${toonString(loaded.source)}`);
   io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
