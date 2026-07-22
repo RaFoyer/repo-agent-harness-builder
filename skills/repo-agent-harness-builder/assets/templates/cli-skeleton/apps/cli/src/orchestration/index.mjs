@@ -344,15 +344,45 @@ function writePrivateInstance(registry, location) {
 }
 
 function loadTrackedRegistry(relPath) {
-  const fullPath = path.join(CONFIG.repoRoot, relPath);
-  let stat;
+  let repoRoot;
   try {
-    stat = fs.lstatSync(fullPath);
+    repoRoot = resolvedRepoRoot();
   } catch (error) {
-    if (error.code === "ENOENT") return { exists: false, registry: null, error: "", fullPath };
-    return { exists: false, registry: null, error: error.message, fullPath };
+    return { exists: false, registry: null, error: error.message || "cannot resolve project root", fullPath: null };
   }
-  if (!stat.isFile() || stat.isSymbolicLink()) return { exists: true, registry: null, error: `${relPath} must be a regular tracked file`, fullPath };
+  const fullPath = path.resolve(repoRoot, relPath);
+  const relativePath = path.relative(repoRoot, fullPath);
+  if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    return { exists: false, registry: null, error: `${relPath} escapes the project root`, fullPath };
+  }
+  const components = relativePath.split(path.sep);
+  let current = repoRoot;
+  let fileStat;
+  for (let index = 0; index < components.length; index += 1) {
+    current = path.join(current, components[index]);
+    try {
+      fileStat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") return { exists: false, registry: null, error: "", fullPath };
+      return { exists: false, registry: null, error: error.message, fullPath };
+    }
+    if (fileStat.isSymbolicLink()) {
+      return { exists: true, registry: null, error: `${relPath} must not traverse symlinks`, fullPath };
+    }
+    if (index < components.length - 1 && !fileStat.isDirectory()) {
+      return { exists: true, registry: null, error: `${relPath} path components must be directories`, fullPath };
+    }
+  }
+  if (!fileStat?.isFile()) return { exists: true, registry: null, error: `${relPath} must be a regular tracked file`, fullPath };
+  try {
+    const resolvedPath = fs.realpathSync(fullPath);
+    const resolvedRelativePath = path.relative(repoRoot, resolvedPath);
+    if (resolvedRelativePath === ".." || resolvedRelativePath.startsWith(`..${path.sep}`) || path.isAbsolute(resolvedRelativePath)) {
+      return { exists: true, registry: null, error: `${relPath} escapes the project root`, fullPath };
+    }
+  } catch (error) {
+    return { exists: true, registry: null, error: error.message, fullPath };
+  }
   return loadJsonFile(fullPath, { fullPath });
 }
 

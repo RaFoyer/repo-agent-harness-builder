@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
@@ -102,12 +103,29 @@ def check_file(path: Path, errors: list[str], root: Path | None = None) -> None:
 def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     path = target / "ops" / "orchestration.example.json"
     label = display_path(path, target)
-    if path.is_symlink():
-        errors.append(f"orchestration example must not be a symlink: {label}")
+    current = target
+    path_stat = None
+    for component in path.relative_to(target).parts:
+        current /= component
+        try:
+            path_stat = current.lstat()
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            errors.append(f"cannot inspect orchestration example: {label} ({error})")
+            return
+        if stat.S_ISLNK(path_stat.st_mode):
+            errors.append(f"orchestration example must not traverse symlinked path components: {label}")
+            return
+        if current != path and not stat.S_ISDIR(path_stat.st_mode):
+            errors.append(f"orchestration example path component must be a directory: {label}")
+            return
+    try:
+        path.resolve(strict=True).relative_to(target)
+    except (OSError, ValueError) as error:
+        errors.append(f"orchestration example must remain within the target: {label} ({error})")
         return
-    if not path.exists():
-        return
-    if not path.is_file():
+    if path_stat is None or not stat.S_ISREG(path_stat.st_mode):
         errors.append(f"orchestration example must be a regular file: {label}")
         return
     try:
@@ -148,10 +166,12 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must not contain live nodes: {label}")
     if registry.get("ownerDirectives", []) != []:
         errors.append(f"orchestration example must not contain owner directives: {label}")
-    if "clientAdapter" not in registry or registry.get("clientAdapter") is not None:
-        errors.append(f"orchestration example must not select a client adapter: {label}")
-    if "bindingAttestation" not in registry or registry.get("bindingAttestation") is not None:
-        errors.append(f"orchestration example must not contain binding attestation data: {label}")
+    schema_version = registry.get("schemaVersion")
+    if schema_version in {4, 5}:
+        if "clientAdapter" not in registry or registry.get("clientAdapter") is not None:
+            errors.append(f"orchestration example must not select a client adapter: {label}")
+        if "bindingAttestation" not in registry or registry.get("bindingAttestation") is not None:
+            errors.append(f"orchestration example must not contain binding attestation data: {label}")
     scope = registry.get("scope")
     if not isinstance(scope, dict):
         errors.append(f"orchestration example scope must be an object: {label}")
@@ -165,7 +185,7 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
             )
         if scope.get("rootRef") != "repository-root":
             errors.append(f"orchestration example rootRef must remain the identity-free repository-root placeholder: {label}")
-        if scope.get("ownerRef") != "project-owner":
+        if schema_version in {4, 5} and scope.get("ownerRef") != "project-owner":
             errors.append(f"orchestration example ownerRef must remain the identity-free project-owner placeholder: {label}")
     root_control = registry.get("rootControl")
     if root_control is not None:

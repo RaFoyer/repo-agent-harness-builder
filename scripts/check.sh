@@ -446,6 +446,32 @@ if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name har
   exit 1
 fi
 
+damaged="$TMP/generated-repo-symlinked-ops-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+mv "$damaged/ops" "$damaged/redirected-ops"
+ln -s "redirected-ops" "$damaged/ops"
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a tracked orchestration example behind a symlinked directory" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-schema-v3-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["schemaVersion"] = 3
+for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]:
+    registry.pop(field, None)
+registry["scope"].pop("ownerRef", None)
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
+
 mkdir -p "$TMP/firstmate-profile-collision/.codex/agents"
 printf 'name = "boss"\n' > "$TMP/firstmate-profile-collision/.codex/agents/boss.toml"
 python3 "$SKILL/scripts/scaffold_harness.py" \

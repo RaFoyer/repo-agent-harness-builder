@@ -2355,11 +2355,26 @@ fixtureTest("orchestration rejects a symlinked tracked example", async () => {
 
   const status = capture();
   assert.equal(await main(["orchestration", "status"], status.io), 1);
-  assert.match(status.out.join("\n"), /orchestration\.example\.json must be a regular tracked file/);
+  assert.match(status.out.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
 
   const taxonomy = capture();
   assert.equal(await main(["orchestration", "taxonomy"], taxonomy.io), 1);
-  assert.match(taxonomy.out.join("\n"), /orchestration\.example\.json must be a regular tracked file/);
+  assert.match(taxonomy.out.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
+});
+
+fixtureTest("orchestration rejects tracked examples behind symlinked directories", async () => {
+  const opsPath = path.join(repoRoot, "ops");
+  const redirectedOpsPath = path.join(repoRoot, "redirected-ops");
+  fs.renameSync(opsPath, redirectedOpsPath);
+  fs.symlinkSync(redirectedOpsPath, opsPath, "dir");
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status", "--example"], status.io), 1);
+  assert.match(status.out.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
+
+  const init = capture();
+  assert.equal(await main(["orchestration", "init"], init.io), 1);
+  assert.match(init.err.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
 });
 
 fixtureTest("orchestration requires exact private-instance permissions", async () => {
