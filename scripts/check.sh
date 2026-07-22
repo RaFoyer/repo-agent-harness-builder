@@ -369,6 +369,237 @@ for required_path in \
     exit 1
   fi
 done
+
+echo "== orchestration example verifier boundaries =="
+REPO_ORCHESTRATION_OPERATOR='../../invalid' \
+REPO_ORCHESTRATION_INSTANCE='../invalid-instance' \
+  python3 "$SKILL/scripts/verify_harness.py" \
+    --target "$TMP/generated-repo" \
+    --cli-name harness
+
+damaged="$TMP/generated-repo-active-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["status"] = "active"
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject an active tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-identity-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["developerIdentity"] = {"taskId": "task-local-only"}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject runtime or identity fields in the tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-custom-orchestration-policy"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["extensions"] = {
+    "example.generated-repo": {
+        "kind": "tracked-policy",
+        "schemaVersion": 1,
+        "policy": {"releasePolicy": {"requiresApproval": True}}
+    }
+}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
+
+for runtime_field in taskId task_id externalTaskId TaskID taskRef threadRef taskIdentifier threadIdentifier status operator instance ownerRef rootRef authority approvalGates; do
+  damaged="$TMP/generated-repo-$runtime_field-orchestration-extension"
+  cp -R "$TMP/generated-repo" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$runtime_field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+runtime_field = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["extensions"] = {
+    "example.generated-repo": {
+        "kind": "tracked-policy",
+        "schemaVersion": 1,
+        "policy": {runtime_field: "runtime-local-only"}
+    }
+}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject runtime fields in an orchestration extension" >&2
+    exit 1
+  fi
+done
+
+for invalid_extension_case in namespace envelope runtime_reference; do
+  damaged="$TMP/generated-repo-invalid-extension-$invalid_extension_case"
+  cp -R "$TMP/generated-repo" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$invalid_extension_case" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+invalid_case = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+namespace = "not-namespaced" if invalid_case == "namespace" else "example.generated-repo"
+extension = {
+    "kind": "tracked-policy",
+    "schemaVersion": 1,
+    "policy": {"releasePolicy": {"requiresApproval": True}}
+}
+if invalid_case == "envelope":
+    extension["runtimeConfig"] = {"enabled": True}
+elif invalid_case == "runtime_reference":
+    extension["policy"]["workReference"] = "codex://tasks/local-runtime-task"
+registry["extensions"] = {namespace: extension}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject invalid orchestration extension case $invalid_extension_case" >&2
+    exit 1
+  fi
+done
+
+damaged="$TMP/generated-repo-task-root-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["scope"]["rootRef"] = "task-local-root"
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a task identity in the tracked orchestration example root" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-directory-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+rm "$damaged/ops/orchestration.example.json"
+mkdir "$damaged/ops/orchestration.example.json"
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a directory in place of the tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-symlink-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+mv "$damaged/ops/orchestration.example.json" "$damaged/ops/orchestration.example.target.json"
+ln -s "orchestration.example.target.json" "$damaged/ops/orchestration.example.json"
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a symlinked tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-symlinked-ops-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+mv "$damaged/ops" "$damaged/redirected-ops"
+ln -s "redirected-ops" "$damaged/ops"
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a tracked orchestration example behind a symlinked directory" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-schema-v3-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["schemaVersion"] = 3
+for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]:
+    registry.pop(field, None)
+registry["scope"].pop("ownerRef", None)
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
+
+for private_field in clientAdapter bindingAttestation ownerRef; do
+  damaged="$TMP/generated-repo-schema-v3-private-$private_field"
+  cp -R "$TMP/generated-repo" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$private_field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+private_field = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["schemaVersion"] = 3
+for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]:
+    registry.pop(field, None)
+registry["scope"].pop("ownerRef", None)
+if private_field == "clientAdapter":
+    registry[private_field] = {"profile": "private-adapter"}
+elif private_field == "bindingAttestation":
+    registry[private_field] = {"keyId": "private-attestor"}
+else:
+    registry["scope"][private_field] = "private-owner"
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject private $private_field state in a schema-v3 tracked example" >&2
+    exit 1
+  fi
+done
+
+damaged="$TMP/generated-repo-invalid-schema-type"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["schemaVersion"] = {"invalid": True}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness \
+  >"$TMP/invalid-schema-type.out" 2>"$TMP/invalid-schema-type.err"; then
+  echo "expected verifier to reject a non-scalar orchestration schema version" >&2
+  exit 1
+fi
+if grep -q "Traceback" "$TMP/invalid-schema-type.err"; then
+  cat "$TMP/invalid-schema-type.err" >&2
+  echo "expected verifier to contain invalid schema-version types without a traceback" >&2
+  exit 1
+fi
+
 mkdir -p "$TMP/firstmate-profile-collision/.codex/agents"
 printf 'name = "boss"\n' > "$TMP/firstmate-profile-collision/.codex/agents/boss.toml"
 python3 "$SKILL/scripts/scaffold_harness.py" \

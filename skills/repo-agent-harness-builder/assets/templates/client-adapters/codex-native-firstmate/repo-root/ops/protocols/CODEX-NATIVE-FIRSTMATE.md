@@ -126,13 +126,16 @@ proof.
 Run:
 
 ```bash
-./{{CLI_NAME}} orchestration adapter-status
+./{{CLI_NAME}} orchestration adapter-status --example
 ```
 
 The command checks only local registry configuration and installed template
 files. It does not call Codex, edit `.codex/config.toml`, create or title tasks,
 launch subagents, update the registry, schedule heartbeats, authenticate a
 browser/GitHub integration, or archive work.
+
+See `AGENT-ORCHESTRATION.md` for portable-selector boundaries and private
+instance inspection.
 
 Missing capabilities fail closed. Do not silently substitute another browser,
 connector, CLI, or app-server bridge.

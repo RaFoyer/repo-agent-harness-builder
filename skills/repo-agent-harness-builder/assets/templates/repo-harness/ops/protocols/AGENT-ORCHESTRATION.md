@@ -22,9 +22,10 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 
 ## Source Of Truth
 
-- `ops/orchestration.example.json` is tracked policy/example state. It stays inactive and contains no developer identity, task ID, reservation, signature, directive, or live lifecycle state.
+- `ops/orchestration.example.json` is tracked policy/example state. It stays inactive and contains no developer identity, task ID, reservation, signature, directive, or live lifecycle state. Repository-specific metadata may use `extensions.<lowercase.dotted.namespace>` only as `{ "kind": "tracked-policy", "schemaVersion": <positive integer>, "policy": { ... } }`. Extension policy is declarative discovery metadata: it must contain no runtime, identity, lifecycle, core-authority, task/thread-reference, or binding fields and cannot alter core eligibility, authority, completion, reservation, or launch semantics.
 - Each selected private orchestration instance owns one operator's configured scope, monotonic revision, coordination mode, project-owner identity, governed owner directives, hierarchy, task bindings, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
-- In Git repositories, private instances live under the Git common directory so linked worktrees share them without committing them. Non-Git project folders use a path-keyed private user-state store. Both stores use named operator and instance selectors; arbitrary path overrides are forbidden.
+- In Git repositories, private instances live under the Git common directory so linked worktrees share them without committing them. The resolver ignores ambient Git topology and configuration overrides, refuses symlinked Git metadata, and does not fall back to user state when Git metadata is unreadable. Non-Git project folders use a path-keyed private user-state store. Both stores use named operator and instance selectors; arbitrary path overrides are forbidden.
+- The tracked example is a regular file rooted in the repository; neither it nor its path components may be symlinks.
 - `clientAdapter` is null in the inactive scaffold. A configured object names the selected client/profile and activation posture; installed adapter files alone do not select it.
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.
@@ -205,28 +206,33 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ## CLI Support
 
 ```bash
-./{{CLI_NAME}} orchestration status
+./{{CLI_NAME}} orchestration status [--example]
 ./{{CLI_NAME}} orchestration instances
 ./{{CLI_NAME}} orchestration init <instance>
 ./{{CLI_NAME}} orchestration migrate <instance>
 ./{{CLI_NAME}} orchestration hierarchy
 ./{{CLI_NAME}} orchestration trust
-./{{CLI_NAME}} orchestration validate
+./{{CLI_NAME}} orchestration validate [--example]
 ./{{CLI_NAME}} orchestration directives
+./{{CLI_NAME}} orchestration adapter-status [--example]
+./{{CLI_NAME}} orchestration taxonomy [--example]
 ./{{CLI_NAME}} orchestration next
 ./{{CLI_NAME}} orchestration prompt boss
 ./{{CLI_NAME}} orchestration prompt <node-id>
 ./{{CLI_NAME}} orchestration launch-spec <node-id>
 ```
 
-`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path.
+`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
 
-When the opt-in Codex-native profile is relevant, inspect it with
-`./{{CLI_NAME}} orchestration adapter-status`, preview presentation labels with
-`./{{CLI_NAME}} orchestration taxonomy`, and read
-`CODEX-NATIVE-FIRSTMATE.md`. Firstmate is a Codex-facing Boss profile, not a
-fourth role. Installed profile assets do not activate orchestration or grant
-task-creation authority.
+When the opt-in Codex-native profile is relevant, inspect the portable
+baseline with `./{{CLI_NAME}} orchestration adapter-status --example`, preview
+portable presentation labels with
+`./{{CLI_NAME}} orchestration taxonomy --example`, and read
+`CODEX-NATIVE-FIRSTMATE.md`. After a private instance is
+configured, omit `--example` and select that instance to inspect its live
+adapter posture. Firstmate is a Codex-facing Boss profile, not a fourth role.
+Installed profile assets do not activate orchestration or grant task-creation
+authority.
 
 ## Client Adapter Handshake
 

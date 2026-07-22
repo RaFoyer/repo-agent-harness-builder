@@ -163,9 +163,11 @@ Scaffold `orchestration` as the project-wide structured-delegation helper even
 while `AGENT-ORCHESTRATION.md` remains inactive. It must not assume tickets,
 branches, pull requests, or software delivery. Minimum behavior:
 
-- `orchestration status`: summarize the explicit registry scope, roles, states,
-  source (tracked example or private instance), and validation findings; an
-  inactive valid example exits successfully but cannot drive operational commands.
+- `orchestration status [--example]`: summarize the explicit registry scope,
+  roles, states, source (tracked example or private instance), and validation
+  findings; an inactive valid example exits successfully but cannot drive
+  operational commands. `--example` explicitly inspects the tracked contract
+  without resolving operator-private state.
 - `orchestration instances`: list named private instances for the selected
   operator without printing an absolute local path.
 - `orchestration init <name>`: explicitly create one inactive private `0600`
@@ -177,21 +179,32 @@ branches, pull requests, or software delivery. Minimum behavior:
 Select instances with safe `--operator` and `--instance` names. Composing CLI
 facades use `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` so
 the same private authority state is resolved without accepting a raw path.
+Portable verification uses `--example` with `status`, `validate`,
+`adapter-status`, or `taxonomy`; that selector ignores ambient instance names,
+cannot be combined with `--operator` or `--instance`, and is rejected by every
+operational command.
+Repository-specific tracked metadata uses only a lowercase dotted namespace
+under `extensions`, with a versioned `tracked-policy` envelope. The core CLI
+treats that policy as non-authoritative discovery metadata: it cannot shadow or
+change hierarchy, lifecycle, trust, authority, evidence, reservations, or
+launch contracts, and the verifier rejects runtime or identity fields within
+it.
 - `orchestration directives`: show schema-v4 governed owner directives, target
   nodes, contract impact, target acknowledgement and resolution evidence, and
   parent-reconciliation state without mutating tasks or treating task messages
   as authority.
-- `orchestration adapter-status`: inspect the local Codex-native Firstmate
-  adapter posture, installed assets, activation blockers, and optional native
-  capability plan without contacting Codex or changing configuration.
-- `orchestration taxonomy`: preview portable, nautical, and executive display
-  labels plus the configured title grammar without changing configuration or
-  tasks.
+- `orchestration adapter-status [--example]`: inspect the local Codex-native
+  Firstmate adapter posture, installed assets, activation blockers, and
+  optional native capability plan without contacting Codex or changing
+  configuration. `--example` inspects the tracked inactive contract.
+- `orchestration taxonomy [--example]`: preview portable, nautical, and
+  executive display labels plus the configured title grammar without changing
+  configuration or tasks. `--example` inspects the tracked inactive contract.
 - `orchestration hierarchy`: explain portable portfolio/workstream/work-unit
   responsibility and parent links without implying authority; direct configured
   client title grammar to the selected adapter protocol.
 - `orchestration trust`: show the T0-T5 autonomy ceiling and inheritance rules.
-- `orchestration validate`: reject invalid parent/dependency graphs, duplicate
+- `orchestration validate [--example]`: reject invalid parent/dependency graphs, duplicate
   Bosses, title drift, invalid lifecycle evidence, trust promotion without
   evidence, child authority or budget exceeding the parent, and active-node,
   active-child, or depth budget overruns. Validate schema-v5 optional root and
@@ -396,8 +409,8 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} connections status
 ./{{CLI_NAME}} connections auth-plan --profile example-gcloud
 ./{{CLI_NAME}} connections env --profile example-gcloud
-./{{CLI_NAME}} orchestration status
-./{{CLI_NAME}} orchestration validate
+./{{CLI_NAME}} orchestration status --example
+./{{CLI_NAME}} orchestration validate --example
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} self check
 ```

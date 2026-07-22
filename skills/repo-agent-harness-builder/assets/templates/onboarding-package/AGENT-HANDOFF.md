@@ -32,7 +32,7 @@ Use this package to help a human install or scaffold the right harness for a rep
 7. For personal-folder scaffolding, collect install folder, managed folders, off-limits folders, scan depth, cleanup style, naming style, and automation preferences. Read `references/PERSONAL-FOLDER-HARNESS.md`.
 8. Before scaffolding or installing, show the target path, expected file count, exact command, and whether existing files will be merged or overwritten. Wait for an explicit yes.
 9. Run the appropriate scaffold script.
-10. Run generated CLI help, ergonomics status, no-mistakes status for repositories, lavish status, orchestration status, orchestration directives, preflight, and safe first checks. For Codex-targeted repositories, also run `orchestration adapter-status` and `orchestration taxonomy`; the resident Firstmate capability remains inactive until deliberately configured.
+10. Run generated CLI help, ergonomics status, no-mistakes status for repositories, lavish status, orchestration status with `--example`, preflight, and safe first checks. For Codex-targeted repositories, also run `orchestration adapter-status --example` and `orchestration taxonomy --example`; the resident Firstmate capability remains inactive until deliberately configured.
 11. If connector setup or login is in scope, run the repo-local `connections plan` and `connections auth-plan --profile <profile-id>` before requesting any generic plugin, MCP install, or provider authentication.
 12. Report results and one useful next action.
 
@@ -71,10 +71,9 @@ cd "/path/to/project"
 ./harness ergonomics status
 ./harness no-mistakes status
 ./harness lavish status
-./harness orchestration status
-./harness orchestration directives
-./harness orchestration adapter-status
-./harness orchestration taxonomy
+./harness orchestration status --example
+./harness orchestration adapter-status --example
+./harness orchestration taxonomy --example
 ./harness context
 ./harness preflight
 ./harness verify --dry-run

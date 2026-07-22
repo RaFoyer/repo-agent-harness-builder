@@ -224,8 +224,8 @@ The adapter template installs:
 - `docs/templates/orchestration/codex-native-firstmate-adapter.example.json`
 - `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`
 
-Inspect posture with `./{{CLI_NAME}} orchestration adapter-status`. The command
-is read-only; it does not edit Codex configuration, create tasks, launch
-workers, update the registry, schedule a heartbeat, or archive anything.
-Run `./{{CLI_NAME}} orchestration taxonomy` to preview the presentation
-profiles and title grammar without changing configuration or tasks.
+For a portable check, run
+`./{{CLI_NAME}} orchestration adapter-status --example` and
+`./{{CLI_NAME}} orchestration taxonomy --example`. See the
+`Project Orchestration Command Contract` in `references/cli-tooling.md` for
+selector and read-only behavior.

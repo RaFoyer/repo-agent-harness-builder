@@ -32,13 +32,26 @@ The Boss must not become the controller for every internal goal graph. The Manag
 Git owns the portable control-plane contract: protocol, schema, inactive
 `ops/orchestration.example.json`, CLI implementation, and tests. It must not
 own developer task IDs, signatures, reservations, directives, or live state.
+Repository-specific metadata may use `extensions.<lowercase.dotted.namespace>`
+only as `{"kind":"tracked-policy","schemaVersion":1,"policy":{...}}`.
+These entries are declarative discovery metadata, not an authority extension:
+they must not contain runtime, identity, lifecycle, core-authority,
+task/thread-reference, or binding fields and cannot change core eligibility,
+authority, completion, reservation, or launch semantics.
 
 Each named private orchestration instance governs one explicit scope. In a Git
 repository it lives under the clone's Git common directory and is shared by
-linked worktrees; a non-Git project folder uses a path-keyed private user-state
-store. Safe operator and instance names select state. Raw path overrides are
-not part of the contract because they could redirect live state into Git or
-split one clone across competing registries. Record:
+linked worktrees. The resolver ignores ambient Git topology and configuration
+overrides, rejects symlinked Git metadata, and does not fall back to user state
+when Git metadata is unreadable. If protected Git configuration already trusts
+this exact repository through `safe.directory`, the resolver preserves only
+that exact-root trust for its topology query; wildcard and parent-directory
+trust are not promoted. The tracked example and every path component
+leading to it must be regular repository entries, not symlinks. A non-Git
+project folder uses a path-keyed private user-state store. Safe operator and
+instance names select state. Raw path overrides are not part of the contract
+because they could redirect live state into Git or split one clone across
+competing registries. Record:
 
 - a non-negative monotonic registry revision
 - scope ID

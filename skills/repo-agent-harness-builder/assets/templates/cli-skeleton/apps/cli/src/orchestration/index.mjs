@@ -16,6 +16,55 @@ const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4, 5]);
 const COORDINATION_MODES = new Set(["managed", "hybrid"]);
 const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
 const PARENT_BINDING_MODES = new Set(["task", "logical"]);
+const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy"]);
+const TRACKED_POLICY_EXTENSION_FIELDS = new Set(["kind", "schemaVersion", "policy"]);
+const TRACKED_EXAMPLE_ROOT_FIELDS = new Set([
+  "schemaVersion", "revision", "status", "coordinationMode", "rootControl", "prefix", "scope",
+  "bindingAttestation", "clientAdapter", "trustPolicy", "nodes", "ownerDirectives", "extensions"
+]);
+const TRACKED_EXAMPLE_SCOPE_FIELDS = new Set(["id", "kind", "rootRef", "ownerRef", "objective"]);
+const TRACKED_EXAMPLE_TRUST_POLICY_FIELDS = new Set([
+  "defaultLevel", "maxLevel", "promotionRequiresHumanApproval", "childMayExceedParent", "limits"
+]);
+const TRACKED_EXAMPLE_TRUST_LIMIT_FIELDS = new Set(["maxActiveNodes", "maxDelegationDepth"]);
+const EXTENSION_NAMESPACE_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+const RUNTIME_EXTENSION_FIELD_WORDS = new Set([
+  "account", "acknowledged", "authority", "binding", "budget", "completed", "completion",
+  "created", "delegation", "developer", "email", "evidence", "identity", "instance", "issued",
+  "launch", "lifecycle", "maintainer", "node", "operator", "owner", "parent", "reservation",
+  "resolved", "revision", "role", "root", "scope", "signature", "state", "status", "task", "thread",
+  "trust", "updated", "user", "workcontract"
+]);
+const RUNTIME_EXTENSION_FIELDS = new Set([
+  "accountid", "acknowledgedbyref", "allowedexternalactions", "allowedreads", "allowedwrites", "approvalgates",
+  "authority", "bindingattestation", "boundat", "budgets", "candelegate", "clientadapter", "completedat",
+  "completionevidence", "completionprofile", "coordinationmode", "createdat", "createdby", "dependencies",
+  "developer", "developeridentity", "email", "evidence", "instance", "issuedbyref", "launchkey", "launchedat",
+  "launchreservation", "lifecycle", "maintainer", "maxactivechildren", "nodes", "observedbyref", "operator",
+  "ownerdirectives", "ownerref", "parentbindingmode", "parentid", "parenttaskid", "reservation", "resolvedbyref",
+  "revision", "role", "rootcontrol", "rootref", "scope", "signature", "state", "status", "stopconditions",
+  "taskbinding", "taskid", "taskids", "threadid", "threadids", "titleverification", "trustlevel", "trustpolicy",
+  "updatedat", "updatedby", "userid", "username", "workcontracthash"
+]);
+const RUNTIME_EXTENSION_FIELD_SUFFIXES = ["taskid", "taskids", "taskref", "taskrefs", "taskidentifier", "taskidentifiers", "threadid", "threadids", "threadref", "threadrefs", "threadidentifier", "threadidentifiers"];
+const RUNTIME_EXTENSION_VALUE_RE = /(?:codex:\/\/(?:tasks|threads)\/|(?:task|thread)(?:[-_ ]?(?:message|id|ref|identifier))?:)/i;
+const GIT_TOPOLOGY_OVERRIDE_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_INDEX_FILE",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM"
+];
+const GIT_CONFIG_OVERRIDE_ENV = [
+  "GIT_CONFIG",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_PARAMETERS"
+];
 const DIRECTIVE_KINDS = new Set(["owner-directive", "owner-intervention"]);
 const DIRECTIVE_IMPACTS = new Set(["within-contract", "replan-required"]);
 const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "superseded", "cancelled"]);
@@ -78,6 +127,7 @@ function environmentLocalSelection() {
 }
 
 let selectedLocalInstance = environmentLocalSelection();
+let selectedTrackedExample = false;
 
 function safeLocalName(value, label) {
   if (!SAFE_LOCAL_NAME_RE.test(value || "")) throw new Error(`${label} must be a safe 1-64 character local name`);
@@ -90,6 +140,54 @@ function resolvedRepoRoot() {
   } catch (error) {
     throw new Error(`cannot resolve project root: ${error.message || "unknown error"}`);
   }
+}
+
+function sanitizedGitEnvironment() {
+  const env = { ...process.env };
+  for (const name of GIT_TOPOLOGY_OVERRIDE_ENV) delete env[name];
+  for (const name of GIT_CONFIG_OVERRIDE_ENV) delete env[name];
+  for (const name of Object.keys(env)) {
+    if (/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
+  }
+  return env;
+}
+
+function gitTopologyEnvironment() {
+  const env = sanitizedGitEnvironment();
+  env.GIT_CONFIG_NOSYSTEM = "1";
+  env.GIT_CONFIG_GLOBAL = os.devNull;
+  return env;
+}
+
+function hasConfiguredExactSafeDirectory(repoRoot) {
+  const env = sanitizedGitEnvironment();
+  for (const scope of ["--global", "--system"]) {
+    const result = spawnSync("git", ["config", scope, "--path", "--null", "--get-all", "safe.directory"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env
+    });
+    if (result.status !== 0) continue;
+    const entries = result.stdout.split("\0").filter(Boolean);
+    if (entries.some((entry) => {
+      if (entry === "*" || entry.endsWith("/*") || !path.isAbsolute(entry)) return false;
+      try {
+        return fs.realpathSync(entry) === repoRoot;
+      } catch {
+        return false;
+      }
+    })) return true;
+  }
+  return false;
+}
+
+function resolveGitTopology(repoRoot, { exactSafeDirectory = false } = {}) {
+  const args = exactSafeDirectory ? ["-c", `safe.directory=${repoRoot}`] : [];
+  return spawnSync("git", [...args, "-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: gitTopologyEnvironment()
+  });
 }
 
 function localStoreRoot() {
@@ -105,10 +203,10 @@ function localStoreRoot() {
     throw new Error("Git metadata must not be a symlink");
   }
   const gitMetadataPresent = gitMarkerStat !== null;
-  const result = spawnSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
-    encoding: "utf-8",
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  let result = resolveGitTopology(repoRoot);
+  if (result.status !== 0 && gitMetadataPresent && hasConfiguredExactSafeDirectory(repoRoot)) {
+    result = resolveGitTopology(repoRoot, { exactSafeDirectory: true });
+  }
   if (result.status === 0) {
     const [topLevel, commonDirValue] = result.stdout.trim().split(/\r?\n/);
     if (!topLevel || !commonDirValue) throw new Error("Git topology did not return a worktree root and common directory");
@@ -178,7 +276,19 @@ function loadPrivateRegistry(location) {
   return loadJsonFile(location.path, { source: "local-instance", live: true, label: location.label, location });
 }
 
-function loadRegistry({ liveRequired = false, selection = selectedLocalInstance } = {}) {
+function loadRegistry({ liveRequired = false, selection = selectedLocalInstance, trackedExampleOnly = selectedTrackedExample } = {}) {
+  if (trackedExampleOnly) {
+    if (liveRequired) {
+      return { exists: false, registry: null, error: "tracked example cannot be used as live orchestration authority", source: "tracked-example", live: false, label: EXAMPLE_REGISTRY_REL_PATH, location: null };
+    }
+    return {
+      ...loadTrackedRegistry(EXAMPLE_REGISTRY_REL_PATH),
+      source: "tracked-example",
+      live: false,
+      label: EXAMPLE_REGISTRY_REL_PATH,
+      location: null
+    };
+  }
   let location;
   try {
     location = instanceLocation(selection);
@@ -203,24 +313,35 @@ function registryLabel(loaded) {
 function parseLocalSelection(argv, io) {
   const remaining = [];
   let { operator, instance } = environmentLocalSelection();
+  let trackedExampleOnly = false;
+  let explicitLocalSelector = false;
   try {
     for (let index = 0; index < argv.length; index += 1) {
       const argument = argv[index];
+      if (argument === "--example") {
+        trackedExampleOnly = true;
+        continue;
+      }
       if (argument !== "--operator" && argument !== "--instance") {
         remaining.push(argument);
         continue;
       }
       const value = argv[index + 1];
       if (!value || value.startsWith("-")) throw new Error(`${argument} requires a value`);
+      explicitLocalSelector = true;
       if (argument === "--operator") operator = value;
       else instance = value;
       index += 1;
     }
-    selectedLocalInstance = {
-      operator: safeLocalName(operator, "operator"),
-      instance: safeLocalName(instance, "instance")
-    };
-    return { ok: true, argv: remaining };
+    if (trackedExampleOnly && explicitLocalSelector) throw new Error("--example cannot be combined with --operator or --instance");
+    selectedLocalInstance = trackedExampleOnly
+      ? { operator: DEFAULT_LOCAL_NAME, instance: DEFAULT_LOCAL_NAME }
+      : {
+          operator: safeLocalName(operator, "operator"),
+          instance: safeLocalName(instance, "instance")
+        };
+    selectedTrackedExample = trackedExampleOnly;
+    return { ok: true, argv: remaining, trackedExampleOnly };
   } catch (error) {
     renderUsageError(io, {
       code: "invalid-orchestration-local-selection",
@@ -289,15 +410,45 @@ function writePrivateInstance(registry, location) {
 }
 
 function loadTrackedRegistry(relPath) {
-  const fullPath = path.join(CONFIG.repoRoot, relPath);
-  let stat;
+  let repoRoot;
   try {
-    stat = fs.lstatSync(fullPath);
+    repoRoot = resolvedRepoRoot();
   } catch (error) {
-    if (error.code === "ENOENT") return { exists: false, registry: null, error: "", fullPath };
-    return { exists: false, registry: null, error: error.message, fullPath };
+    return { exists: false, registry: null, error: error.message || "cannot resolve project root", fullPath: null };
   }
-  if (!stat.isFile() || stat.isSymbolicLink()) return { exists: true, registry: null, error: `${relPath} must be a regular tracked file`, fullPath };
+  const fullPath = path.resolve(repoRoot, relPath);
+  const relativePath = path.relative(repoRoot, fullPath);
+  if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    return { exists: false, registry: null, error: `${relPath} escapes the project root`, fullPath };
+  }
+  const components = relativePath.split(path.sep);
+  let current = repoRoot;
+  let fileStat;
+  for (let index = 0; index < components.length; index += 1) {
+    current = path.join(current, components[index]);
+    try {
+      fileStat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") return { exists: false, registry: null, error: "", fullPath };
+      return { exists: false, registry: null, error: error.message, fullPath };
+    }
+    if (fileStat.isSymbolicLink()) {
+      return { exists: true, registry: null, error: `${relPath} must not traverse symlinks`, fullPath };
+    }
+    if (index < components.length - 1 && !fileStat.isDirectory()) {
+      return { exists: true, registry: null, error: `${relPath} path components must be directories`, fullPath };
+    }
+  }
+  if (!fileStat?.isFile()) return { exists: true, registry: null, error: `${relPath} must be a regular tracked file`, fullPath };
+  try {
+    const resolvedPath = fs.realpathSync(fullPath);
+    const resolvedRelativePath = path.relative(repoRoot, resolvedPath);
+    if (resolvedRelativePath === ".." || resolvedRelativePath.startsWith(`..${path.sep}`) || path.isAbsolute(resolvedRelativePath)) {
+      return { exists: true, registry: null, error: `${relPath} escapes the project root`, fullPath };
+    }
+  } catch (error) {
+    return { exists: true, registry: null, error: error.message, fullPath };
+  }
   return loadJsonFile(fullPath, { fullPath });
 }
 
@@ -318,8 +469,17 @@ function runInstances(io) {
     io.stdout(`error: ${toonString(error.message)}`);
     return 1;
   }
-  const records = fs.existsSync(directory)
-    ? fs.readdirSync(directory, { withFileTypes: true })
+  let entries = [];
+  if (fs.existsSync(directory)) {
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      io.stdout('valid: false');
+      io.stdout('error: "private orchestration instance directory cannot be listed"');
+      return 1;
+    }
+  }
+  const records = entries
       .filter((entry) => entry.name.endsWith(".json") && SAFE_LOCAL_NAME_RE.test(entry.name.slice(0, -5)))
       .sort((left, right) => left.name.localeCompare(right.name))
       .map((entry) => {
@@ -327,8 +487,7 @@ function runInstances(io) {
         const recordLocation = { ...location, instance: name, label: `local:${location.operator}/${name}`, path: path.join(directory, entry.name) };
         const loaded = loadPrivateRegistry(recordLocation);
         return { name, status: loaded.error ? "invalid" : loaded.registry?.status || "invalid", revision: loaded.registry?.revision ?? "" };
-      })
-    : [];
+      });
   io.stdout(`store_kind: ${toonString(location.kind)}`);
   io.stdout(`operator: ${toonString(location.operator)}`);
   io.stdout(`selected_instance: ${toonString(location.instance)}`);
@@ -355,6 +514,7 @@ function runInit(instanceName, io) {
     return 1;
   }
   const findings = validateRegistry(source.registry);
+  findings.blockers.push(...validateTrackedExampleRegistry(source.registry));
   if (findings.blockers.length) {
     io.stderr(`Tracked example is invalid; run orchestration validate before initializing (${findings.blockers[0]}).`);
     return 1;
@@ -424,6 +584,107 @@ function loadGithubProfiles() {
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizedExtensionField(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function extensionFieldWords(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function runtimeExtensionFields(value) {
+  if (isObject(value)) {
+    return Object.entries(value).flatMap(([key, item]) => {
+      const normalized = normalizedExtensionField(key);
+      const isRuntimeField = RUNTIME_EXTENSION_FIELDS.has(normalized)
+        || RUNTIME_EXTENSION_FIELD_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+        || extensionFieldWords(key).some((word) => RUNTIME_EXTENSION_FIELD_WORDS.has(word));
+      return [...(isRuntimeField ? [key] : []), ...runtimeExtensionFields(item)];
+    });
+  }
+  if (Array.isArray(value)) return value.flatMap(runtimeExtensionFields);
+  return typeof value === "string" && RUNTIME_EXTENSION_VALUE_RE.test(value.trim()) ? ["<runtime-reference-value>"] : [];
+}
+
+function validateTrackedExampleRegistry(registry) {
+  const blockers = [];
+  if (!isObject(registry)) return ["tracked example root must be a JSON object"];
+  const unexpectedRootFields = Object.keys(registry).filter((field) => !TRACKED_EXAMPLE_ROOT_FIELDS.has(field));
+  if (unexpectedRootFields.length) blockers.push(`tracked example contains unsupported or runtime fields: ${unexpectedRootFields.sort().join(", ")}`);
+  const schemaVersion = registry.schemaVersion;
+  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(schemaVersion)) blockers.push("tracked example has unsupported schema version");
+  if (registry.revision !== 0) blockers.push("tracked example must start at revision 0");
+  if (registry.status !== "inactive") blockers.push("tracked example must be inactive");
+  if (!Array.isArray(registry.nodes) || registry.nodes.length) blockers.push("tracked example must not contain live nodes");
+  if (registry.ownerDirectives !== undefined && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
+    blockers.push("tracked example must not contain owner directives");
+  }
+  if ((registry.clientAdapter !== undefined && registry.clientAdapter !== null) || (schemaVersion >= 4 && !("clientAdapter" in registry))) {
+    blockers.push("tracked example must not select a client adapter");
+  }
+  if ((registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) || (schemaVersion >= 4 && !("bindingAttestation" in registry))) {
+    blockers.push("tracked example must not contain binding attestation data");
+  }
+  const extensions = registry.extensions;
+  if (extensions !== undefined) {
+    if (!isObject(extensions)) blockers.push("tracked example extensions must be an object");
+    else {
+      for (const [namespace, extension] of Object.entries(extensions)) {
+        if (!EXTENSION_NAMESPACE_RE.test(namespace)) {
+          blockers.push("tracked example extension keys must be lowercase dotted namespaces");
+          continue;
+        }
+        if (!isObject(extension)) {
+          blockers.push(`tracked example extension ${namespace} must be an object`);
+          continue;
+        }
+        const unexpectedExtensionFields = Object.keys(extension).filter((field) => !TRACKED_POLICY_EXTENSION_FIELDS.has(field));
+        if (unexpectedExtensionFields.length) blockers.push(`tracked example extension ${namespace} contains unsupported envelope fields: ${unexpectedExtensionFields.sort().join(", ")}`);
+        if (extension.kind !== "tracked-policy") blockers.push(`tracked example extension ${namespace} kind must be tracked-policy`);
+        if (!Number.isInteger(extension.schemaVersion) || extension.schemaVersion < 1) {
+          blockers.push(`tracked example extension ${namespace} schemaVersion must be a positive integer`);
+        }
+        if (!isObject(extension.policy)) {
+          blockers.push(`tracked example extension ${namespace} policy must be an object`);
+          continue;
+        }
+        const runtimeFields = [...new Set(runtimeExtensionFields(extension.policy))].sort();
+        if (runtimeFields.length) {
+          blockers.push(`tracked example extension ${namespace} contains runtime, identity, or core-authority fields: ${runtimeFields.join(", ")}`);
+        }
+      }
+    }
+  }
+  const scope = registry.scope;
+  if (!isObject(scope)) blockers.push("tracked example scope must be an object");
+  else {
+    const unexpectedScopeFields = Object.keys(scope).filter((field) => !TRACKED_EXAMPLE_SCOPE_FIELDS.has(field));
+    if (unexpectedScopeFields.length) blockers.push(`tracked example scope contains unsupported or identity fields: ${unexpectedScopeFields.sort().join(", ")}`);
+    if (scope.rootRef !== "repository-root") blockers.push("tracked example rootRef must remain the identity-free repository-root placeholder");
+    if (("ownerRef" in scope && scope.ownerRef !== "project-owner") || (schemaVersion >= 4 && !("ownerRef" in scope))) {
+      blockers.push("tracked example ownerRef must remain the identity-free project-owner placeholder");
+    }
+  }
+  if (registry.rootControl !== undefined && (!isObject(registry.rootControl) || Object.keys(registry.rootControl).length !== 1 || !("materialization" in registry.rootControl))) {
+    blockers.push("tracked example rootControl contains unsupported fields");
+  }
+  const trustPolicy = registry.trustPolicy;
+  if (!isObject(trustPolicy)) blockers.push("tracked example trustPolicy must be an object");
+  else {
+    const unexpectedTrustFields = Object.keys(trustPolicy).filter((field) => !TRACKED_EXAMPLE_TRUST_POLICY_FIELDS.has(field));
+    if (unexpectedTrustFields.length) blockers.push(`tracked example trustPolicy contains unsupported or runtime fields: ${unexpectedTrustFields.sort().join(", ")}`);
+    if (!isObject(trustPolicy.limits) || Object.keys(trustPolicy.limits).some((field) => !TRACKED_EXAMPLE_TRUST_LIMIT_FIELDS.has(field))) {
+      blockers.push("tracked example trustPolicy.limits contains unsupported fields");
+    }
+  }
+  return blockers;
 }
 
 function isCodexNativeFirstmateAdapter(adapter) {
@@ -1584,15 +1845,21 @@ function validateRegistry(registry) {
   return { blockers, warnings, nodes, nodesById };
 }
 
+function validateLoadedRegistry(loaded) {
+  const findings = validateRegistry(loaded.registry);
+  if (loaded.source === "tracked-example") findings.blockers.push(...validateTrackedExampleRegistry(loaded.registry));
+  return findings;
+}
+
 export function validateCurrentOrchestrationRegistry() {
-  const loaded = loadRegistry({ liveRequired: true, selection: environmentLocalSelection() });
+  const loaded = loadRegistry({ liveRequired: true, selection: environmentLocalSelection(), trackedExampleOnly: false });
   if (!loaded.exists) return { registry: null, blockers: [loaded.error || `missing ${registryLabel(loaded)}`], warnings: [], nodes: [], nodesById: new Map() };
   if (loaded.error) return { registry: null, blockers: [`invalid registry: ${loaded.error}`], warnings: [], nodes: [], nodesById: new Map() };
   return { registry: loaded.registry, ...validateRegistry(loaded.registry) };
 }
 
 function printHelp(io) {
-  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [argument] [--operator <name>] [--instance <name>]");
+  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [argument] [--operator <name>] [--instance <name>] [--example]");
   io.stdout("");
   io.stdout("Commands:");
   io.stdout("  status             Summarize configured project orchestration");
@@ -1611,6 +1878,7 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("init and migrate only create a private 0600 local instance; all other commands are read-only and no command creates tasks or mutates external systems.");
+  io.stdout("--example forces status, validate, adapter-status, or taxonomy to inspect the tracked inactive example without resolving private runtime state.");
   io.stdout("Use --operator/--instance for orchestration commands or REPO_ORCHESTRATION_OPERATOR/REPO_ORCHESTRATION_INSTANCE for composing facades; raw state paths are unsupported.");
 }
 
@@ -1792,7 +2060,7 @@ function runAdapterStatus(io) {
   }));
   const presentCount = assets.filter((asset) => asset.present).length;
   const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
-  const registryValid = Boolean(loaded.exists && !loaded.error && validateRegistry(loaded.registry).blockers.length === 0);
+  const registryValid = Boolean(loaded.exists && !loaded.error && validateLoadedRegistry(loaded).blockers.length === 0);
   const activationBlockers = registryValid ? firstmateActivationBlockers(loaded.registry, adapter) : ["registry must be valid"];
   if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
 
@@ -1840,6 +2108,12 @@ function runAdapterStatus(io) {
 
 function runTaxonomy(io) {
   const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stdout('valid: false');
+    io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
+    io.stdout(`error: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
+    return 1;
+  }
   const taxonomy = presentationTaxonomy(loaded.registry?.clientAdapter);
   const managerCatalog = arrayOrEmpty(taxonomy?.managerCatalog || DEFAULT_EXECUTIVE_MANAGER_CATALOG);
   const workerCatalog = arrayOrEmpty(taxonomy?.workerCatalog || DEFAULT_EXECUTIVE_WORKER_CATALOG);
@@ -1883,14 +2157,14 @@ function runStatus(io) {
     io.stdout(`error: ${toonString(loaded.error)}`);
     return 1;
   }
-  const findings = validateRegistry(loaded.registry);
+  const findings = validateLoadedRegistry(loaded);
   const counts = Object.fromEntries([...STATES].map((state) => [state, findings.nodes.filter((node) => node.state === state).length]));
   io.stdout(`state: ${toonString(loaded.live ? loaded.registry.status : "unconfigured")}`);
   io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
   io.stdout(`registry_source: ${toonString(loaded.source)}`);
-  io.stdout(`store_kind: ${toonString(loaded.location.kind)}`);
-  io.stdout(`operator: ${toonString(loaded.location.operator)}`);
-  io.stdout(`instance: ${toonString(loaded.location.instance)}`);
+  io.stdout(`store_kind: ${toonString(loaded.location?.kind || "tracked-example-only")}`);
+  io.stdout(`operator: ${toonString(loaded.location?.operator || "not-applicable")}`);
+  io.stdout(`instance: ${toonString(loaded.location?.instance || "not-applicable")}`);
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
@@ -1966,7 +2240,7 @@ function runValidate(io) {
     io.stdout(`blockers[1]: ${toonString(`invalid registry: ${loaded.error}`)}`);
     return 1;
   }
-  const findings = validateRegistry(loaded.registry);
+  const findings = validateLoadedRegistry(loaded);
   io.stdout(`valid: ${findings.blockers.length === 0}`);
   io.stdout(`target: ${toonString(loaded.source)}`);
   io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
@@ -2372,6 +2646,15 @@ export async function runOrchestration(argv, io) {
   if (argv.includes("--help") || argv.includes("-h") || command === "help") {
     printHelp(io);
     return 0;
+  }
+  if (parsed.trackedExampleOnly && !TRACKED_EXAMPLE_COMMANDS.has(command)) {
+    renderUsageError(io, {
+      code: "tracked-example-inspection-only",
+      command: `orchestration ${command}`,
+      message: "--example is limited to read-only tracked-example inspection commands",
+      hints: [`Use --example with status, validate, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
+    });
+    return 2;
   }
   switch (command) {
     case "status":

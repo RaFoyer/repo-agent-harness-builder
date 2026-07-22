@@ -91,11 +91,10 @@ Run:
 ./{{CLI_NAME}} github status
 ./{{CLI_NAME}} github plan --profile example-github-worker
 ./{{CLI_NAME}} github run --profile example-github-worker --dry-run -- pr list
-./{{CLI_NAME}} orchestration status
-./{{CLI_NAME}} orchestration directives
-./{{CLI_NAME}} orchestration adapter-status
-./{{CLI_NAME}} orchestration taxonomy
-./{{CLI_NAME}} orchestration validate
+./{{CLI_NAME}} orchestration status --example
+./{{CLI_NAME}} orchestration adapter-status --example
+./{{CLI_NAME}} orchestration taxonomy --example
+./{{CLI_NAME}} orchestration validate --example
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status
 ./{{CLI_NAME}} lavish status

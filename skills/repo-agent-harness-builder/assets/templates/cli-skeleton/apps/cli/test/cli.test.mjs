@@ -1854,6 +1854,7 @@ test("verify dry-run lists delegated checks", async () => {
   assert.match(out.join("\n"), /ergonomics status/);
   assert.match(out.join("\n"), /no-mistakes status/);
   assert.match(out.join("\n"), /lavish status/);
+  assert.match(out.join("\n"), /orchestration status --example/);
   assert.match(out.join("\n"), /qa no-masking/);
   assert.match(out.join("\n"), /precommit --all/);
 });
@@ -2223,6 +2224,70 @@ fixtureTest("orchestration keeps the tracked scaffold inert and initializes a pr
   assert.equal(await main(["orchestration", "instances"], instances.io), 0, instances.err.join("\n"));
   assert.match(instances.out.join("\n"), /"default","inactive","0",true/);
 
+  const exampleStatus = capture();
+  assert.equal(await main(["orchestration", "status", "--example"], exampleStatus.io), 0, exampleStatus.err.join("\n"));
+  assert.match(exampleStatus.out.join("\n"), /registry_source: "tracked-example"/);
+  assert.match(exampleStatus.out.join("\n"), /store_kind: "tracked-example-only"/);
+  assert.match(exampleStatus.out.join("\n"), /operator: "not-applicable"/);
+
+  const exampleValidation = capture();
+  assert.equal(await main(["orchestration", "validate", "--example"], exampleValidation.io), 0, exampleValidation.err.join("\n"));
+  assert.match(exampleValidation.out.join("\n"), /target: "tracked-example"/);
+
+  const schemaV3Example = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
+  schemaV3Example.schemaVersion = 3;
+  for (const field of ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]) {
+    delete schemaV3Example[field];
+  }
+  delete schemaV3Example.scope.ownerRef;
+  await withFile("ops/orchestration.example.json", `${JSON.stringify(schemaV3Example, null, 2)}\n`, async () => {
+    const schemaV3Validation = capture();
+    assert.equal(await main(["orchestration", "validate", "--example"], schemaV3Validation.io), 0, schemaV3Validation.err.join("\n"));
+  });
+
+  for (const [field, value] of [
+    ["developerIdentity", { taskId: "private-task" }],
+    ["taskRef", "private-task"],
+    ["threadRef", "private-thread"],
+    ["taskIdentifier", "private-task"],
+    ["workReference", "codex://tasks/private-task"]
+  ]) {
+    const registry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
+    if (field === "developerIdentity") registry[field] = value;
+    else {
+      registry.extensions = {
+        "example.tracked-policy": {
+          kind: "tracked-policy",
+          schemaVersion: 1,
+          policy: { [field]: value }
+        }
+      };
+    }
+    await withFile("ops/orchestration.example.json", `${JSON.stringify(registry, null, 2)}\n`, async () => {
+      const invalidExample = capture();
+      assert.equal(await main(["orchestration", "validate", "--example"], invalidExample.io), 1);
+      assert.match(invalidExample.out.join("\n"), /tracked example/);
+    });
+  }
+
+  const previousOperator = process.env.REPO_ORCHESTRATION_OPERATOR;
+  const previousInstance = process.env.REPO_ORCHESTRATION_INSTANCE;
+  process.env.REPO_ORCHESTRATION_OPERATOR = "../../untrusted";
+  process.env.REPO_ORCHESTRATION_INSTANCE = "../untrusted-instance";
+  try {
+    const isolatedExample = capture();
+    assert.equal(await main(["orchestration", "validate", "--example"], isolatedExample.io), 0, isolatedExample.err.join("\n"));
+  } finally {
+    if (previousOperator === undefined) delete process.env.REPO_ORCHESTRATION_OPERATOR;
+    else process.env.REPO_ORCHESTRATION_OPERATOR = previousOperator;
+    if (previousInstance === undefined) delete process.env.REPO_ORCHESTRATION_INSTANCE;
+    else process.env.REPO_ORCHESTRATION_INSTANCE = previousInstance;
+  }
+
+  const exampleOperation = capture();
+  assert.equal(await main(["orchestration", "next", "--example"], exampleOperation.io), 2);
+  assert.match(exampleOperation.out.join("\n"), /tracked-example-inspection-only/);
+
   const privatePrompt = capture();
   const privatePromptCode = await main(["orchestration", "prompt", "boss"], privatePrompt.io);
   assert.equal(privatePromptCode, 1);
@@ -2284,6 +2349,98 @@ fixtureTest("orchestration rejects symlinked Git metadata before resolving topol
   assert.match(status.out.join("\n"), /Git metadata must not be a symlink/);
 }, { git: false });
 
+fixtureTest("orchestration ignores ambient Git topology path overrides", async () => {
+  const overrideNames = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_INDEX_FILE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0"
+  ];
+  const previous = new Map(overrideNames.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of overrideNames) process.env[name] = path.join(repoRoot, "untrusted-git-override", name.toLowerCase());
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "core.worktree";
+    process.env.GIT_CONFIG_VALUE_0 = path.join(repoRoot, "untrusted-git-override", "worktree");
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 0, status.out.concat(status.err).join("\n"));
+    assert.match(status.out.join("\n"), /store_kind: "git-common-private"/);
+    assert.match(status.out.join("\n"), /registry_source: "tracked-example"/);
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+fixtureTest("orchestration preserves only configured exact-root safe.directory trust", async () => {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), "harness-fake-git-"));
+  const fakeGit = path.join(fakeBin, "git");
+  fs.writeFileSync(fakeGit, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const root = process.env.SAFE_DIRECTORY_TEST_ROOT;
+if (args[0] === "config" && ["--global", "--system"].includes(args[1])) {
+  process.stdout.write(root + "\\0");
+  process.exit(0);
+}
+if (args[0] === "-c" && args[1] === "safe.directory=" + root
+    && args[2] === "-C" && args[3] === root && args[4] === "rev-parse") {
+  process.stdout.write(root + "\\n.git\\n");
+  process.exit(0);
+}
+process.exit(128);
+`, { encoding: "utf-8", mode: 0o755 });
+  const previousPath = process.env.PATH;
+  const previousRoot = process.env.SAFE_DIRECTORY_TEST_ROOT;
+  try {
+    process.env.PATH = `${fakeBin}${path.delimiter}${previousPath || ""}`;
+    process.env.SAFE_DIRECTORY_TEST_ROOT = fs.realpathSync(repoRoot);
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 0, status.out.concat(status.err).join("\n"));
+    assert.match(status.out.join("\n"), /store_kind: "git-common-private"/);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousRoot === undefined) delete process.env.SAFE_DIRECTORY_TEST_ROOT;
+    else process.env.SAFE_DIRECTORY_TEST_ROOT = previousRoot;
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
+
+fixtureTest("orchestration does not promote wildcard safe.directory trust", async () => {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), "harness-fake-git-"));
+  const fakeGit = path.join(fakeBin, "git");
+  fs.writeFileSync(fakeGit, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "config" && ["--global", "--system"].includes(args[1])) {
+  process.stdout.write("*\\0");
+}
+process.exit(args[0] === "config" ? 0 : 128);
+`, { encoding: "utf-8", mode: 0o755 });
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${fakeBin}${path.delimiter}${previousPath || ""}`;
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 1);
+    assert.match(status.out.join("\n"), /Git metadata is present but unreadable/);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
+
 fixtureTest("orchestration rejects a symlinked tracked example", async () => {
   const examplePath = path.join(repoRoot, "ops", "orchestration.example.json");
   const targetPath = path.join(repoRoot, "ops", "orchestration.example.target.json");
@@ -2292,7 +2449,26 @@ fixtureTest("orchestration rejects a symlinked tracked example", async () => {
 
   const status = capture();
   assert.equal(await main(["orchestration", "status"], status.io), 1);
-  assert.match(status.out.join("\n"), /orchestration\.example\.json must be a regular tracked file/);
+  assert.match(status.out.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
+
+  const taxonomy = capture();
+  assert.equal(await main(["orchestration", "taxonomy"], taxonomy.io), 1);
+  assert.match(taxonomy.out.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
+});
+
+fixtureTest("orchestration rejects tracked examples behind symlinked directories", async () => {
+  const opsPath = path.join(repoRoot, "ops");
+  const redirectedOpsPath = path.join(repoRoot, "redirected-ops");
+  fs.renameSync(opsPath, redirectedOpsPath);
+  fs.symlinkSync(redirectedOpsPath, opsPath, "dir");
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status", "--example"], status.io), 1);
+  assert.match(status.out.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
+
+  const init = capture();
+  assert.equal(await main(["orchestration", "init"], init.io), 1);
+  assert.match(init.err.join("\n"), /orchestration\.example\.json must not traverse symlinks/);
 });
 
 fixtureTest("orchestration requires exact private-instance permissions", async () => {
@@ -2341,6 +2517,20 @@ fixtureTest("orchestration instances reports symlinked records as invalid", asyn
   const instances = capture();
   assert.equal(await main(["orchestration", "instances"], instances.io), 0, instances.err.join("\n"));
   assert.match(instances.out.join("\n"), /"redirected","invalid","",false/);
+});
+
+fixtureTest("orchestration instances reports directory listing failures without throwing", async () => {
+  const instancesDirectory = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances");
+  fs.mkdirSync(instancesDirectory, { recursive: true });
+  fs.chmodSync(instancesDirectory, 0o000);
+  const instances = capture();
+  try {
+    assert.equal(await main(["orchestration", "instances"], instances.io), 1);
+    assert.match(instances.out.join("\n"), /valid: false/);
+    assert.match(instances.out.join("\n"), /instance directory cannot be listed/);
+  } finally {
+    fs.chmodSync(instancesDirectory, 0o700);
+  }
 });
 
 fixtureTest("schema-v5 owner-first instances can launch a logical Manager before materializing the Boss", async () => {
@@ -5322,9 +5512,22 @@ fixtureTest("verify does not fail closed on non-browser qa scripts", async () =>
   };
   fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n", "utf-8");
 
-  const { io, err } = capture();
-  const code = await main(["verify"], io);
-  assert.equal(code, 0, err.join("\n"));
+  const previousOperator = process.env.REPO_ORCHESTRATION_OPERATOR;
+  const previousInstance = process.env.REPO_ORCHESTRATION_INSTANCE;
+  process.env.REPO_ORCHESTRATION_OPERATOR = "../../untrusted";
+  process.env.REPO_ORCHESTRATION_INSTANCE = "../untrusted-instance";
+  try {
+    const { io, out, err } = capture();
+    const code = await main(["verify"], io);
+    assert.equal(code, 0, err.join("\n"));
+    assert.match(out.join("\n"), /== orchestration status --example ==/);
+    assert.match(out.join("\n"), /registry_source: "tracked-example"/);
+  } finally {
+    if (previousOperator === undefined) delete process.env.REPO_ORCHESTRATION_OPERATOR;
+    else process.env.REPO_ORCHESTRATION_OPERATOR = previousOperator;
+    if (previousInstance === undefined) delete process.env.REPO_ORCHESTRATION_INSTANCE;
+    else process.env.REPO_ORCHESTRATION_INSTANCE = previousInstance;
+  }
 });
 
 fixtureTest("connections doctor validates connector profile identity and path boundaries", async () => {

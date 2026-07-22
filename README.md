@@ -87,17 +87,21 @@ see a read-only readiness result, such as:
 ./harness ergonomics status
 ./harness no-mistakes status
 ./harness lavish status
-./harness orchestration status
+./harness orchestration status --example
 ./harness orchestration instances
 ./harness orchestration directives
-./harness orchestration adapter-status
-./harness orchestration taxonomy
+./harness orchestration adapter-status --example
+./harness orchestration taxonomy --example
 ./harness github status
 ./harness github plan --profile example-github-worker
 ./harness github run --profile example-github-worker --dry-run -- pr list
 ./harness context
 ./harness preflight
 ```
+
+Use `--example` with `status`, `validate`, `adapter-status`, or `taxonomy` to
+inspect only the tracked inactive contract, regardless of private-instance
+selection.
 
 For a personal-folder setup, the first useful result is normally a
 metadata-only inventory report and a written plan before any file changes.

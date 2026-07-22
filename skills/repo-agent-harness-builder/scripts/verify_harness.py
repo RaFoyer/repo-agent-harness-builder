@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
@@ -50,10 +51,10 @@ COMMAND_SMOKE_TESTS = [
     ["connections", "status"],
     ["github", "status"],
     ["goals", "status"],
-    ["orchestration", "status"],
-    ["orchestration", "validate"],
-    ["orchestration", "adapter-status"],
-    ["orchestration", "taxonomy"],
+    ["orchestration", "status", "--example"],
+    ["orchestration", "validate", "--example"],
+    ["orchestration", "adapter-status", "--example"],
+    ["orchestration", "taxonomy", "--example"],
     ["design", "status"],
     ["no-mistakes", "status"],
     ["lavish", "status"],
@@ -63,6 +64,32 @@ HARNESS_PLACEHOLDER_RE = re.compile(
     r"(?<!\\)\{\{(?:PROJECT_NAME|PROJECT_NAME_JSON|REPO_SLUG|REPO_SLUG_JSON|CLI_NAME|DEFAULT_BRANCH|DEFAULT_BRANCH_JSON|TRACKER_NAME|TRACKER_NAME_JSON)}}"
 )
 PATH_SEP = "/"
+EXTENSION_NAMESPACE_RE = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
+)
+TRACKED_POLICY_EXTENSION_FIELDS = {"kind", "schemaVersion", "policy"}
+RUNTIME_EXTENSION_FIELD_WORDS = {
+    "account", "acknowledged", "authority", "binding", "budget", "completed",
+    "completion", "created", "delegation", "developer", "email", "evidence", "identity",
+    "instance", "issued", "launch", "lifecycle", "maintainer", "node", "operator", "owner",
+    "parent", "reservation", "resolved", "revision", "role", "root", "scope", "signature",
+    "state", "status", "task", "thread", "trust", "updated", "user", "workcontract",
+}
+RUNTIME_EXTENSION_FIELDS = {
+    "accountid", "acknowledgedbyref", "allowedexternalactions", "allowedreads", "allowedwrites",
+    "approvalgates", "authority", "bindingattestation", "boundat", "budgets", "candelegate",
+    "clientadapter", "completedat", "completionevidence", "completionprofile", "coordinationmode",
+    "createdat", "createdby", "dependencies", "developer", "developeridentity", "email", "evidence",
+    "instance", "issuedbyref", "launchkey", "launchedat", "launchreservation", "lifecycle",
+    "maintainer", "maxactivechildren", "nodes", "observedbyref", "operator", "ownerdirectives",
+    "ownerref", "parentbindingmode", "parentid", "parenttaskid", "parentthreadid", "reservation",
+    "resolvedbyref", "revision", "role", "rootcontrol", "rootref", "scope", "signature", "state",
+    "status", "stopconditions", "taskbinding", "taskid", "taskids", "threadid", "threadids",
+    "titleverification", "trustlevel", "trustpolicy", "updatedat", "updatedby", "userid", "username",
+    "workcontracthash",
+}
+RUNTIME_EXTENSION_FIELD_SUFFIXES = ("taskid", "taskids", "taskref", "taskrefs", "taskidentifier", "taskidentifiers", "threadid", "threadids", "threadref", "threadrefs", "threadidentifier", "threadidentifiers")
+RUNTIME_EXTENSION_VALUE_RE = re.compile(r"(?:codex://(?:tasks|threads)/|(?:task|thread)(?:[-_ ]?(?:message|id|ref|identifier))?:)", re.IGNORECASE)
 LOCAL_PATH_PARTS = [
     PATH_SEP + "Users" + PATH_SEP + r"[^\s)'\"]+",
     PATH_SEP + "home" + PATH_SEP + r"[^\s)'\"]+",
@@ -99,13 +126,65 @@ def check_file(path: Path, errors: list[str], root: Path | None = None) -> None:
         errors.append(f"empty: {label}")
 
 
+def normalized_extension_field(value: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def extension_field_words(value: object) -> set[str]:
+    return {
+        word.lower()
+        for word in re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value)).replace("_", " ").replace("-", " ").split()
+    }
+
+
+def is_runtime_extension_field(value: object) -> bool:
+    normalized = normalized_extension_field(value)
+    return (
+        normalized in RUNTIME_EXTENSION_FIELDS
+        or normalized.endswith(RUNTIME_EXTENSION_FIELD_SUFFIXES)
+        or bool(extension_field_words(value) & RUNTIME_EXTENSION_FIELD_WORDS)
+    )
+
+
+def runtime_extension_fields(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return ({str(key) for key in value
+                 if is_runtime_extension_field(key)}
+                | set().union(*(runtime_extension_fields(item) for item in value.values())))
+    if isinstance(value, list):
+        return set().union(*(runtime_extension_fields(item) for item in value))
+    if isinstance(value, str) and RUNTIME_EXTENSION_VALUE_RE.search(value.strip()):
+        return {"<runtime-reference-value>"}
+    return set()
+
+
 def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     path = target / "ops" / "orchestration.example.json"
     label = display_path(path, target)
-    if path.is_symlink():
-        errors.append(f"orchestration example must not be a symlink: {label}")
+    current = target
+    path_stat = None
+    for component in path.relative_to(target).parts:
+        current /= component
+        try:
+            path_stat = current.lstat()
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            errors.append(f"cannot inspect orchestration example: {label} ({error})")
+            return
+        if stat.S_ISLNK(path_stat.st_mode):
+            errors.append(f"orchestration example must not traverse symlinked path components: {label}")
+            return
+        if current != path and not stat.S_ISDIR(path_stat.st_mode):
+            errors.append(f"orchestration example path component must be a directory: {label}")
+            return
+    try:
+        path.resolve(strict=True).relative_to(target)
+    except (OSError, ValueError) as error:
+        errors.append(f"orchestration example must remain within the target: {label} ({error})")
         return
-    if not path.is_file():
+    if path_stat is None or not stat.S_ISREG(path_stat.st_mode):
+        errors.append(f"orchestration example must be a regular file: {label}")
         return
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
@@ -115,7 +194,29 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     if not isinstance(registry, dict):
         errors.append(f"orchestration example must be a JSON object: {label}")
         return
-    if registry.get("schemaVersion") not in {2, 3, 4, 5}:
+    allowed_root_fields = {
+        "schemaVersion",
+        "revision",
+        "status",
+        "coordinationMode",
+        "rootControl",
+        "prefix",
+        "scope",
+        "bindingAttestation",
+        "clientAdapter",
+        "trustPolicy",
+        "nodes",
+        "ownerDirectives",
+        "extensions",
+    }
+    unexpected_root_fields = sorted(set(registry) - allowed_root_fields)
+    if unexpected_root_fields:
+        errors.append(
+            f"orchestration example contains unsupported or runtime fields: {label} "
+            f"({', '.join(unexpected_root_fields)})"
+        )
+    schema_version = registry.get("schemaVersion")
+    if schema_version not in (2, 3, 4, 5):
         errors.append(f"orchestration example has unsupported schema version: {label}")
     if registry.get("revision") != 0:
         errors.append(f"orchestration example must start at revision 0: {label}")
@@ -125,10 +226,84 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must not contain live nodes: {label}")
     if registry.get("ownerDirectives", []) != []:
         errors.append(f"orchestration example must not contain owner directives: {label}")
-    if registry.get("clientAdapter") is not None:
+    if registry.get("clientAdapter") is not None or (schema_version in (4, 5) and "clientAdapter" not in registry):
         errors.append(f"orchestration example must not select a client adapter: {label}")
-    if registry.get("bindingAttestation") is not None:
+    if registry.get("bindingAttestation") is not None or (schema_version in (4, 5) and "bindingAttestation" not in registry):
         errors.append(f"orchestration example must not contain binding attestation data: {label}")
+    extensions = registry.get("extensions")
+    if extensions is not None:
+        if not isinstance(extensions, dict):
+            errors.append(f"orchestration example extensions must be an object: {label}")
+        else:
+            for namespace, extension in extensions.items():
+                if not isinstance(namespace, str) or not EXTENSION_NAMESPACE_RE.fullmatch(namespace):
+                    errors.append(f"orchestration example extension keys must be lowercase dotted namespaces: {label}")
+                    continue
+                if not isinstance(extension, dict):
+                    errors.append(f"orchestration example extension {namespace} must be an object: {label}")
+                    continue
+                unexpected_extension_fields = sorted(set(extension) - TRACKED_POLICY_EXTENSION_FIELDS)
+                if unexpected_extension_fields:
+                    errors.append(
+                        f"orchestration example extension {namespace} contains unsupported envelope fields: {label} "
+                        f"({', '.join(unexpected_extension_fields)})"
+                    )
+                if extension.get("kind") != "tracked-policy":
+                    errors.append(f"orchestration example extension {namespace} kind must be tracked-policy: {label}")
+                extension_schema = extension.get("schemaVersion")
+                if isinstance(extension_schema, bool) or not isinstance(extension_schema, int) or extension_schema < 1:
+                    errors.append(f"orchestration example extension {namespace} schemaVersion must be a positive integer: {label}")
+                policy = extension.get("policy")
+                if not isinstance(policy, dict):
+                    errors.append(f"orchestration example extension {namespace} policy must be an object: {label}")
+                    continue
+                forbidden_extension_fields = sorted(runtime_extension_fields(policy))
+                if forbidden_extension_fields:
+                    errors.append(
+                        f"orchestration example extension {namespace} contains runtime, identity, or core-authority fields: {label} "
+                        f"({', '.join(forbidden_extension_fields)})"
+                    )
+    scope = registry.get("scope")
+    if not isinstance(scope, dict):
+        errors.append(f"orchestration example scope must be an object: {label}")
+    else:
+        allowed_scope_fields = {"id", "kind", "rootRef", "ownerRef", "objective"}
+        unexpected_scope_fields = sorted(set(scope) - allowed_scope_fields)
+        if unexpected_scope_fields:
+            errors.append(
+                f"orchestration example scope contains unsupported or identity fields: {label} "
+                f"({', '.join(unexpected_scope_fields)})"
+            )
+        if scope.get("rootRef") != "repository-root":
+            errors.append(f"orchestration example rootRef must remain the identity-free repository-root placeholder: {label}")
+        if ("ownerRef" in scope and scope.get("ownerRef") != "project-owner") or (
+            schema_version in (4, 5) and "ownerRef" not in scope
+        ):
+            errors.append(f"orchestration example ownerRef must remain the identity-free project-owner placeholder: {label}")
+    root_control = registry.get("rootControl")
+    if root_control is not None:
+        if not isinstance(root_control, dict) or set(root_control) != {"materialization"}:
+            errors.append(f"orchestration example rootControl contains unsupported fields: {label}")
+    trust_policy = registry.get("trustPolicy")
+    if not isinstance(trust_policy, dict):
+        errors.append(f"orchestration example trustPolicy must be an object: {label}")
+    else:
+        allowed_trust_fields = {
+            "defaultLevel",
+            "maxLevel",
+            "promotionRequiresHumanApproval",
+            "childMayExceedParent",
+            "limits",
+        }
+        unexpected_trust_fields = sorted(set(trust_policy) - allowed_trust_fields)
+        if unexpected_trust_fields:
+            errors.append(
+                f"orchestration example trustPolicy contains unsupported or runtime fields: {label} "
+                f"({', '.join(unexpected_trust_fields)})"
+            )
+        limits = trust_policy.get("limits")
+        if not isinstance(limits, dict) or set(limits) - {"maxActiveNodes", "maxDelegationDepth"}:
+            errors.append(f"orchestration example trustPolicy.limits contains unsupported fields: {label}")
 
 
 def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:

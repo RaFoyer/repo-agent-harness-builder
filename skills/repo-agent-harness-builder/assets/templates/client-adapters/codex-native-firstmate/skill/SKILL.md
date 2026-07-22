@@ -30,9 +30,11 @@ independent repository Firstmates.
 
 ## Route The Work
 
-- **Inspect posture:** run `./{{CLI_NAME}} orchestration adapter-status`,
-  `orchestration taxonomy`, then `orchestration status` and `orchestration
-  validate`. These commands are read-only.
+- **Inspect the portable baseline:** run `./{{CLI_NAME}} orchestration
+  adapter-status --example`, `orchestration taxonomy --example`, then
+  `orchestration status --example` and `orchestration validate --example`.
+  Read `ops/protocols/AGENT-ORCHESTRATION.md` for selector boundaries and
+  private-instance inspection.
 - **Configure the adapter:** start from
   `docs/templates/orchestration/codex-native-firstmate-adapter.example.json` and
   `.codex/config.firstmate.example.toml`. The namespaced `firstmate-boss`,
