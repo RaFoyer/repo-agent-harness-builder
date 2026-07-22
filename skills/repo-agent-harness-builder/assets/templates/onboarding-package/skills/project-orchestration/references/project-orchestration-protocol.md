@@ -41,10 +41,14 @@ authority, completion, reservation, or launch semantics.
 
 Each named private orchestration instance governs one explicit scope. In a Git
 repository it lives under the clone's Git common directory and is shared by
-linked worktrees; a non-Git project folder uses a path-keyed private user-state
-store. Safe operator and instance names select state. Raw path overrides are
-not part of the contract because they could redirect live state into Git or
-split one clone across competing registries. Record:
+linked worktrees. The resolver ignores ambient Git topology and configuration
+overrides, rejects symlinked Git metadata, and does not fall back to user state
+when Git metadata is unreadable. The tracked example and every path component
+leading to it must be regular repository entries, not symlinks. A non-Git
+project folder uses a path-keyed private user-state store. Safe operator and
+instance names select state. Raw path overrides are not part of the contract
+because they could redirect live state into Git or split one clone across
+competing registries. Record:
 
 - a non-negative monotonic registry revision
 - scope ID
