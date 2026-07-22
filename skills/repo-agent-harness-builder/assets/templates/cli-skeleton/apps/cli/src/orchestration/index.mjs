@@ -94,6 +94,17 @@ function resolvedRepoRoot() {
 
 function localStoreRoot() {
   const repoRoot = resolvedRepoRoot();
+  const gitMarker = path.join(repoRoot, ".git");
+  let gitMarkerStat = null;
+  try {
+    gitMarkerStat = fs.lstatSync(gitMarker);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw new Error(`cannot inspect Git metadata: ${error.message}`);
+  }
+  if (gitMarkerStat?.isSymbolicLink()) {
+    throw new Error("Git metadata must not be a symlink");
+  }
+  const gitMetadataPresent = gitMarkerStat !== null;
   const result = spawnSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"]
@@ -107,14 +118,6 @@ function localStoreRoot() {
     return { kind: "git-common-private", basePath: commonDir, path: path.join(commonDir, LOCAL_STORE_REL_PATH) };
   }
 
-  const gitMarker = path.join(repoRoot, ".git");
-  let gitMetadataPresent = false;
-  try {
-    fs.lstatSync(gitMarker);
-    gitMetadataPresent = true;
-  } catch (error) {
-    if (error.code !== "ENOENT") throw new Error(`cannot inspect Git metadata: ${error.message}`);
-  }
   if (gitMetadataPresent) {
     throw new Error("Git metadata is present but unreadable; refusing a fallback store that could split orchestration state");
   }
@@ -142,10 +145,6 @@ function instanceLocation(selection = selectedLocalInstance) {
   };
 }
 
-function exampleRegistryPath() {
-  return path.join(CONFIG.repoRoot, EXAMPLE_REGISTRY_REL_PATH);
-}
-
 function loadJsonFile(fullPath, metadata) {
   if (!fs.existsSync(fullPath)) return { ...metadata, exists: false, registry: null, error: "" };
   try {
@@ -156,6 +155,11 @@ function loadJsonFile(fullPath, metadata) {
 }
 
 function loadPrivateRegistry(location) {
+  try {
+    assertPrivateDirectory(location, path.dirname(location.path));
+  } catch (error) {
+    return { source: "local-instance", live: true, label: location.label, location, exists: false, registry: null, error: error.message };
+  }
   let stat;
   try {
     stat = fs.lstatSync(location.path);
@@ -164,11 +168,6 @@ function loadPrivateRegistry(location) {
       return { source: "local-instance", live: true, label: location.label, location, exists: false, registry: null, error: error.message };
     }
     return { source: "local-instance", live: true, label: location.label, location, exists: false, registry: null, error: "" };
-  }
-  try {
-    assertPrivateDirectory(location, path.dirname(location.path));
-  } catch (error) {
-    return { source: "local-instance", live: true, label: location.label, location, exists: true, registry: null, error: error.message };
   }
   if (!stat.isFile() || stat.isSymbolicLink()) {
     return { source: "local-instance", live: true, label: location.label, location, exists: true, registry: null, error: "private orchestration instance must be a regular file" };
@@ -188,12 +187,13 @@ function loadRegistry({ liveRequired = false, selection = selectedLocalInstance 
   }
   const local = loadPrivateRegistry(location);
   if (local.exists || local.error || liveRequired) return local;
-  return loadJsonFile(exampleRegistryPath(), {
+  return {
+    ...loadTrackedRegistry(EXAMPLE_REGISTRY_REL_PATH),
     source: "tracked-example",
     live: false,
     label: EXAMPLE_REGISTRY_REL_PATH,
     location
-  });
+  };
 }
 
 function registryLabel(loaded) {
@@ -240,7 +240,15 @@ function assertPrivateDirectory(location, directory) {
   let current = location.basePath;
   for (const component of relativeDirectory.split(path.sep)) {
     current = path.join(current, component);
-    if (fs.lstatSync(current).isSymbolicLink()) throw new Error("private orchestration directory may not traverse symlinks");
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) throw new Error("private orchestration directory may not traverse symlinks");
+    if (!stat.isDirectory()) throw new Error("private orchestration path component must be a directory");
   }
   const resolvedStore = fs.realpathSync(location.storePath);
   const resolvedDirectory = fs.realpathSync(directory);
@@ -282,8 +290,13 @@ function writePrivateInstance(registry, location) {
 
 function loadTrackedRegistry(relPath) {
   const fullPath = path.join(CONFIG.repoRoot, relPath);
-  if (!fs.existsSync(fullPath)) return { exists: false, registry: null, error: "", fullPath };
-  const stat = fs.lstatSync(fullPath);
+  let stat;
+  try {
+    stat = fs.lstatSync(fullPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return { exists: false, registry: null, error: "", fullPath };
+    return { exists: false, registry: null, error: error.message, fullPath };
+  }
   if (!stat.isFile() || stat.isSymbolicLink()) return { exists: true, registry: null, error: `${relPath} must be a regular tracked file`, fullPath };
   return loadJsonFile(fullPath, { fullPath });
 }
@@ -298,18 +311,16 @@ function runInstances(io) {
     return 1;
   }
   const directory = path.dirname(location.path);
-  if (fs.existsSync(directory)) {
-    try {
-      assertPrivateDirectory(location, directory);
-    } catch (error) {
-      io.stdout('valid: false');
-      io.stdout(`error: ${toonString(error.message)}`);
-      return 1;
-    }
+  try {
+    assertPrivateDirectory(location, directory);
+  } catch (error) {
+    io.stdout('valid: false');
+    io.stdout(`error: ${toonString(error.message)}`);
+    return 1;
   }
   const records = fs.existsSync(directory)
     ? fs.readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && SAFE_LOCAL_NAME_RE.test(entry.name.slice(0, -5)))
+      .filter((entry) => entry.name.endsWith(".json") && SAFE_LOCAL_NAME_RE.test(entry.name.slice(0, -5)))
       .sort((left, right) => left.name.localeCompare(right.name))
       .map((entry) => {
         const name = entry.name.slice(0, -5);

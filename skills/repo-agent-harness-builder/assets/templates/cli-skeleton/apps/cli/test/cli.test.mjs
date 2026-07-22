@@ -2272,6 +2272,29 @@ fixtureTest("orchestration fails closed when repository Git metadata is damaged"
   assert.match(status.out.join("\n"), /Git metadata is present but unreadable/);
 }, { git: false });
 
+fixtureTest("orchestration rejects symlinked Git metadata before resolving topology", async () => {
+  const init = runCommand("git", ["init", "-q"], { cwd: repoRoot });
+  assert.equal(init.ok, true, init.stderr);
+  const gitTarget = path.join(repoRoot, "git-metadata-target");
+  fs.renameSync(path.join(repoRoot, ".git"), gitTarget);
+  fs.symlinkSync(gitTarget, path.join(repoRoot, ".git"), "dir");
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 1);
+  assert.match(status.out.join("\n"), /Git metadata must not be a symlink/);
+}, { git: false });
+
+fixtureTest("orchestration rejects a symlinked tracked example", async () => {
+  const examplePath = path.join(repoRoot, "ops", "orchestration.example.json");
+  const targetPath = path.join(repoRoot, "ops", "orchestration.example.target.json");
+  fs.renameSync(examplePath, targetPath);
+  fs.symlinkSync(targetPath, examplePath);
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 1);
+  assert.match(status.out.join("\n"), /orchestration\.example\.json must be a regular tracked file/);
+});
+
 fixtureTest("orchestration requires exact private-instance permissions", async () => {
   writeOrchestrationRegistry(validOrchestrationRegistry());
   const registryPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances", "default.json");
@@ -2296,6 +2319,28 @@ fixtureTest("orchestration rejects symlinked private-instance directories", asyn
   const status = capture();
   assert.equal(await main(["orchestration", "status"], status.io), 1);
   assert.match(status.out.join("\n"), /may not traverse symlinks/);
+});
+
+fixtureTest("orchestration rejects missing instances behind symlinked directories", async () => {
+  const external = path.join(repoRoot, "external-orchestration", "instances");
+  fs.mkdirSync(external, { recursive: true });
+  const operators = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators");
+  fs.mkdirSync(operators, { recursive: true });
+  fs.symlinkSync(path.dirname(external), path.join(operators, "default"));
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 1);
+  assert.match(status.out.join("\n"), /may not traverse symlinks/);
+});
+
+fixtureTest("orchestration instances reports symlinked records as invalid", async () => {
+  writeOrchestrationRegistry(validOrchestrationRegistry());
+  const instancesDirectory = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances");
+  fs.symlinkSync(path.join(instancesDirectory, "default.json"), path.join(instancesDirectory, "redirected.json"));
+
+  const instances = capture();
+  assert.equal(await main(["orchestration", "instances"], instances.io), 0, instances.err.join("\n"));
+  assert.match(instances.out.join("\n"), /"redirected","invalid","",false/);
 });
 
 fixtureTest("schema-v5 owner-first instances can launch a logical Manager before materializing the Boss", async () => {
