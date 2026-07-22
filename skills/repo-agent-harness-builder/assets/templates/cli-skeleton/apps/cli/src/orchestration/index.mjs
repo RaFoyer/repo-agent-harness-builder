@@ -591,10 +591,10 @@ function validateTrackedExampleRegistry(registry) {
   if (registry.ownerDirectives !== undefined && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
     blockers.push("tracked example must not contain owner directives");
   }
-  if (registry.clientAdapter !== null || (schemaVersion >= 4 && !("clientAdapter" in registry))) {
+  if ((registry.clientAdapter !== undefined && registry.clientAdapter !== null) || (schemaVersion >= 4 && !("clientAdapter" in registry))) {
     blockers.push("tracked example must not select a client adapter");
   }
-  if (registry.bindingAttestation !== null || (schemaVersion >= 4 && !("bindingAttestation" in registry))) {
+  if ((registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) || (schemaVersion >= 4 && !("bindingAttestation" in registry))) {
     blockers.push("tracked example must not contain binding attestation data");
   }
   const extensions = registry.extensions;

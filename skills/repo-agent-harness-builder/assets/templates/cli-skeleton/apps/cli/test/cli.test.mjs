@@ -2234,6 +2234,17 @@ fixtureTest("orchestration keeps the tracked scaffold inert and initializes a pr
   assert.equal(await main(["orchestration", "validate", "--example"], exampleValidation.io), 0, exampleValidation.err.join("\n"));
   assert.match(exampleValidation.out.join("\n"), /target: "tracked-example"/);
 
+  const schemaV3Example = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
+  schemaV3Example.schemaVersion = 3;
+  for (const field of ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]) {
+    delete schemaV3Example[field];
+  }
+  delete schemaV3Example.scope.ownerRef;
+  await withFile("ops/orchestration.example.json", `${JSON.stringify(schemaV3Example, null, 2)}\n`, async () => {
+    const schemaV3Validation = capture();
+    assert.equal(await main(["orchestration", "validate", "--example"], schemaV3Validation.io), 0, schemaV3Validation.err.join("\n"));
+  });
+
   for (const [field, value] of [
     ["developerIdentity", { taskId: "private-task" }],
     ["taskRef", "private-task"],
