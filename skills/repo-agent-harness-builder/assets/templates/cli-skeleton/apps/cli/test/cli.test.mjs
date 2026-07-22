@@ -2223,6 +2223,34 @@ fixtureTest("orchestration keeps the tracked scaffold inert and initializes a pr
   assert.equal(await main(["orchestration", "instances"], instances.io), 0, instances.err.join("\n"));
   assert.match(instances.out.join("\n"), /"default","inactive","0",true/);
 
+  const exampleStatus = capture();
+  assert.equal(await main(["orchestration", "status", "--example"], exampleStatus.io), 0, exampleStatus.err.join("\n"));
+  assert.match(exampleStatus.out.join("\n"), /registry_source: "tracked-example"/);
+  assert.match(exampleStatus.out.join("\n"), /store_kind: "tracked-example-only"/);
+  assert.match(exampleStatus.out.join("\n"), /operator: "not-applicable"/);
+
+  const exampleValidation = capture();
+  assert.equal(await main(["orchestration", "validate", "--example"], exampleValidation.io), 0, exampleValidation.err.join("\n"));
+  assert.match(exampleValidation.out.join("\n"), /target: "tracked-example"/);
+
+  const previousOperator = process.env.REPO_ORCHESTRATION_OPERATOR;
+  const previousInstance = process.env.REPO_ORCHESTRATION_INSTANCE;
+  process.env.REPO_ORCHESTRATION_OPERATOR = "../../untrusted";
+  process.env.REPO_ORCHESTRATION_INSTANCE = "../untrusted-instance";
+  try {
+    const isolatedExample = capture();
+    assert.equal(await main(["orchestration", "validate", "--example"], isolatedExample.io), 0, isolatedExample.err.join("\n"));
+  } finally {
+    if (previousOperator === undefined) delete process.env.REPO_ORCHESTRATION_OPERATOR;
+    else process.env.REPO_ORCHESTRATION_OPERATOR = previousOperator;
+    if (previousInstance === undefined) delete process.env.REPO_ORCHESTRATION_INSTANCE;
+    else process.env.REPO_ORCHESTRATION_INSTANCE = previousInstance;
+  }
+
+  const exampleOperation = capture();
+  assert.equal(await main(["orchestration", "next", "--example"], exampleOperation.io), 2);
+  assert.match(exampleOperation.out.join("\n"), /tracked-example-inspection-only/);
+
   const privatePrompt = capture();
   const privatePromptCode = await main(["orchestration", "prompt", "boss"], privatePrompt.io);
   assert.equal(privatePromptCode, 1);
@@ -2284,6 +2312,41 @@ fixtureTest("orchestration rejects symlinked Git metadata before resolving topol
   assert.match(status.out.join("\n"), /Git metadata must not be a symlink/);
 }, { git: false });
 
+fixtureTest("orchestration ignores ambient Git topology path overrides", async () => {
+  const overrideNames = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_INDEX_FILE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0"
+  ];
+  const previous = new Map(overrideNames.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of overrideNames) process.env[name] = path.join(repoRoot, "untrusted-git-override", name.toLowerCase());
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "core.worktree";
+    process.env.GIT_CONFIG_VALUE_0 = path.join(repoRoot, "untrusted-git-override", "worktree");
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 0, status.out.concat(status.err).join("\n"));
+    assert.match(status.out.join("\n"), /store_kind: "git-common-private"/);
+    assert.match(status.out.join("\n"), /registry_source: "tracked-example"/);
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
 fixtureTest("orchestration rejects a symlinked tracked example", async () => {
   const examplePath = path.join(repoRoot, "ops", "orchestration.example.json");
   const targetPath = path.join(repoRoot, "ops", "orchestration.example.target.json");
@@ -2293,6 +2356,10 @@ fixtureTest("orchestration rejects a symlinked tracked example", async () => {
   const status = capture();
   assert.equal(await main(["orchestration", "status"], status.io), 1);
   assert.match(status.out.join("\n"), /orchestration\.example\.json must be a regular tracked file/);
+
+  const taxonomy = capture();
+  assert.equal(await main(["orchestration", "taxonomy"], taxonomy.io), 1);
+  assert.match(taxonomy.out.join("\n"), /orchestration\.example\.json must be a regular tracked file/);
 });
 
 fixtureTest("orchestration requires exact private-instance permissions", async () => {
@@ -2341,6 +2408,20 @@ fixtureTest("orchestration instances reports symlinked records as invalid", asyn
   const instances = capture();
   assert.equal(await main(["orchestration", "instances"], instances.io), 0, instances.err.join("\n"));
   assert.match(instances.out.join("\n"), /"redirected","invalid","",false/);
+});
+
+fixtureTest("orchestration instances reports directory listing failures without throwing", async () => {
+  const instancesDirectory = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances");
+  fs.mkdirSync(instancesDirectory, { recursive: true });
+  fs.chmodSync(instancesDirectory, 0o000);
+  const instances = capture();
+  try {
+    assert.equal(await main(["orchestration", "instances"], instances.io), 1);
+    assert.match(instances.out.join("\n"), /valid: false/);
+    assert.match(instances.out.join("\n"), /instance directory cannot be listed/);
+  } finally {
+    fs.chmodSync(instancesDirectory, 0o700);
+  }
 });
 
 fixtureTest("schema-v5 owner-first instances can launch a logical Manager before materializing the Boss", async () => {

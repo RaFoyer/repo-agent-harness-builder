@@ -206,6 +206,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 
 ```bash
 ./{{CLI_NAME}} orchestration status
+./{{CLI_NAME}} orchestration status --example
 ./{{CLI_NAME}} orchestration instances
 ./{{CLI_NAME}} orchestration init <instance>
 ./{{CLI_NAME}} orchestration migrate <instance>
@@ -219,7 +220,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration launch-spec <node-id>
 ```
 
-`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path.
+`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
 
 When the opt-in Codex-native profile is relevant, inspect it with
 `./{{CLI_NAME}} orchestration adapter-status`, preview presentation labels with

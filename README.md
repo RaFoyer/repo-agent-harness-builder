@@ -88,6 +88,7 @@ see a read-only readiness result, such as:
 ./harness no-mistakes status
 ./harness lavish status
 ./harness orchestration status
+./harness orchestration status --example
 ./harness orchestration instances
 ./harness orchestration directives
 ./harness orchestration adapter-status

@@ -50,10 +50,10 @@ COMMAND_SMOKE_TESTS = [
     ["connections", "status"],
     ["github", "status"],
     ["goals", "status"],
-    ["orchestration", "status"],
-    ["orchestration", "validate"],
-    ["orchestration", "adapter-status"],
-    ["orchestration", "taxonomy"],
+    ["orchestration", "status", "--example"],
+    ["orchestration", "validate", "--example"],
+    ["orchestration", "adapter-status", "--example"],
+    ["orchestration", "taxonomy", "--example"],
     ["design", "status"],
     ["no-mistakes", "status"],
     ["lavish", "status"],
@@ -105,7 +105,10 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     if path.is_symlink():
         errors.append(f"orchestration example must not be a symlink: {label}")
         return
+    if not path.exists():
+        return
     if not path.is_file():
+        errors.append(f"orchestration example must be a regular file: {label}")
         return
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
@@ -115,6 +118,26 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     if not isinstance(registry, dict):
         errors.append(f"orchestration example must be a JSON object: {label}")
         return
+    allowed_root_fields = {
+        "schemaVersion",
+        "revision",
+        "status",
+        "coordinationMode",
+        "rootControl",
+        "prefix",
+        "scope",
+        "bindingAttestation",
+        "clientAdapter",
+        "trustPolicy",
+        "nodes",
+        "ownerDirectives",
+    }
+    unexpected_root_fields = sorted(set(registry) - allowed_root_fields)
+    if unexpected_root_fields:
+        errors.append(
+            f"orchestration example contains unsupported or runtime fields: {label} "
+            f"({', '.join(unexpected_root_fields)})"
+        )
     if registry.get("schemaVersion") not in {2, 3, 4, 5}:
         errors.append(f"orchestration example has unsupported schema version: {label}")
     if registry.get("revision") != 0:
@@ -125,10 +148,49 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must not contain live nodes: {label}")
     if registry.get("ownerDirectives", []) != []:
         errors.append(f"orchestration example must not contain owner directives: {label}")
-    if registry.get("clientAdapter") is not None:
+    if "clientAdapter" not in registry or registry.get("clientAdapter") is not None:
         errors.append(f"orchestration example must not select a client adapter: {label}")
-    if registry.get("bindingAttestation") is not None:
+    if "bindingAttestation" not in registry or registry.get("bindingAttestation") is not None:
         errors.append(f"orchestration example must not contain binding attestation data: {label}")
+    scope = registry.get("scope")
+    if not isinstance(scope, dict):
+        errors.append(f"orchestration example scope must be an object: {label}")
+    else:
+        allowed_scope_fields = {"id", "kind", "rootRef", "ownerRef", "objective"}
+        unexpected_scope_fields = sorted(set(scope) - allowed_scope_fields)
+        if unexpected_scope_fields:
+            errors.append(
+                f"orchestration example scope contains unsupported or identity fields: {label} "
+                f"({', '.join(unexpected_scope_fields)})"
+            )
+        if scope.get("rootRef") != "repository-root":
+            errors.append(f"orchestration example rootRef must remain the identity-free repository-root placeholder: {label}")
+        if scope.get("ownerRef") != "project-owner":
+            errors.append(f"orchestration example ownerRef must remain the identity-free project-owner placeholder: {label}")
+    root_control = registry.get("rootControl")
+    if root_control is not None:
+        if not isinstance(root_control, dict) or set(root_control) != {"materialization"}:
+            errors.append(f"orchestration example rootControl contains unsupported fields: {label}")
+    trust_policy = registry.get("trustPolicy")
+    if not isinstance(trust_policy, dict):
+        errors.append(f"orchestration example trustPolicy must be an object: {label}")
+    else:
+        allowed_trust_fields = {
+            "defaultLevel",
+            "maxLevel",
+            "promotionRequiresHumanApproval",
+            "childMayExceedParent",
+            "limits",
+        }
+        unexpected_trust_fields = sorted(set(trust_policy) - allowed_trust_fields)
+        if unexpected_trust_fields:
+            errors.append(
+                f"orchestration example trustPolicy contains unsupported or runtime fields: {label} "
+                f"({', '.join(unexpected_trust_fields)})"
+            )
+        limits = trust_policy.get("limits")
+        if not isinstance(limits, dict) or set(limits) - {"maxActiveNodes", "maxDelegationDepth"}:
+            errors.append(f"orchestration example trustPolicy.limits contains unsupported fields: {label}")
 
 
 def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:

@@ -163,9 +163,11 @@ Scaffold `orchestration` as the project-wide structured-delegation helper even
 while `AGENT-ORCHESTRATION.md` remains inactive. It must not assume tickets,
 branches, pull requests, or software delivery. Minimum behavior:
 
-- `orchestration status`: summarize the explicit registry scope, roles, states,
-  source (tracked example or private instance), and validation findings; an
-  inactive valid example exits successfully but cannot drive operational commands.
+- `orchestration status [--example]`: summarize the explicit registry scope,
+  roles, states, source (tracked example or private instance), and validation
+  findings; an inactive valid example exits successfully but cannot drive
+  operational commands. `--example` explicitly inspects the tracked contract
+  without resolving operator-private state.
 - `orchestration instances`: list named private instances for the selected
   operator without printing an absolute local path.
 - `orchestration init <name>`: explicitly create one inactive private `0600`
@@ -177,6 +179,10 @@ branches, pull requests, or software delivery. Minimum behavior:
 Select instances with safe `--operator` and `--instance` names. Composing CLI
 facades use `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` so
 the same private authority state is resolved without accepting a raw path.
+Portable verification uses `--example` with `status`, `validate`,
+`adapter-status`, or `taxonomy`; that selector ignores ambient instance names,
+cannot be combined with `--operator` or `--instance`, and is rejected by every
+operational command.
 - `orchestration directives`: show schema-v4 governed owner directives, target
   nodes, contract impact, target acknowledgement and resolution evidence, and
   parent-reconciliation state without mutating tasks or treating task messages

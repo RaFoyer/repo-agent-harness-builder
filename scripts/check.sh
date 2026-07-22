@@ -369,6 +369,83 @@ for required_path in \
     exit 1
   fi
 done
+
+echo "== orchestration example verifier boundaries =="
+REPO_ORCHESTRATION_OPERATOR='../../invalid' \
+REPO_ORCHESTRATION_INSTANCE='../invalid-instance' \
+  python3 "$SKILL/scripts/verify_harness.py" \
+    --target "$TMP/generated-repo" \
+    --cli-name harness
+
+damaged="$TMP/generated-repo-active-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["status"] = "active"
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject an active tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-identity-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["developerIdentity"] = {"taskId": "task-local-only"}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject runtime or identity fields in the tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-task-root-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["scope"]["rootRef"] = "task-local-root"
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a task identity in the tracked orchestration example root" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-directory-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+rm "$damaged/ops/orchestration.example.json"
+mkdir "$damaged/ops/orchestration.example.json"
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a directory in place of the tracked orchestration example" >&2
+  exit 1
+fi
+
+damaged="$TMP/generated-repo-symlink-orchestration-example"
+cp -R "$TMP/generated-repo" "$damaged"
+mv "$damaged/ops/orchestration.example.json" "$damaged/ops/orchestration.example.target.json"
+ln -s "orchestration.example.target.json" "$damaged/ops/orchestration.example.json"
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a symlinked tracked orchestration example" >&2
+  exit 1
+fi
+
 mkdir -p "$TMP/firstmate-profile-collision/.codex/agents"
 printf 'name = "boss"\n' > "$TMP/firstmate-profile-collision/.codex/agents/boss.toml"
 python3 "$SKILL/scripts/scaffold_harness.py" \

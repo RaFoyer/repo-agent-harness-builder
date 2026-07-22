@@ -16,6 +16,24 @@ const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4, 5]);
 const COORDINATION_MODES = new Set(["managed", "hybrid"]);
 const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
 const PARENT_BINDING_MODES = new Set(["task", "logical"]);
+const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy"]);
+const GIT_TOPOLOGY_OVERRIDE_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_INDEX_FILE",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM"
+];
+const GIT_CONFIG_OVERRIDE_ENV = [
+  "GIT_CONFIG",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_PARAMETERS"
+];
 const DIRECTIVE_KINDS = new Set(["owner-directive", "owner-intervention"]);
 const DIRECTIVE_IMPACTS = new Set(["within-contract", "replan-required"]);
 const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "superseded", "cancelled"]);
@@ -78,6 +96,7 @@ function environmentLocalSelection() {
 }
 
 let selectedLocalInstance = environmentLocalSelection();
+let selectedTrackedExample = false;
 
 function safeLocalName(value, label) {
   if (!SAFE_LOCAL_NAME_RE.test(value || "")) throw new Error(`${label} must be a safe 1-64 character local name`);
@@ -90,6 +109,18 @@ function resolvedRepoRoot() {
   } catch (error) {
     throw new Error(`cannot resolve project root: ${error.message || "unknown error"}`);
   }
+}
+
+function gitTopologyEnvironment() {
+  const env = { ...process.env };
+  for (const name of GIT_TOPOLOGY_OVERRIDE_ENV) delete env[name];
+  for (const name of GIT_CONFIG_OVERRIDE_ENV) delete env[name];
+  for (const name of Object.keys(env)) {
+    if (/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
+  }
+  env.GIT_CONFIG_NOSYSTEM = "1";
+  env.GIT_CONFIG_GLOBAL = os.devNull;
+  return env;
 }
 
 function localStoreRoot() {
@@ -107,7 +138,8 @@ function localStoreRoot() {
   const gitMetadataPresent = gitMarkerStat !== null;
   const result = spawnSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
     encoding: "utf-8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    env: gitTopologyEnvironment()
   });
   if (result.status === 0) {
     const [topLevel, commonDirValue] = result.stdout.trim().split(/\r?\n/);
@@ -178,7 +210,19 @@ function loadPrivateRegistry(location) {
   return loadJsonFile(location.path, { source: "local-instance", live: true, label: location.label, location });
 }
 
-function loadRegistry({ liveRequired = false, selection = selectedLocalInstance } = {}) {
+function loadRegistry({ liveRequired = false, selection = selectedLocalInstance, trackedExampleOnly = selectedTrackedExample } = {}) {
+  if (trackedExampleOnly) {
+    if (liveRequired) {
+      return { exists: false, registry: null, error: "tracked example cannot be used as live orchestration authority", source: "tracked-example", live: false, label: EXAMPLE_REGISTRY_REL_PATH, location: null };
+    }
+    return {
+      ...loadTrackedRegistry(EXAMPLE_REGISTRY_REL_PATH),
+      source: "tracked-example",
+      live: false,
+      label: EXAMPLE_REGISTRY_REL_PATH,
+      location: null
+    };
+  }
   let location;
   try {
     location = instanceLocation(selection);
@@ -203,24 +247,35 @@ function registryLabel(loaded) {
 function parseLocalSelection(argv, io) {
   const remaining = [];
   let { operator, instance } = environmentLocalSelection();
+  let trackedExampleOnly = false;
+  let explicitLocalSelector = false;
   try {
     for (let index = 0; index < argv.length; index += 1) {
       const argument = argv[index];
+      if (argument === "--example") {
+        trackedExampleOnly = true;
+        continue;
+      }
       if (argument !== "--operator" && argument !== "--instance") {
         remaining.push(argument);
         continue;
       }
       const value = argv[index + 1];
       if (!value || value.startsWith("-")) throw new Error(`${argument} requires a value`);
+      explicitLocalSelector = true;
       if (argument === "--operator") operator = value;
       else instance = value;
       index += 1;
     }
-    selectedLocalInstance = {
-      operator: safeLocalName(operator, "operator"),
-      instance: safeLocalName(instance, "instance")
-    };
-    return { ok: true, argv: remaining };
+    if (trackedExampleOnly && explicitLocalSelector) throw new Error("--example cannot be combined with --operator or --instance");
+    selectedLocalInstance = trackedExampleOnly
+      ? { operator: DEFAULT_LOCAL_NAME, instance: DEFAULT_LOCAL_NAME }
+      : {
+          operator: safeLocalName(operator, "operator"),
+          instance: safeLocalName(instance, "instance")
+        };
+    selectedTrackedExample = trackedExampleOnly;
+    return { ok: true, argv: remaining, trackedExampleOnly };
   } catch (error) {
     renderUsageError(io, {
       code: "invalid-orchestration-local-selection",
@@ -318,8 +373,17 @@ function runInstances(io) {
     io.stdout(`error: ${toonString(error.message)}`);
     return 1;
   }
-  const records = fs.existsSync(directory)
-    ? fs.readdirSync(directory, { withFileTypes: true })
+  let entries = [];
+  if (fs.existsSync(directory)) {
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      io.stdout('valid: false');
+      io.stdout('error: "private orchestration instance directory cannot be listed"');
+      return 1;
+    }
+  }
+  const records = entries
       .filter((entry) => entry.name.endsWith(".json") && SAFE_LOCAL_NAME_RE.test(entry.name.slice(0, -5)))
       .sort((left, right) => left.name.localeCompare(right.name))
       .map((entry) => {
@@ -327,8 +391,7 @@ function runInstances(io) {
         const recordLocation = { ...location, instance: name, label: `local:${location.operator}/${name}`, path: path.join(directory, entry.name) };
         const loaded = loadPrivateRegistry(recordLocation);
         return { name, status: loaded.error ? "invalid" : loaded.registry?.status || "invalid", revision: loaded.registry?.revision ?? "" };
-      })
-    : [];
+      });
   io.stdout(`store_kind: ${toonString(location.kind)}`);
   io.stdout(`operator: ${toonString(location.operator)}`);
   io.stdout(`selected_instance: ${toonString(location.instance)}`);
@@ -1585,14 +1648,14 @@ function validateRegistry(registry) {
 }
 
 export function validateCurrentOrchestrationRegistry() {
-  const loaded = loadRegistry({ liveRequired: true, selection: environmentLocalSelection() });
+  const loaded = loadRegistry({ liveRequired: true, selection: environmentLocalSelection(), trackedExampleOnly: false });
   if (!loaded.exists) return { registry: null, blockers: [loaded.error || `missing ${registryLabel(loaded)}`], warnings: [], nodes: [], nodesById: new Map() };
   if (loaded.error) return { registry: null, blockers: [`invalid registry: ${loaded.error}`], warnings: [], nodes: [], nodesById: new Map() };
   return { registry: loaded.registry, ...validateRegistry(loaded.registry) };
 }
 
 function printHelp(io) {
-  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [argument] [--operator <name>] [--instance <name>]");
+  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [argument] [--operator <name>] [--instance <name>] [--example]");
   io.stdout("");
   io.stdout("Commands:");
   io.stdout("  status             Summarize configured project orchestration");
@@ -1611,6 +1674,7 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("init and migrate only create a private 0600 local instance; all other commands are read-only and no command creates tasks or mutates external systems.");
+  io.stdout("--example forces status, validate, adapter-status, or taxonomy to inspect the tracked inactive example without resolving private runtime state.");
   io.stdout("Use --operator/--instance for orchestration commands or REPO_ORCHESTRATION_OPERATOR/REPO_ORCHESTRATION_INSTANCE for composing facades; raw state paths are unsupported.");
 }
 
@@ -1840,6 +1904,12 @@ function runAdapterStatus(io) {
 
 function runTaxonomy(io) {
   const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stdout('valid: false');
+    io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
+    io.stdout(`error: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
+    return 1;
+  }
   const taxonomy = presentationTaxonomy(loaded.registry?.clientAdapter);
   const managerCatalog = arrayOrEmpty(taxonomy?.managerCatalog || DEFAULT_EXECUTIVE_MANAGER_CATALOG);
   const workerCatalog = arrayOrEmpty(taxonomy?.workerCatalog || DEFAULT_EXECUTIVE_WORKER_CATALOG);
@@ -1888,9 +1958,9 @@ function runStatus(io) {
   io.stdout(`state: ${toonString(loaded.live ? loaded.registry.status : "unconfigured")}`);
   io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
   io.stdout(`registry_source: ${toonString(loaded.source)}`);
-  io.stdout(`store_kind: ${toonString(loaded.location.kind)}`);
-  io.stdout(`operator: ${toonString(loaded.location.operator)}`);
-  io.stdout(`instance: ${toonString(loaded.location.instance)}`);
+  io.stdout(`store_kind: ${toonString(loaded.location?.kind || "tracked-example-only")}`);
+  io.stdout(`operator: ${toonString(loaded.location?.operator || "not-applicable")}`);
+  io.stdout(`instance: ${toonString(loaded.location?.instance || "not-applicable")}`);
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
@@ -2372,6 +2442,15 @@ export async function runOrchestration(argv, io) {
   if (argv.includes("--help") || argv.includes("-h") || command === "help") {
     printHelp(io);
     return 0;
+  }
+  if (parsed.trackedExampleOnly && !TRACKED_EXAMPLE_COMMANDS.has(command)) {
+    renderUsageError(io, {
+      code: "tracked-example-inspection-only",
+      command: `orchestration ${command}`,
+      message: "--example is limited to read-only tracked-example inspection commands",
+      hints: [`Use --example with status, validate, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
+    });
+    return 2;
   }
   switch (command) {
     case "status":
