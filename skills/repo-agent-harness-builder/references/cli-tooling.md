@@ -193,17 +193,18 @@ it.
   nodes, contract impact, target acknowledgement and resolution evidence, and
   parent-reconciliation state without mutating tasks or treating task messages
   as authority.
-- `orchestration adapter-status`: inspect the local Codex-native Firstmate
-  adapter posture, installed assets, activation blockers, and optional native
-  capability plan without contacting Codex or changing configuration.
-- `orchestration taxonomy`: preview portable, nautical, and executive display
-  labels plus the configured title grammar without changing configuration or
-  tasks.
+- `orchestration adapter-status [--example]`: inspect the local Codex-native
+  Firstmate adapter posture, installed assets, activation blockers, and
+  optional native capability plan without contacting Codex or changing
+  configuration. `--example` inspects the tracked inactive contract.
+- `orchestration taxonomy [--example]`: preview portable, nautical, and
+  executive display labels plus the configured title grammar without changing
+  configuration or tasks. `--example` inspects the tracked inactive contract.
 - `orchestration hierarchy`: explain portable portfolio/workstream/work-unit
   responsibility and parent links without implying authority; direct configured
   client title grammar to the selected adapter protocol.
 - `orchestration trust`: show the T0-T5 autonomy ceiling and inheritance rules.
-- `orchestration validate`: reject invalid parent/dependency graphs, duplicate
+- `orchestration validate [--example]`: reject invalid parent/dependency graphs, duplicate
   Bosses, title drift, invalid lifecycle evidence, trust promotion without
   evidence, child authority or budget exceeding the parent, and active-node,
   active-child, or depth budget overruns. Validate schema-v5 optional root and

@@ -206,15 +206,16 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ## CLI Support
 
 ```bash
-./{{CLI_NAME}} orchestration status
-./{{CLI_NAME}} orchestration status --example
+./{{CLI_NAME}} orchestration status [--example]
 ./{{CLI_NAME}} orchestration instances
 ./{{CLI_NAME}} orchestration init <instance>
 ./{{CLI_NAME}} orchestration migrate <instance>
 ./{{CLI_NAME}} orchestration hierarchy
 ./{{CLI_NAME}} orchestration trust
-./{{CLI_NAME}} orchestration validate
+./{{CLI_NAME}} orchestration validate [--example]
 ./{{CLI_NAME}} orchestration directives
+./{{CLI_NAME}} orchestration adapter-status [--example]
+./{{CLI_NAME}} orchestration taxonomy [--example]
 ./{{CLI_NAME}} orchestration next
 ./{{CLI_NAME}} orchestration prompt boss
 ./{{CLI_NAME}} orchestration prompt <node-id>
@@ -223,12 +224,15 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 
 `init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
 
-When the opt-in Codex-native profile is relevant, inspect it with
-`./{{CLI_NAME}} orchestration adapter-status`, preview presentation labels with
-`./{{CLI_NAME}} orchestration taxonomy`, and read
-`CODEX-NATIVE-FIRSTMATE.md`. Firstmate is a Codex-facing Boss profile, not a
-fourth role. Installed profile assets do not activate orchestration or grant
-task-creation authority.
+When the opt-in Codex-native profile is relevant, inspect the portable
+baseline with `./{{CLI_NAME}} orchestration adapter-status --example`, preview
+portable presentation labels with
+`./{{CLI_NAME}} orchestration taxonomy --example`, and read
+`CODEX-NATIVE-FIRSTMATE.md`. After a private instance is
+configured, omit `--example` and select that instance to inspect its live
+adapter posture. Firstmate is a Codex-facing Boss profile, not a fourth role.
+Installed profile assets do not activate orchestration or grant task-creation
+authority.
 
 ## Client Adapter Handshake
 
