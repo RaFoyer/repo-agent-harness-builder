@@ -1,14 +1,21 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 
-const REGISTRY_REL_PATH = "ops/orchestration.json";
-const REGISTRY_SCHEMA_VERSION = 4;
-const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4]);
+const EXAMPLE_REGISTRY_REL_PATH = "ops/orchestration.example.json";
+const LEGACY_REGISTRY_REL_PATH = "ops/orchestration.json";
+const LOCAL_STORE_REL_PATH = path.join("repo-agent-harness", "orchestration");
+const SAFE_LOCAL_NAME_RE = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/;
+const DEFAULT_LOCAL_NAME = "default";
+const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4, 5]);
 const COORDINATION_MODES = new Set(["managed", "hybrid"]);
+const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
+const PARENT_BINDING_MODES = new Set(["task", "logical"]);
 const DIRECTIVE_KINDS = new Set(["owner-directive", "owner-intervention"]);
 const DIRECTIVE_IMPACTS = new Set(["within-contract", "replan-required"]);
 const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "superseded", "cancelled"]);
@@ -63,17 +70,331 @@ const CODEX_FIRSTMATE_ASSETS = [
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md"
 ];
 
-function registryPath() {
-  return path.join(CONFIG.repoRoot, REGISTRY_REL_PATH);
+function environmentLocalSelection() {
+  return {
+    operator: process.env.REPO_ORCHESTRATION_OPERATOR || DEFAULT_LOCAL_NAME,
+    instance: process.env.REPO_ORCHESTRATION_INSTANCE || DEFAULT_LOCAL_NAME
+  };
 }
 
-function loadRegistry() {
-  const fullPath = registryPath();
-  if (!fs.existsSync(fullPath)) return { exists: false, registry: null, error: "" };
+let selectedLocalInstance = environmentLocalSelection();
+
+function safeLocalName(value, label) {
+  if (!SAFE_LOCAL_NAME_RE.test(value || "")) throw new Error(`${label} must be a safe 1-64 character local name`);
+  return value;
+}
+
+function resolvedRepoRoot() {
   try {
-    return { exists: true, registry: JSON.parse(fs.readFileSync(fullPath, "utf-8")), error: "" };
+    return fs.realpathSync(CONFIG.repoRoot);
   } catch (error) {
-    return { exists: true, registry: null, error: error.message || "invalid JSON" };
+    throw new Error(`cannot resolve project root: ${error.message || "unknown error"}`);
+  }
+}
+
+function localStoreRoot() {
+  const repoRoot = resolvedRepoRoot();
+  const result = spawnSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  if (result.status === 0) {
+    const [topLevel, commonDirValue] = result.stdout.trim().split(/\r?\n/);
+    if (!topLevel || !commonDirValue) throw new Error("Git topology did not return a worktree root and common directory");
+    const resolvedTopLevel = fs.realpathSync(topLevel);
+    if (resolvedTopLevel !== repoRoot) throw new Error("configured project root does not match the Git worktree root");
+    const commonDir = fs.realpathSync(path.resolve(repoRoot, commonDirValue));
+    return { kind: "git-common-private", basePath: commonDir, path: path.join(commonDir, LOCAL_STORE_REL_PATH) };
+  }
+
+  const gitMarker = path.join(repoRoot, ".git");
+  let gitMetadataPresent = false;
+  try {
+    fs.lstatSync(gitMarker);
+    gitMetadataPresent = true;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw new Error(`cannot inspect Git metadata: ${error.message}`);
+  }
+  if (gitMetadataPresent) {
+    throw new Error("Git metadata is present but unreadable; refusing a fallback store that could split orchestration state");
+  }
+
+  const projectKey = createHash("sha256").update(repoRoot).digest("hex").slice(0, 24);
+  const home = fs.realpathSync(os.homedir());
+  return {
+    kind: "user-state-private",
+    basePath: home,
+    path: path.join(home, ".local", "state", "repo-agent-harness", "projects", projectKey, "orchestration")
+  };
+}
+
+function instanceLocation(selection = selectedLocalInstance) {
+  const operator = safeLocalName(selection.operator, "operator");
+  const instance = safeLocalName(selection.instance, "instance");
+  const store = localStoreRoot();
+  return {
+    ...store,
+    storePath: store.path,
+    operator,
+    instance,
+    path: path.join(store.path, "operators", operator, "instances", `${instance}.json`),
+    label: `local:${operator}/${instance}`
+  };
+}
+
+function exampleRegistryPath() {
+  return path.join(CONFIG.repoRoot, EXAMPLE_REGISTRY_REL_PATH);
+}
+
+function loadJsonFile(fullPath, metadata) {
+  if (!fs.existsSync(fullPath)) return { ...metadata, exists: false, registry: null, error: "" };
+  try {
+    return { ...metadata, exists: true, registry: JSON.parse(fs.readFileSync(fullPath, "utf-8")), error: "" };
+  } catch (error) {
+    return { ...metadata, exists: true, registry: null, error: error.message || "invalid JSON" };
+  }
+}
+
+function loadPrivateRegistry(location) {
+  let stat;
+  try {
+    stat = fs.lstatSync(location.path);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      return { source: "local-instance", live: true, label: location.label, location, exists: false, registry: null, error: error.message };
+    }
+    return { source: "local-instance", live: true, label: location.label, location, exists: false, registry: null, error: "" };
+  }
+  try {
+    assertPrivateDirectory(location, path.dirname(location.path));
+  } catch (error) {
+    return { source: "local-instance", live: true, label: location.label, location, exists: true, registry: null, error: error.message };
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    return { source: "local-instance", live: true, label: location.label, location, exists: true, registry: null, error: "private orchestration instance must be a regular file" };
+  }
+  if ((stat.mode & 0o777) !== 0o600) {
+    return { source: "local-instance", live: true, label: location.label, location, exists: true, registry: null, error: "private orchestration instance permissions must be 0600" };
+  }
+  return loadJsonFile(location.path, { source: "local-instance", live: true, label: location.label, location });
+}
+
+function loadRegistry({ liveRequired = false, selection = selectedLocalInstance } = {}) {
+  let location;
+  try {
+    location = instanceLocation(selection);
+  } catch (error) {
+    return { exists: false, registry: null, error: error.message, source: "local-instance", live: true, label: "local:unresolved" };
+  }
+  const local = loadPrivateRegistry(location);
+  if (local.exists || local.error || liveRequired) return local;
+  return loadJsonFile(exampleRegistryPath(), {
+    source: "tracked-example",
+    live: false,
+    label: EXAMPLE_REGISTRY_REL_PATH,
+    location
+  });
+}
+
+function registryLabel(loaded) {
+  return loaded?.label || EXAMPLE_REGISTRY_REL_PATH;
+}
+
+function parseLocalSelection(argv, io) {
+  const remaining = [];
+  let { operator, instance } = environmentLocalSelection();
+  try {
+    for (let index = 0; index < argv.length; index += 1) {
+      const argument = argv[index];
+      if (argument !== "--operator" && argument !== "--instance") {
+        remaining.push(argument);
+        continue;
+      }
+      const value = argv[index + 1];
+      if (!value || value.startsWith("-")) throw new Error(`${argument} requires a value`);
+      if (argument === "--operator") operator = value;
+      else instance = value;
+      index += 1;
+    }
+    selectedLocalInstance = {
+      operator: safeLocalName(operator, "operator"),
+      instance: safeLocalName(instance, "instance")
+    };
+    return { ok: true, argv: remaining };
+  } catch (error) {
+    renderUsageError(io, {
+      code: "invalid-orchestration-local-selection",
+      command: "orchestration",
+      message: error.message,
+      hints: [`Use lowercase letters, digits, dot, underscore, or dash`, `Run ./${CONFIG.cliName} orchestration help`]
+    });
+    return { ok: false, argv: [] };
+  }
+}
+
+function assertPrivateDirectory(location, directory) {
+  const relativeDirectory = path.relative(location.basePath, directory);
+  if (!relativeDirectory || relativeDirectory.startsWith("..") || path.isAbsolute(relativeDirectory)) {
+    throw new Error("private orchestration directory escapes its local state boundary");
+  }
+  let current = location.basePath;
+  for (const component of relativeDirectory.split(path.sep)) {
+    current = path.join(current, component);
+    if (fs.lstatSync(current).isSymbolicLink()) throw new Error("private orchestration directory may not traverse symlinks");
+  }
+  const resolvedStore = fs.realpathSync(location.storePath);
+  const resolvedDirectory = fs.realpathSync(directory);
+  if (resolvedDirectory !== resolvedStore && !resolvedDirectory.startsWith(`${resolvedStore}${path.sep}`)) {
+    throw new Error("local instance directory escapes the private orchestration store");
+  }
+}
+
+function privateInstanceDirectory(location) {
+  const directory = path.dirname(location.path);
+  const relativeDirectory = path.relative(location.basePath, directory);
+  if (!relativeDirectory || relativeDirectory.startsWith("..") || path.isAbsolute(relativeDirectory)) {
+    throw new Error("private orchestration directory escapes its local state boundary");
+  }
+  let current = location.basePath;
+  for (const component of relativeDirectory.split(path.sep)) {
+    current = path.join(current, component);
+    try {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink()) throw new Error("private orchestration directory may not traverse symlinks");
+      if (!stat.isDirectory()) throw new Error("private orchestration path component must be a directory");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      fs.mkdirSync(current, { mode: 0o700 });
+    }
+    fs.chmodSync(current, 0o700);
+  }
+  assertPrivateDirectory(location, directory);
+  return directory;
+}
+
+function writePrivateInstance(registry, location) {
+  privateInstanceDirectory(location);
+  if (fs.existsSync(location.path)) throw new Error(`local instance already exists: ${location.label}`);
+  const content = `${JSON.stringify(registry, null, 2)}\n`;
+  fs.writeFileSync(location.path, content, { encoding: "utf-8", flag: "wx", mode: 0o600 });
+  fs.chmodSync(location.path, 0o600);
+}
+
+function loadTrackedRegistry(relPath) {
+  const fullPath = path.join(CONFIG.repoRoot, relPath);
+  if (!fs.existsSync(fullPath)) return { exists: false, registry: null, error: "", fullPath };
+  const stat = fs.lstatSync(fullPath);
+  if (!stat.isFile() || stat.isSymbolicLink()) return { exists: true, registry: null, error: `${relPath} must be a regular tracked file`, fullPath };
+  return loadJsonFile(fullPath, { fullPath });
+}
+
+function runInstances(io) {
+  let location;
+  try {
+    location = instanceLocation();
+  } catch (error) {
+    io.stdout('valid: false');
+    io.stdout(`error: ${toonString(error.message)}`);
+    return 1;
+  }
+  const directory = path.dirname(location.path);
+  if (fs.existsSync(directory)) {
+    try {
+      assertPrivateDirectory(location, directory);
+    } catch (error) {
+      io.stdout('valid: false');
+      io.stdout(`error: ${toonString(error.message)}`);
+      return 1;
+    }
+  }
+  const records = fs.existsSync(directory)
+    ? fs.readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && SAFE_LOCAL_NAME_RE.test(entry.name.slice(0, -5)))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((entry) => {
+        const name = entry.name.slice(0, -5);
+        const recordLocation = { ...location, instance: name, label: `local:${location.operator}/${name}`, path: path.join(directory, entry.name) };
+        const loaded = loadPrivateRegistry(recordLocation);
+        return { name, status: loaded.error ? "invalid" : loaded.registry?.status || "invalid", revision: loaded.registry?.revision ?? "" };
+      })
+    : [];
+  io.stdout(`store_kind: ${toonString(location.kind)}`);
+  io.stdout(`operator: ${toonString(location.operator)}`);
+  io.stdout(`selected_instance: ${toonString(location.instance)}`);
+  io.stdout(`instances[${records.length}]{name,status,revision,selected}:`);
+  for (const record of records) {
+    io.stdout(`  ${toonString(record.name)},${toonString(record.status)},${toonString(record.revision)},${record.name === location.instance}`);
+  }
+  if (!records.length) io.stdout('message: "No private orchestration instances initialized"');
+  return 0;
+}
+
+function runInit(instanceName, io) {
+  if (instanceName) {
+    try {
+      selectedLocalInstance = { ...selectedLocalInstance, instance: safeLocalName(instanceName, "instance") };
+    } catch (error) {
+      io.stderr(error.message);
+      return 2;
+    }
+  }
+  const source = loadTrackedRegistry(EXAMPLE_REGISTRY_REL_PATH);
+  if (!source.exists || source.error) {
+    io.stderr(source.error || `Missing ${EXAMPLE_REGISTRY_REL_PATH}`);
+    return 1;
+  }
+  const findings = validateRegistry(source.registry);
+  if (findings.blockers.length) {
+    io.stderr(`Tracked example is invalid; run orchestration validate before initializing (${findings.blockers[0]}).`);
+    return 1;
+  }
+  try {
+    const location = instanceLocation();
+    writePrivateInstance(source.registry, location);
+    io.stdout('created: true');
+    io.stdout(`registry: ${toonString(location.label)}`);
+    io.stdout(`store_kind: ${toonString(location.kind)}`);
+    io.stdout('permissions: "0600"');
+    io.stdout(renderHelpBlock([`Configure the private instance before activation`, `Run ./${CONFIG.cliName} orchestration validate --instance ${location.instance}`]));
+    return 0;
+  } catch (error) {
+    io.stderr(error.message);
+    return 1;
+  }
+}
+
+function runMigrate(instanceName, io) {
+  if (instanceName) {
+    try {
+      selectedLocalInstance = { ...selectedLocalInstance, instance: safeLocalName(instanceName, "instance") };
+    } catch (error) {
+      io.stderr(error.message);
+      return 2;
+    }
+  }
+  const source = loadTrackedRegistry(LEGACY_REGISTRY_REL_PATH);
+  if (!source.exists || source.error) {
+    io.stderr(source.error || `Missing legacy ${LEGACY_REGISTRY_REL_PATH}`);
+    return 1;
+  }
+  try {
+    const location = instanceLocation();
+    writePrivateInstance(source.registry, location);
+    const findings = validateRegistry(source.registry);
+    io.stdout('migrated: true');
+    io.stdout(`source: ${toonString(LEGACY_REGISTRY_REL_PATH)}`);
+    io.stdout(`registry: ${toonString(location.label)}`);
+    io.stdout(`store_kind: ${toonString(location.kind)}`);
+    io.stdout('permissions: "0600"');
+    io.stdout(`valid: ${findings.blockers.length === 0}`);
+    printFindings(io, findings);
+    io.stdout(renderHelpBlock(findings.blockers.length
+      ? [`Keep the legacy registry until the private copy is repaired and validates`, `Run ./${CONFIG.cliName} orchestration validate --instance ${location.instance}`]
+      : [`Remove the legacy tracked live registry through a reviewed Git change`, `Keep ${EXAMPLE_REGISTRY_REL_PATH} inactive and identity-free`]));
+    return findings.blockers.length ? 1 : 0;
+  } catch (error) {
+    io.stderr(error.message);
+    return 1;
   }
 }
 
@@ -108,6 +429,22 @@ function isStringArray(value, { nonEmpty = false } = {}) {
 
 function arrayOrEmpty(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function rootMaterializationFor(registry) {
+  return registry?.schemaVersion >= 5 ? registry.rootControl?.materialization : "required";
+}
+
+function logicalParentBinding(registry, node, parent) {
+  return registry?.schemaVersion >= 5
+    && rootMaterializationFor(registry) === "optional"
+    && node?.role === "manager"
+    && parent?.role === "boss"
+    && node?.parentBindingMode === "logical";
+}
+
+function activatesRegistryOnLaunch(registry, node, parent) {
+  return registry.status === "inactive" && (node.role === "boss" || logicalParentBinding(registry, node, parent));
 }
 
 function requiredSkillsFor(registry, node) {
@@ -392,6 +729,7 @@ function taskBindingAttestationBlockers(registry, node, binding) {
 }
 
 function materializedWorkContract(registry, node, parent) {
+  const logicalParent = logicalParentBinding(registry, node, parent);
   const nodeContract = {
     id: node.id,
     role: node.role,
@@ -400,6 +738,7 @@ function materializedWorkContract(registry, node, parent) {
     workKind: node.workKind,
     governingProtocols: canonicalValues(node.governingProtocols),
     ...(registry.schemaVersion >= 3 ? { requiredSkills: requiredSkillsFor(registry, node) } : {}),
+    ...(registry.schemaVersion >= 5 ? { parentBindingMode: node.parentBindingMode || "task" } : {}),
     label: node.label,
     title: node.title,
     objective: node.objective,
@@ -412,12 +751,13 @@ function materializedWorkContract(registry, node, parent) {
   };
   return canonicalize({
     ...(registry.schemaVersion >= 4 ? { coordinationMode: registry.coordinationMode } : {}),
+    ...(registry.schemaVersion >= 5 ? { rootControl: registry.rootControl } : {}),
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
     node: nodeContract,
     parent: parent ? {
       id: parent.id,
-      taskId: parent.taskId,
+      taskId: logicalParent ? null : parent.taskId,
       trustLevel: parent.trustLevel,
       authority: canonicalAuthority(parent.authority)
     } : null
@@ -457,6 +797,7 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     if (!isUtcRfc3339Timestamp(directive.createdAt)) blockers.push(`${label}: createdAt must be a UTC RFC3339 timestamp`);
     const target = nodesById.get(directive.targetNodeId);
     const targetParent = target?.parentId ? nodesById.get(target.parentId) : null;
+    const logicalParent = logicalParentBinding(registry, target, targetParent);
     if (!target) blockers.push(`${label}: targetNodeId must reference a configured node`);
     if (target && !["manager", "worker"].includes(target.role)) blockers.push(`${label}: targetNodeId must identify a Manager or Worker`);
     if (target && directive.targetParentIdAtIssue !== target.parentId) blockers.push(`${label}: targetParentIdAtIssue must match the target's immutable parent`);
@@ -465,10 +806,12 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
     } else if (directive.targetTaskIdAtIssue !== target.taskId) {
       blockers.push(`${label}: targetTaskIdAtIssue must identify the target's live task`);
     }
-    if (!isTaskBackedNode(targetParent)) {
+    if (!logicalParent && !isTaskBackedNode(targetParent)) {
       blockers.push(`${label}: issuance requires a live immediate-parent task`);
-    } else if (directive.targetParentTaskIdAtIssue !== targetParent.taskId) {
+    } else if (!logicalParent && directive.targetParentTaskIdAtIssue !== targetParent.taskId) {
       blockers.push(`${label}: targetParentTaskIdAtIssue must identify the immediate parent's live task`);
+    } else if (logicalParent && directive.targetParentTaskIdAtIssue !== null) {
+      blockers.push(`${label}: logical root parent requires a null targetParentTaskIdAtIssue`);
     }
     if (target?.state === "terminal" && !DIRECTIVE_TERMINAL_STATES.has(directive.status)) {
       blockers.push(`${label}: an open directive cannot target a terminal node`);
@@ -526,8 +869,10 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
         if (directive.parentObservedByNodeId !== directive.targetParentIdAtIssue) {
           blockers.push(`${label}: parentObservedByNodeId must identify the target's immediate parent`);
         }
-        if (directive.parentObservedByTaskId !== targetParent?.taskId) {
+        if (!logicalParent && directive.parentObservedByTaskId !== targetParent?.taskId) {
           blockers.push(`${label}: parentObservedByTaskId must identify the immediate parent's live task`);
+        } else if (logicalParent && directive.parentObservedByTaskId !== null) {
+          blockers.push(`${label}: logical root reconciliation requires a null parentObservedByTaskId`);
         }
         if (!isNonEmptyString(directive.parentReconciliationRef)) {
           blockers.push(`${label}: terminal directive status requires parentReconciliationRef`);
@@ -543,11 +888,11 @@ function validateOwnerDirectives(registry, nodesById, blockers) {
 }
 
 function coordinationModeFor(registry) {
-  return registry?.schemaVersion === 4 && registry.coordinationMode === "hybrid" ? "hybrid" : "managed";
+  return registry?.schemaVersion >= 4 && registry.coordinationMode === "hybrid" ? "hybrid" : "managed";
 }
 
 function governedOwnerDirectives(registry) {
-  if (registry?.schemaVersion !== 4) return [];
+  if (registry?.schemaVersion < 4) return [];
   return arrayOrEmpty(registry.ownerDirectives).filter(isObject);
 }
 
@@ -702,7 +1047,7 @@ function taskBindingUpdate({ registry, launchKey, workContractHash, node, parent
       }
     } : {}),
     parentNodeId: node.parentId ?? null,
-    parentTaskId: parent?.taskId ?? null,
+    parentTaskId: logicalParentBinding(registry, node, parent) ? null : parent?.taskId ?? null,
     boundRevision,
     boundAt: "UTC RFC3339 timestamp of the atomic bind",
     attestation: {
@@ -759,7 +1104,9 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   const blockers = [];
   const label = `node ${node.id || "<missing-id>"}`;
   const hasReservation = hasLaunchReservation(node);
-  const requiresActiveRegistry = mode === "reservation" || node.role !== "boss";
+  const logicalParent = logicalParentBinding(registry, node, parent);
+  const activatesRegistry = activatesRegistryOnLaunch(registry, node, parent);
+  const requiresActiveRegistry = mode === "reservation" || (!activatesRegistry && node.role !== "boss");
   const block = (code, message) => blockers.push({ code, message: `${label}: ${message}` });
 
   if (!isNonEmptyString(node.id)) block("node-id", "launch eligibility requires a single-line node id");
@@ -790,10 +1137,10 @@ function launchEligibilityBlockers({ registry, node, parent, nodes, nodesById, m
   }
 
   if (node.role !== "boss") {
-    if (!isTaskBackedNode(parent)) {
+    if (!logicalParent && !isTaskBackedNode(parent)) {
       block("parent-task", `launch eligibility requires task-backed parent ${node.parentId || "<missing-parent>"}`);
     }
-    if (!MANAGING_STATES.has(parent?.state)) {
+    if (!logicalParent && !MANAGING_STATES.has(parent?.state)) {
       block("parent-state", `launch eligibility requires parent ${node.parentId || "<missing-parent>"} in an active managing state`);
     }
     if (!hasDelegationAuthority(parent)) {
@@ -897,9 +1244,10 @@ function validateRegistry(registry) {
   const warnings = [];
   const githubProfiles = loadGithubProfiles();
   if (!isObject(registry)) return { blockers: ["registry root must be a JSON object"], warnings, nodes: [], nodesById: new Map() };
-  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2, 3, or 4");
+  if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(registry.schemaVersion)) blockers.push("schemaVersion must be 2, 3, 4, or 5");
   else if (registry.schemaVersion === 2) warnings.push("schemaVersion 2 is supported for existing bindings; migrate to 3 or newer before relying on requiredSkills as immutable work-contract data");
   else if (registry.schemaVersion === 3) warnings.push("schemaVersion 3 is supported for existing bindings; migrate to 4 before enabling hybrid coordination and owner directives");
+  else if (registry.schemaVersion === 4) warnings.push("schemaVersion 4 is supported for existing bindings; migrate to 5 before using optional root materialization and logical Manager parent bindings");
   if (registry.schemaVersion < 4
     && registry.ownerDirectives !== undefined
     && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
@@ -916,6 +1264,11 @@ function validateRegistry(registry) {
   if (registry.schemaVersion >= 4) {
     if (!COORDINATION_MODES.has(registry.coordinationMode)) blockers.push("coordinationMode must be managed or hybrid");
     if (!isNonEmptyString(registry.scope?.ownerRef)) blockers.push("scope.ownerRef must identify the project owner in schemaVersion 4");
+  }
+  if (registry.schemaVersion >= 5) {
+    if (!isObject(registry.rootControl) || !ROOT_MATERIALIZATION_MODES.has(registry.rootControl.materialization)) {
+      blockers.push("rootControl.materialization must be required or optional in schemaVersion 5");
+    }
   }
   if (registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) {
     if (!isObject(registry.bindingAttestation)
@@ -1015,6 +1368,13 @@ function validateRegistry(registry) {
     if (node.role !== "boss" && !isNonEmptyString(node.parentId)) blockers.push(`${label}: non-Boss nodes require parentId`);
     if (node.role !== "boss" && isNonEmptyString(node.parentId) && !parent) blockers.push(`${label}: parent ${node.parentId} does not exist`);
     if (node.role === "manager" && parent?.role !== "boss") blockers.push(`${label}: Manager parent must be the Boss`);
+    if (registry.schemaVersion >= 5) {
+      if (!PARENT_BINDING_MODES.has(node.parentBindingMode)) blockers.push(`${label}: parentBindingMode must be task or logical`);
+      if (node.role !== "manager" && node.parentBindingMode === "logical") blockers.push(`${label}: only a Manager may use logical parent binding`);
+      if (node.parentBindingMode === "logical" && !logicalParentBinding(registry, node, parent)) {
+        blockers.push(`${label}: logical parent binding requires optional root materialization and the Boss as immediate parent`);
+      }
+    }
     const expectedTitle = titleForNode(node, nodesById, registry.prefix || "<PREFIX>", registry.clientAdapter, registry.scope);
     if (!isNonEmptyString(node.title) || (expectedTitle && node.title !== expectedTitle)) {
       blockers.push(`${label}: title must equal ${expectedTitle || "the registry-derived title"}`);
@@ -1067,11 +1427,14 @@ function validateRegistry(registry) {
       }
     }
     if (node.role !== "boss" && isTaskBackedNode(node)) {
-      if (!isTaskBackedNode(parent)) blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent?.id || node.parentId}`);
-      if (!isNonEmptyString(node.parentTaskId)) {
+      const logicalParent = logicalParentBinding(registry, node, parent);
+      if (!logicalParent && !isTaskBackedNode(parent)) blockers.push(`${label}: task-backed non-Boss node requires task-backed parent ${parent?.id || node.parentId}`);
+      if (!logicalParent && !isNonEmptyString(node.parentTaskId)) {
         blockers.push(`${label}: task-backed non-Boss node requires immutable parentTaskId`);
-      } else if (node.parentTaskId !== parent?.taskId) {
+      } else if (!logicalParent && node.parentTaskId !== parent?.taskId) {
         blockers.push(`${label}: parentTaskId must match immediate parent ${parent?.id || node.parentId} taskId; replace parent tasks only after bound descendants are reconciled`);
+      } else if (logicalParent && node.parentTaskId !== undefined && node.parentTaskId !== null) {
+        blockers.push(`${label}: logical parent binding must keep parentTaskId null`);
       }
     } else if (node.role !== "boss" && node.parentTaskId !== undefined && node.parentTaskId !== null) {
       blockers.push(`${label}: unmaterialized non-Boss node must not claim parentTaskId`);
@@ -1082,7 +1445,7 @@ function validateRegistry(registry) {
       blockers.push(`${label}: unmaterialized node must not claim taskBinding metadata`);
     }
     if (node.role !== "boss" && ACTIVE_STATES.has(node.state) && parent) {
-      if (!MANAGING_STATES.has(parent.state)) {
+      if (!logicalParentBinding(registry, node, parent) && !MANAGING_STATES.has(parent.state)) {
         blockers.push(`${label}: active non-Boss node requires parent ${parent.id} in an active managing state`);
       }
       if (!hasDelegationAuthority(parent)) {
@@ -1211,17 +1574,20 @@ function validateRegistry(registry) {
 }
 
 export function validateCurrentOrchestrationRegistry() {
-  const loaded = loadRegistry();
-  if (!loaded.exists) return { registry: null, blockers: [`missing ${REGISTRY_REL_PATH}`], warnings: [], nodes: [], nodesById: new Map() };
-  if (loaded.error) return { registry: null, blockers: [`invalid JSON: ${loaded.error}`], warnings: [], nodes: [], nodesById: new Map() };
+  const loaded = loadRegistry({ liveRequired: true, selection: environmentLocalSelection() });
+  if (!loaded.exists) return { registry: null, blockers: [loaded.error || `missing ${registryLabel(loaded)}`], warnings: [], nodes: [], nodesById: new Map() };
+  if (loaded.error) return { registry: null, blockers: [`invalid registry: ${loaded.error}`], warnings: [], nodes: [], nodesById: new Map() };
   return { registry: loaded.registry, ...validateRegistry(loaded.registry) };
 }
 
 function printHelp(io) {
-  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [node-id]");
+  io.stdout("Usage: ./{{CLI_NAME}} orchestration <command> [argument] [--operator <name>] [--instance <name>]");
   io.stdout("");
   io.stdout("Commands:");
   io.stdout("  status             Summarize configured project orchestration");
+  io.stdout("  instances          List private orchestration instances for one operator");
+  io.stdout("  init [name]        Create a private inactive instance from the tracked example");
+  io.stdout("  migrate [name]     Copy a legacy tracked registry into a private instance");
   io.stdout("  adapter-status     Inspect Codex-native Firstmate adapter posture");
   io.stdout("  taxonomy           Preview presentation profiles and task-title grammar");
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
@@ -1233,7 +1599,8 @@ function printHelp(io) {
   io.stdout("  prompt <node-id>   Print a bounded prompt for a configured node");
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
-  io.stdout("All commands are read-only and never create tasks or mutate external systems.");
+  io.stdout("init and migrate only create a private 0600 local instance; all other commands are read-only and no command creates tasks or mutates external systems.");
+  io.stdout("Use --operator/--instance for orchestration commands or REPO_ORCHESTRATION_OPERATOR/REPO_ORCHESTRATION_INSTANCE for composing facades; raw state paths are unsupported.");
 }
 
 function completionProfileCoverageBlockers(nodes, completionProfiles) {
@@ -1311,10 +1678,15 @@ function firstmateActivationBlockers(registry, adapter) {
     .map((node) => [node.id, node]))));
 
   const bosses = arrayOrEmpty(registry.nodes).filter((node) => isObject(node) && node.role === "boss");
-  if (bosses.length !== 1 || !isTaskBackedNode(bosses[0])) {
+  const optionalUnmaterializedBoss = bosses.length === 1
+    && rootMaterializationFor(registry) === "optional"
+    && !isTaskBackedNode(bosses[0]);
+  if (bosses.length !== 1 || (!optionalUnmaterializedBoss && !isTaskBackedNode(bosses[0]))) {
     blockers.push("one task-backed Firstmate Boss is required");
+  } else if (optionalUnmaterializedBoss && adapter.bossTaskId !== null) {
+    blockers.push("clientAdapter.bossTaskId must remain null until the optional Boss task is materialized");
   } else if (!isNonEmptyString(adapter.bossTaskId) || adapter.bossTaskId !== bosses[0].taskId) {
-    blockers.push("clientAdapter.bossTaskId must match the task-backed Firstmate Boss");
+    if (!optionalUnmaterializedBoss) blockers.push("clientAdapter.bossTaskId must match the task-backed Firstmate Boss");
   }
 
   if (typeof adapter.standingTaskCreationGrant !== "boolean") {
@@ -1414,8 +1786,9 @@ function runAdapterStatus(io) {
   if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
 
   io.stdout(`profile: ${toonString(CODEX_FIRSTMATE_PROFILE)}`);
-  io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
-  io.stdout(`registry_state: ${toonString(!loaded.exists ? "missing" : loaded.error ? "invalid" : loaded.registry.status)}`);
+  io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
+  io.stdout(`registry_source: ${toonString(loaded.source)}`);
+  io.stdout(`registry_state: ${toonString(!loaded.exists ? "missing" : loaded.error ? "invalid" : loaded.live ? loaded.registry.status : "inactive-example")}`);
   io.stdout(`registry_valid: ${registryValid}`);
   io.stdout(`adapter_state: ${toonString(!adapter ? "unconfigured" : adapter.status)}`);
   io.stdout(`adapter_selected: ${selected}`);
@@ -1488,24 +1861,30 @@ function runStatus(io) {
   const loaded = loadRegistry();
   if (!loaded.exists) {
     io.stdout('state: "unconfigured"');
-    io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
-    io.stdout(renderHelpBlock([`Add ${REGISTRY_REL_PATH} from the scaffold template`, `Run ./${CONFIG.cliName} orchestration hierarchy`]));
-    return 0;
+    io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
+    if (loaded.error) io.stdout(`error: ${toonString(loaded.error)}`);
+    io.stdout(renderHelpBlock([`Restore ${EXAMPLE_REGISTRY_REL_PATH} if it is missing`, `Run ./${CONFIG.cliName} orchestration init ${selectedLocalInstance.instance}`]));
+    return loaded.error ? 1 : 0;
   }
   if (loaded.error) {
     io.stdout('state: "invalid"');
-    io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+    io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
     io.stdout(`error: ${toonString(loaded.error)}`);
     return 1;
   }
   const findings = validateRegistry(loaded.registry);
   const counts = Object.fromEntries([...STATES].map((state) => [state, findings.nodes.filter((node) => node.state === state).length]));
-  io.stdout(`state: ${toonString(loaded.registry.status)}`);
-  io.stdout(`registry: ${toonString(REGISTRY_REL_PATH)}`);
+  io.stdout(`state: ${toonString(loaded.live ? loaded.registry.status : "unconfigured")}`);
+  io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
+  io.stdout(`registry_source: ${toonString(loaded.source)}`);
+  io.stdout(`store_kind: ${toonString(loaded.location.kind)}`);
+  io.stdout(`operator: ${toonString(loaded.location.operator)}`);
+  io.stdout(`instance: ${toonString(loaded.location.instance)}`);
   io.stdout(`prefix: ${toonString(loaded.registry.prefix || "")}`);
   io.stdout(`scope: ${toonString(loaded.registry.scope?.id || "")}`);
   io.stdout(`scope_kind: ${toonString(loaded.registry.scope?.kind || "")}`);
   io.stdout(`coordination_mode: ${toonString(coordinationModeFor(loaded.registry))}`);
+  io.stdout(`root_materialization: ${toonString(rootMaterializationFor(loaded.registry))}`);
   io.stdout(`owner_ref: ${toonString(loaded.registry.scope?.ownerRef || "unconfigured")}`);
   io.stdout(`owner_directives: ${governedOwnerDirectives(loaded.registry).length}`);
   io.stdout(`client_adapter: ${toonString(loaded.registry.clientAdapter?.profile || "unconfigured")}`);
@@ -1521,10 +1900,10 @@ function runStatus(io) {
 }
 
 function runDirectives(io) {
-  const loaded = loadRegistry();
+  const loaded = loadRegistry({ liveRequired: true });
   if (!loaded.exists || loaded.error) {
     io.stdout("directives: 0");
-    io.stdout(`reason: ${toonString(!loaded.exists ? `missing ${REGISTRY_REL_PATH}` : `invalid JSON: ${loaded.error}`)}`);
+    io.stdout(`reason: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
     return 1;
   }
   const findings = validateRegistry(loaded.registry);
@@ -1547,7 +1926,7 @@ function runHierarchy(io) {
   io.stdout('  "Worker","work unit","<PREFIX> - Worker for <PARENT-ROLE> <PARENT-WORK-REF> - <WORK-REF> <responsibility>"');
   io.stdout("rules[4]:");
   io.stdout('  "One logical Boss per project"');
-  io.stdout('  "Every live non-Boss task records its immediate parent task ID"');
+  io.stdout('  "Task-bound children record the immediate parent task; schema-v5 logical Managers may bind to an optional unmaterialized Boss root"');
   io.stdout('  "Role defines responsibility; trust and authority define permission"');
   io.stdout('  "Goal chains, research, operations, and artifacts are completion profiles, not separate hierarchies"');
   return 0;
@@ -1568,16 +1947,18 @@ function runValidate(io) {
   const loaded = loadRegistry();
   if (!loaded.exists) {
     io.stdout('valid: false');
-    io.stdout(`blockers[1]: ${toonString(`missing ${REGISTRY_REL_PATH}`)}`);
+    io.stdout(`blockers[1]: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
     return 1;
   }
   if (loaded.error) {
     io.stdout('valid: false');
-    io.stdout(`blockers[1]: ${toonString(`invalid JSON: ${loaded.error}`)}`);
+    io.stdout(`blockers[1]: ${toonString(`invalid registry: ${loaded.error}`)}`);
     return 1;
   }
   const findings = validateRegistry(loaded.registry);
   io.stdout(`valid: ${findings.blockers.length === 0}`);
+  io.stdout(`target: ${toonString(loaded.source)}`);
+  io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
   io.stdout(`state: ${toonString(loaded.registry.status)}`);
   io.stdout(`nodes: ${findings.nodes.length}`);
   printFindings(io, findings);
@@ -1593,10 +1974,10 @@ function dependenciesSatisfied(node, nodesById) {
 }
 
 function runNext(io) {
-  const loaded = loadRegistry();
+  const loaded = loadRegistry({ liveRequired: true });
   if (!loaded.exists || loaded.error) {
     io.stdout("eligible: 0");
-    io.stdout(`reason: ${toonString(!loaded.exists ? `missing ${REGISTRY_REL_PATH}` : `invalid JSON: ${loaded.error}`)}`);
+    io.stdout(`reason: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
     return 1;
   }
   const findings = validateRegistry(loaded.registry);
@@ -1605,16 +1986,19 @@ function runNext(io) {
     printFindings(io, findings);
     return 1;
   }
-  if (loaded.registry.status !== "active") {
-    io.stdout("eligible: 0");
-    io.stdout('reason: "orchestration is inactive"');
-    return 0;
-  }
-  const eligible = findings.nodes.filter((node) => node.role !== "boss"
-    && ["queued", "eligible"].includes(node.state)
-    && !hasLaunchReservation(node)
-    && !replanBoundaryDirectiveIdsFor(loaded.registry, node, findings.nodesById).length
-    && dependenciesSatisfied(node, findings.nodesById));
+  const eligible = findings.nodes.filter((node) => {
+    if (!["queued", "eligible"].includes(node.state) || hasLaunchReservation(node)) return false;
+    const parent = node.parentId ? findings.nodesById.get(node.parentId) : null;
+    return launchEligibilityBlockers({
+      registry: loaded.registry,
+      node,
+      parent,
+      nodes: findings.nodes,
+      nodesById: findings.nodesById,
+      maxActiveNodes: loaded.registry.trustPolicy.limits.maxActiveNodes,
+      mode: "launch"
+    }).length === 0;
+  });
   io.stdout(`eligible: ${eligible.length}`);
   io.stdout(`nodes[${eligible.length}]{id,role,work_ref,work_kind,state,title}:`);
   for (const node of eligible) {
@@ -1651,7 +2035,8 @@ function buildPromptLines(node, parent, registry) {
   lines.push(`Work kind: ${node.workKind}`);
   lines.push(`Governing protocols: ${node.governingProtocols.join(", ")}`);
   lines.push(`Required skills (load in order): ${requiredSkillsFor(registry, node).join(", ")}`);
-  lines.push(`Immediate parent task ID: ${parent?.taskId || "none"}`);
+  lines.push(`Parent binding mode: ${node.parentBindingMode || "task"}`);
+  lines.push(`Immediate parent task ID: ${logicalParentBinding(registry, node, parent) ? "logical-root" : parent?.taskId || "none"}`);
   lines.push(`Coordination mode: ${coordinationModeFor(registry)}`);
   const directives = openOwnerDirectivesFor(registry, node.id);
   const replanDirectiveIds = replanBoundaryDirectiveIdsFor(registry, node, new Map(registry.nodes.map((candidate) => [candidate.id, candidate])));
@@ -1695,9 +2080,9 @@ function loadPromptTarget(nodeId, io) {
     });
     return { code: 2 };
   }
-  const loaded = loadRegistry();
+  const loaded = loadRegistry({ liveRequired: true });
   if (!loaded.exists || loaded.error) {
-    io.stderr(!loaded.exists ? `Missing ${REGISTRY_REL_PATH}` : `Invalid ${REGISTRY_REL_PATH}: ${loaded.error}`);
+    io.stderr(loaded.error || `Missing ${registryLabel(loaded)}`);
     return { code: 1 };
   }
   const findings = validateRegistry(loaded.registry);
@@ -1753,6 +2138,8 @@ function runLaunchSpec(nodeId, io) {
   }
   const configured = findings.nodesById.has(node.id);
   const firstmate = isCodexNativeFirstmateAdapter(loaded.registry.clientAdapter);
+  const logicalParent = logicalParentBinding(loaded.registry, node, parent);
+  const activatesRegistry = activatesRegistryOnLaunch(loaded.registry, node, parent);
   const workContract = materializedWorkContract(loaded.registry, node, parent);
   const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
   const launchKey = launchKeyFor(loaded.registry, node, parent);
@@ -1777,7 +2164,7 @@ function runLaunchSpec(nodeId, io) {
   const reservedRegistry = {
     ...loaded.registry,
     revision: loaded.registry.revision + 1,
-    ...(node.role === "boss" ? { status: "active" } : {})
+    ...(activatesRegistry ? { status: "active" } : {})
   };
   const reservedNode = {
     ...node,
@@ -1802,11 +2189,13 @@ function runLaunchSpec(nodeId, io) {
   io.stdout(JSON.stringify({
     schemaVersion: loaded.registry.schemaVersion,
     ...(loaded.registry.schemaVersion >= 4 ? { coordinationMode: loaded.registry.coordinationMode } : {}),
+    ...(loaded.registry.schemaVersion >= 5 ? { rootControl: loaded.registry.rootControl } : {}),
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
+    ...(loaded.registry.schemaVersion >= 5 ? { parentBindingMode: node.parentBindingMode } : {}),
     title: node.title,
-    parentTaskId: parent?.taskId || null,
+    parentTaskId: logicalParent ? null : parent?.taskId || null,
     ...(loaded.registry.schemaVersion >= 3 ? { requiredSkills: requiredSkillsFor(loaded.registry, node) } : {}),
     trustLevel: node.trustLevel,
     authority: canonicalAuthority(node.authority),
@@ -1832,7 +2221,11 @@ function runLaunchSpec(nodeId, io) {
     prompt: buildPromptLines(node, parent, loaded.registry).join("\n"),
     reservation,
     callback: {
-      registry: REGISTRY_REL_PATH,
+      registry: registryLabel(loaded),
+      registrySelector: {
+        operator: loaded.location.operator,
+        instance: loaded.location.instance
+      },
       mode: configured ? "update-node" : "insert-node",
       registryNode: configured ? undefined : node,
       reserve: {
@@ -1840,7 +2233,7 @@ function runLaunchSpec(nodeId, io) {
         ...reservation,
         onSuccess: {
           registryRevision: loaded.registry.revision + 1,
-          ...(node.role === "boss" ? { status: "active" } : {}),
+          ...(activatesRegistry ? { status: "active" } : {}),
           launchReservation: persistedReservation
         }
       },
@@ -1857,7 +2250,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
-          ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
+          ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
           "nextAction",
@@ -1906,8 +2299,9 @@ function runLaunchSpec(nodeId, io) {
           },
           ...(parent ? {
             parentId: parent.id,
-            parentTaskRequired: true,
-            parentManagingStateRequired: true,
+            parentTaskRequired: !logicalParent,
+            parentManagingStateRequired: !logicalParent,
+            logicalParentBinding: logicalParent,
             parentDelegationAuthorityRequired: true,
             parentApprovalGatesRequired: canonicalValues(parent.authority?.approvalGates),
             parentAuthorityInheritance: {
@@ -1927,7 +2321,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId from reconciled external task",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
-          ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
+          ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
           "nextAction",
@@ -1947,9 +2341,9 @@ function runLaunchSpec(nodeId, io) {
       },
       requiredUpdates: configured
         ? [
-          ...(node.role === "boss" ? ["status=active"] : []),
+          ...(activatesRegistry ? ["status=active"] : []),
           "taskId",
-          ...(node.role === "boss" ? [] : ["parentTaskId=immediate parent taskId"]),
+          ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "taskBinding",
           "state=working",
           "nextAction"
@@ -1961,7 +2355,9 @@ function runLaunchSpec(nodeId, io) {
 }
 
 export async function runOrchestration(argv, io) {
-  const [command = "status", ...rest] = argv;
+  const parsed = parseLocalSelection(argv, io);
+  if (!parsed.ok) return 2;
+  const [command = "status", ...rest] = parsed.argv;
   if (argv.includes("--help") || argv.includes("-h") || command === "help") {
     printHelp(io);
     return 0;
@@ -1970,6 +2366,33 @@ export async function runOrchestration(argv, io) {
     case "status":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration status", hints: [`Run ./${CONFIG.cliName} orchestration status`] })) return 2;
       return runStatus(io);
+    case "instances":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration instances", hints: [`Run ./${CONFIG.cliName} orchestration instances --operator ${selectedLocalInstance.operator}`] })) return 2;
+      return runInstances(io);
+    case "init":
+      if (rest.length > 1 || rest[0]?.startsWith("-")) {
+        renderUsageError(io, {
+          code: "invalid-orchestration-init-arguments",
+          command: "orchestration init",
+          message: "init accepts at most one private instance name",
+          details: rest,
+          hints: [`Run ./${CONFIG.cliName} orchestration init <name>`]
+        });
+        return 2;
+      }
+      return runInit(rest[0], io);
+    case "migrate":
+      if (rest.length > 1 || rest[0]?.startsWith("-")) {
+        renderUsageError(io, {
+          code: "invalid-orchestration-migrate-arguments",
+          command: "orchestration migrate",
+          message: "migrate accepts at most one private instance name",
+          details: rest,
+          hints: [`Run ./${CONFIG.cliName} orchestration migrate <name>`]
+        });
+        return 2;
+      }
+      return runMigrate(rest[0], io);
     case "adapter-status":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration adapter-status", hints: [`Run ./${CONFIG.cliName} orchestration adapter-status`] })) return 2;
       return runAdapterStatus(io);

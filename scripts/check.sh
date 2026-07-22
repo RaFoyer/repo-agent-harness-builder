@@ -351,7 +351,7 @@ for required_path in \
   "ops/protocols/AGENT-ORCHESTRATION.md" \
   "ops/protocols/GOAL-GRAPH.md" \
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md" \
-  "ops/orchestration.json" \
+  "ops/orchestration.example.json" \
   ".agents/skills/project-orchestration/SKILL.md" \
   ".agents/skills/goal-graph-loop/SKILL.md" \
   ".agents/skills/goal-chain-loop/SKILL.md" \

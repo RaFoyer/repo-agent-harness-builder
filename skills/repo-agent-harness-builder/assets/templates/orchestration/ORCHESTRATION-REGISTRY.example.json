@@ -1,8 +1,11 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "revision": 0,
-  "status": "active",
+  "status": "inactive",
   "coordinationMode": "hybrid",
+  "rootControl": {
+    "materialization": "optional"
+  },
   "prefix": "EXAMPLE",
   "scope": {
     "id": "documentation-refresh",
@@ -11,10 +14,8 @@
     "ownerRef": "project-owner",
     "objective": "Deliver an evidence-backed documentation refresh."
   },
-  "bindingAttestation": {
-    "algorithm": "ed25519",
-    "keyId": "project-binding-attestor"
-  },
+  "bindingAttestation": null,
+  "clientAdapter": null,
   "trustPolicy": {
     "defaultLevel": "T1",
     "maxLevel": "T3",
@@ -30,46 +31,27 @@
     {
       "id": "boss",
       "role": "boss",
+      "parentBindingMode": "task",
       "workRef": "portfolio",
       "workKind": "governance",
       "governingProtocols": ["AGENT-ORCHESTRATION"],
       "label": "Project control plane",
       "title": "EXAMPLE - Boss",
-      "taskId": "task-boss",
-      "taskBinding": {
-        "launchKey": "orchestration:documentation-refresh:boss:a2450dc0611eb638eca26a6273313ab7ecfeb277f5c3d600ed74f3a57a98bc77",
-        "workContractHash": "a2450dc0611eb638eca26a6273313ab7ecfeb277f5c3d600ed74f3a57a98bc77",
-        "nodeId": "boss",
-        "taskId": "task-boss",
-        "parentNodeId": null,
-        "parentTaskId": null,
-        "boundRevision": 0,
-        "boundAt": "2026-01-01T00:00:00Z",
-        "attestation": {
-          "algorithm": "ed25519",
-          "keyId": "project-binding-attestor",
-          "signature": "base64-ed25519-signature-from-external-attestor"
-        }
-      },
+      "taskId": null,
       "parentId": null,
       "dependencies": [],
-      "state": "working",
+      "state": "eligible",
       "trustLevel": "T3",
       "authority": {
         "allowedReads": ["project"],
-        "allowedWrites": ["registry", "project-files"],
-        "allowedExternalActions": ["tracker-update", "pull-request"],
-        "approvalGates": ["merge", "deployment"],
+        "allowedWrites": ["registry"],
+        "allowedExternalActions": [],
+        "approvalGates": ["activation"],
         "canDelegate": true,
         "maxActiveChildren": 3,
         "stopConditions": ["authority-gap", "stagnation", "human-decision"]
       },
       "objective": "Keep the project portfolio controlled and evidence-backed.",
-      "nextAction": "Review eligible workstreams.",
-      "completionProfile": {
-        "type": "custom",
-        "requiredEvidence": ["all workstreams reconciled"]
-      },
       "trustApproval": {
         "approvedBy": "project-owner",
         "approvedAt": "2026-01-01",
@@ -79,6 +61,7 @@
     {
       "id": "manager-docs",
       "role": "manager",
+      "parentBindingMode": "logical",
       "workRef": "DOCS-4",
       "workKind": "documentation",
       "governingProtocols": ["AGENT-ORCHESTRATION", "DOCUMENT-QUALITY"],
@@ -93,7 +76,7 @@
         "allowedReads": ["project"],
         "allowedWrites": [],
         "allowedExternalActions": [],
-        "approvalGates": ["activation", "merge", "deployment"],
+        "approvalGates": ["activation"],
         "canDelegate": false,
         "maxActiveChildren": 0,
         "stopConditions": ["scope-unclear"]

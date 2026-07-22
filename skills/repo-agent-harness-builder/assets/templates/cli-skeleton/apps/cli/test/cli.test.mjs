@@ -87,9 +87,10 @@ function writeGoalChain(content) {
 }
 
 function writeOrchestrationRegistry(registry) {
-  const registryPath = path.join(repoRoot, "ops", "orchestration.json");
+  const registryPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances", "default.json");
   fs.mkdirSync(path.dirname(registryPath), { recursive: true });
-  fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+  fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
+  fs.chmodSync(registryPath, 0o600);
 }
 
 function writeGithubApprovals(approvals) {
@@ -146,7 +147,7 @@ function taskBindingForTest(registry, node, {
       }
     } : {}),
     parentNodeId: node.parentId,
-    parentTaskId: parent?.taskId || null,
+    parentTaskId: node.parentBindingMode === "logical" ? null : parent?.taskId || null,
     boundRevision,
     boundAt,
     attestation: {
@@ -303,6 +304,82 @@ function validOrchestrationRegistry() {
   const boss = registry.nodes.find((node) => node.id === "boss");
   boss.taskBinding = taskBindingForTest(registry, boss);
   return registry;
+}
+
+function ownerFirstOrchestrationRegistry() {
+  return {
+    schemaVersion: 5,
+    revision: 0,
+    status: "inactive",
+    coordinationMode: "hybrid",
+    rootControl: { materialization: "optional" },
+    prefix: CONFIG.projectName,
+    scope: {
+      id: "feature-portfolio",
+      kind: "project",
+      rootRef: "repository-root",
+      ownerRef: "project-owner",
+      objective: "Let the project owner start feature Managers before materializing a Boss."
+    },
+    bindingAttestation: {
+      algorithm: "ed25519",
+      keyId: BINDING_ATTESTOR_KEY_ID
+    },
+    clientAdapter: null,
+    trustPolicy: {
+      defaultLevel: "T1",
+      maxLevel: "T3",
+      promotionRequiresHumanApproval: true,
+      childMayExceedParent: false,
+      limits: { maxActiveNodes: 6, maxDelegationDepth: 2 }
+    },
+    ownerDirectives: [],
+    nodes: [
+      {
+        id: "boss",
+        role: "boss",
+        parentBindingMode: "task",
+        workRef: "portfolio",
+        workKind: "governance",
+        governingProtocols: ["AGENT-ORCHESTRATION"],
+        label: "Optional project control plane",
+        title: `${CONFIG.projectName} - Boss`,
+        taskId: null,
+        parentId: null,
+        dependencies: [],
+        state: "eligible",
+        trustLevel: "T3",
+        trustApproval: {
+          approvedBy: "project-owner",
+          approvedAt: "2026-07-22",
+          evidence: ["bounded owner-first delegation approval"]
+        },
+        authority: orchestrationAuthority({ canDelegate: true, maxActiveChildren: 3 }),
+        objective: "Become the resident portfolio controller only when the owner chooses."
+      },
+      {
+        id: "manager-feature-a",
+        role: "manager",
+        parentBindingMode: "logical",
+        workRef: "FEATURE-A",
+        workKind: "engineering",
+        governingProtocols: ["AGENT-ORCHESTRATION"],
+        label: "Feature A",
+        title: `${CONFIG.projectName} - Manager - FEATURE-A Feature A`,
+        taskId: null,
+        parentId: "boss",
+        dependencies: [],
+        state: "eligible",
+        trustLevel: "T1",
+        authority: orchestrationAuthority(),
+        objective: "Own one directly initiated feature thread.",
+        completionProfile: {
+          type: "artifact",
+          requiredEvidence: ["accepted feature outcome"]
+        }
+      }
+    ]
+  };
 }
 
 function configuredFirstmateAdapter(registry, profile = "portable") {
@@ -541,6 +618,9 @@ test("help lists core commands", () => {
   assert.match(help, /connections auth-plan/);
   assert.match(help, /connections env/);
   assert.match(help, /orchestration status/);
+  assert.match(help, /orchestration instances/);
+  assert.match(help, /orchestration init/);
+  assert.match(help, /orchestration migrate/);
   assert.match(help, /orchestration adapter-status/);
   assert.match(help, /orchestration taxonomy/);
   assert.match(help, /orchestration validate/);
@@ -570,7 +650,7 @@ fixtureTest("skills status inventories project-local skills and keeps sync fail-
 });
 
 fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-light, and read-only by default", async () => {
-  const registryPath = path.join(repoRoot, "ops", "orchestration.json");
+  const registryPath = path.join(repoRoot, "ops", "orchestration.example.json");
   const before = fs.readFileSync(registryPath, "utf-8");
   const beforeMtime = fs.statSync(registryPath).mtimeMs;
   const { io, out, err } = capture();
@@ -578,7 +658,8 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.equal(code, 0, err.join("\n"));
   const text = out.join("\n");
   assert.match(text, /profile: "codex-native-firstmate"/);
-  assert.match(text, /registry_state: "inactive"/);
+  assert.match(text, /registry_state: "inactive-example"/);
+  assert.match(text, /registry_source: "tracked-example"/);
   assert.match(text, /registry_valid: true/);
   assert.match(text, /adapter_state: "unconfigured"/);
   assert.match(text, /repo_local_scope: true/);
@@ -599,7 +680,7 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
 });
 
 fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit activation configuration", async () => {
-  const inactiveRegistry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.json"), "utf-8"));
+  const inactiveRegistry = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
   inactiveRegistry.clientAdapter = configuredFirstmateAdapter(validOrchestrationRegistry());
   writeOrchestrationRegistry(inactiveRegistry);
 
@@ -1563,6 +1644,38 @@ fixtureTest("github writes require active node capability and matching profile b
   assert.match(rejected.err.join("\n"), /bind exactly one github\.profile/);
 });
 
+fixtureTest("github writes never treat the tracked orchestration example as live authority", async () => {
+  const result = capture();
+  const code = await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], result.io);
+  assert.equal(code, 1);
+  assert.match(result.err.join("\n"), /missing local:default\/default/);
+});
+
+fixtureTest("github writes resolve the selected private orchestration instance from safe environment selectors", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.create", "github.profile.example-github-worker");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  const namedPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "alice", "instances", "feature-a.json");
+  fs.mkdirSync(path.dirname(namedPath), { recursive: true });
+  fs.writeFileSync(namedPath, `${JSON.stringify(registry, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
+  fs.chmodSync(namedPath, 0o600);
+  const previousOperator = process.env.REPO_ORCHESTRATION_OPERATOR;
+  const previousInstance = process.env.REPO_ORCHESTRATION_INSTANCE;
+  process.env.REPO_ORCHESTRATION_OPERATOR = "alice";
+  process.env.REPO_ORCHESTRATION_INSTANCE = "feature-a";
+  try {
+    const result = capture();
+    const code = await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], result.io);
+    assert.equal(code, 0, result.err.join("\n"));
+  } finally {
+    if (previousOperator === undefined) delete process.env.REPO_ORCHESTRATION_OPERATOR;
+    else process.env.REPO_ORCHESTRATION_OPERATOR = previousOperator;
+    if (previousInstance === undefined) delete process.env.REPO_ORCHESTRATION_INSTANCE;
+    else process.env.REPO_ORCHESTRATION_INSTANCE = previousInstance;
+  }
+});
+
 fixtureTest("github writes fail closed when parent authority inheritance is invalid", async () => {
   const registry = validOrchestrationRegistry();
   const boss = registry.nodes.find((node) => node.id === "boss");
@@ -2079,11 +2192,12 @@ fixtureTest("no-mistakes setup keeps post-check false for non-git success output
   assert.match(text, /post_check: fail/);
 });
 
-fixtureTest("orchestration inactive scaffold requires an explicitly configured Boss before bootstrap", async () => {
+fixtureTest("orchestration keeps the tracked scaffold inert and initializes a private instance", async () => {
   const validation = capture();
   const validationCode = await main(["orchestration", "validate"], validation.io);
   assert.equal(validationCode, 0, validation.err.join("\n"));
   assert.match(validation.out.join("\n"), /valid: true/);
+  assert.match(validation.out.join("\n"), /target: "tracked-example"/);
   assert.match(validation.out.join("\n"), /scaffolded but inactive/);
 
   const trust = capture();
@@ -2096,12 +2210,160 @@ fixtureTest("orchestration inactive scaffold requires an explicitly configured B
   const prompt = capture();
   const promptCode = await main(["orchestration", "prompt", "boss"], prompt.io);
   assert.equal(promptCode, 1);
-  assert.match(prompt.err.join("\n"), /Orchestration node not found: boss/);
+  assert.match(prompt.err.join("\n"), /Missing local:default\/default/);
+
+  const init = capture();
+  const initCode = await main(["orchestration", "init"], init.io);
+  assert.equal(initCode, 0, init.err.join("\n"));
+  assert.match(init.out.join("\n"), /registry: "local:default\/default"/);
+  const privateRegistryPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances", "default.json");
+  assert.equal(fs.statSync(privateRegistryPath).mode & 0o777, 0o600);
+
+  const instances = capture();
+  assert.equal(await main(["orchestration", "instances"], instances.io), 0, instances.err.join("\n"));
+  assert.match(instances.out.join("\n"), /"default","inactive","0",true/);
+
+  const privatePrompt = capture();
+  const privatePromptCode = await main(["orchestration", "prompt", "boss"], privatePrompt.io);
+  assert.equal(privatePromptCode, 1);
+  assert.match(privatePrompt.err.join("\n"), /Orchestration node not found: boss/);
+
+  const duplicateInit = capture();
+  assert.equal(await main(["orchestration", "init"], duplicateInit.io), 1);
+  assert.match(duplicateInit.err.join("\n"), /already exists/);
 
   const launch = capture();
   const launchCode = await main(["orchestration", "launch-spec", "boss"], launch.io);
   assert.equal(launchCode, 1);
   assert.match(launch.err.join("\n"), /Orchestration node not found: boss/);
+});
+
+fixtureTest("orchestration supports named private instances and safe legacy migration", async () => {
+  const legacyPath = path.join(repoRoot, "ops", "orchestration.json");
+  fs.writeFileSync(legacyPath, `${JSON.stringify(validOrchestrationRegistry(), null, 2)}\n`, "utf-8");
+
+  const migrated = capture();
+  const migratedCode = await main(["orchestration", "migrate", "feature-a", "--operator", "alice"], migrated.io);
+  assert.equal(migratedCode, 0, migrated.err.join("\n"));
+  assert.match(migrated.out.join("\n"), /registry: "local:alice\/feature-a"/);
+  assert.match(migrated.out.join("\n"), /Remove the legacy tracked live registry/);
+
+  const migratedPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "alice", "instances", "feature-a.json");
+  assert.equal(fs.statSync(migratedPath).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(fs.readFileSync(migratedPath, "utf-8")), validOrchestrationRegistry());
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status", "--operator", "alice", "--instance", "feature-a"], status.io), 0, status.err.join("\n"));
+  assert.match(status.out.join("\n"), /registry_source: "local-instance"/);
+  assert.match(status.out.join("\n"), /state: "active"/);
+});
+
+fixtureTest("orchestration uses a private user-state locator for explicit non-Git projects", async () => {
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 0, status.err.join("\n"));
+  assert.match(status.out.join("\n"), /store_kind: "user-state-private"/);
+  assert.match(status.out.join("\n"), /registry_source: "tracked-example"/);
+}, { git: false });
+
+fixtureTest("orchestration fails closed when repository Git metadata is damaged", async () => {
+  fs.writeFileSync(path.join(repoRoot, ".git"), "gitdir: missing\n", "utf-8");
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 1);
+  assert.match(status.out.join("\n"), /Git metadata is present but unreadable/);
+}, { git: false });
+
+fixtureTest("orchestration requires exact private-instance permissions", async () => {
+  writeOrchestrationRegistry(validOrchestrationRegistry());
+  const registryPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances", "default.json");
+  for (const mode of [0o644, 0o400]) {
+    fs.chmodSync(registryPath, mode);
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 1, mode.toString(8));
+    assert.match(status.out.join("\n"), /permissions must be 0600/);
+  }
+});
+
+fixtureTest("orchestration rejects symlinked private-instance directories", async () => {
+  const external = path.join(repoRoot, "external-orchestration", "instances");
+  fs.mkdirSync(external, { recursive: true });
+  const externalRegistry = path.join(external, "default.json");
+  fs.writeFileSync(externalRegistry, `${JSON.stringify(validOrchestrationRegistry(), null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
+  fs.chmodSync(externalRegistry, 0o600);
+  const operators = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators");
+  fs.mkdirSync(operators, { recursive: true });
+  fs.symlinkSync(path.dirname(external), path.join(operators, "default"));
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "status"], status.io), 1);
+  assert.match(status.out.join("\n"), /may not traverse symlinks/);
+});
+
+fixtureTest("schema-v5 owner-first instances can launch a logical Manager before materializing the Boss", async () => {
+  const registry = ownerFirstOrchestrationRegistry();
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.err.join("\n"));
+  assert.match(validation.out.join("\n"), /valid: true/);
+
+  const initialEligible = capture();
+  assert.equal(await main(["orchestration", "next"], initialEligible.io), 0, initialEligible.err.join("\n"));
+  assert.match(initialEligible.out.join("\n"), /"boss","boss"/);
+  assert.match(initialEligible.out.join("\n"), /"manager-feature-a","manager"/);
+
+  const managerLaunch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-feature-a"], managerLaunch.io), 0, managerLaunch.err.join("\n"));
+  const spec = JSON.parse(managerLaunch.out.join("\n"));
+  assert.equal(spec.parentTaskId, null);
+  assert.equal(spec.taskBinding.parentNodeId, "boss");
+  assert.equal(spec.taskBinding.parentTaskId, null);
+  assert.deepEqual(spec.callback.registrySelector, { operator: "default", instance: "default" });
+  assert.equal(spec.callback.reserve.onSuccess.status, "active");
+  assert.equal(spec.callback.reconcile.requiredCurrentEligibility.logicalParentBinding, true);
+  assert.equal(spec.callback.bind.requiredUpdates.some((entry) => entry.includes("parentTaskId=")), false);
+
+  registry.status = "active";
+  registry.revision = 2;
+  const manager = registry.nodes.find((node) => node.id === "manager-feature-a");
+  manager.taskId = "task-manager-feature-a";
+  manager.state = "working";
+  manager.nextAction = "Deliver the bounded feature outcome.";
+  manager.parentTaskId = null;
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+
+  const activeValidation = capture();
+  assert.equal(await main(["orchestration", "validate"], activeValidation.io), 0, activeValidation.err.join("\n"));
+
+  const eligible = capture();
+  assert.equal(await main(["orchestration", "next"], eligible.io), 0, eligible.err.join("\n"));
+  assert.match(eligible.out.join("\n"), /"boss","boss"/);
+
+  const bossLaunch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "boss"], bossLaunch.io), 0, bossLaunch.err.join("\n"));
+  const bossSpec = JSON.parse(bossLaunch.out.join("\n"));
+  assert.equal(bossSpec.nodeId, "boss");
+  assert.equal(bossSpec.parentTaskId, null);
+  assert.equal(bossSpec.callback.reserve.onSuccess.status, undefined);
+});
+
+fixtureTest("schema-v5 Firstmate readiness accepts an explicitly optional unmaterialized Boss", async () => {
+  const registry = ownerFirstOrchestrationRegistry();
+  registry.status = "active";
+  const adapter = configuredFirstmateAdapter(registry);
+  adapter.bossTaskId = null;
+  adapter.completionProfiles.artifact = ["accepted feature outcome"];
+  const boss = registry.nodes.find((node) => node.role === "boss");
+  delete boss.taskBinding;
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.err.join("\n"));
+
+  const status = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], status.io), 0, status.err.join("\n"));
+  assert.match(status.out.join("\n"), /orchestration_active: true/);
+  assert.match(status.out.join("\n"), /activation_ready: true/);
 });
 
 fixtureTest("orchestration supports non-ticket artifact and decision work through one hierarchy", async () => {

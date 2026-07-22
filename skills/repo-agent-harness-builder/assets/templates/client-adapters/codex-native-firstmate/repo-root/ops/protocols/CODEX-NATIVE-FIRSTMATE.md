@@ -2,7 +2,7 @@
 protocol_id: CODEX-NATIVE-FIRSTMATE
 title: Codex-Native Firstmate Adapter
 status: inactive
-version: 0.1.0
+version: 0.2.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Maps portable Boss, Manager, and Worker orchestration to native Codex tasks, worktrees, and bounded subagents without adding a hierarchy.
@@ -19,7 +19,8 @@ related_protocols:
 
 This is an inactive client adapter for `AGENT-ORCHESTRATION`. Firstmate is the
 Codex-facing Boss profile, not a new role or competing control plane.
-`ops/orchestration.json` remains authoritative. Load `$project-orchestration`
+The selected named private orchestration instance remains authoritative;
+`ops/orchestration.example.json` stays inactive and identity-free. Load `$project-orchestration`
 before this adapter. Goal graphs remain a Manager-owned `repository-merge`
 specialization implemented through `$goal-graph-loop`; strict chains are a
 linear graph topology.
@@ -47,14 +48,17 @@ binding option: every binding not matched exactly by it must carry both title
 proof fields, and any supplied `externalTitle` must match its registry-derived
 title exactly.
 
-Each generated repository carries its own resident capability and registry.
+Each generated repository carries its own resident capability, tracked
+protocol/example, and private-instance resolver.
 This optional adapter does not depend on an external FirstMate repository,
 service, fleet registry, or runtime; the portable harness remains usable when
 the adapter is inactive or absent.
-The default active shape is one Firstmate/Boss task for this repository, with
-Managers and Workers bounded to it. No external or global project registry is
-required. Cross-repository fleet control is optional composition above multiple
-repo-local Firstmates and needs separate explicit authority.
+The active shape may materialize one Firstmate/Boss task first, or schema-v5
+optional-root mode may let the owner start logical-parent Manager tasks and add
+the Boss later. Managers and Workers remain bounded to the logical repository
+scope. No external FirstMate repository or global project registry is required.
+Cross-repository fleet control is optional composition above multiple repo-local
+instances and needs separate explicit authority.
 
 ## Hybrid Owner Conversation
 
@@ -72,7 +76,7 @@ changes task parentage.
 
 ## Native Mapping
 
-- Boss/Firstmate: one persistent task owns this repository's recurring portfolio loop.
+- Boss/Firstmate: an optional persistent task owns this repository's recurring portfolio loop once materialized.
 - Manager: one persistent task owns one bounded workstream and its child graph.
 - Worker: one persistent task and managed worktree owns one durable execution
   loop and reports to its immediate parent.
@@ -99,7 +103,7 @@ the configured need.
 ## Materialization And Reconciliation
 
 Codex does not supply the portable portfolio DAG, authority ledger, idempotent
-task-create key, immutable `parentTaskId`, or landed-work proof. The adapter
+task-create key, binding-mode-aware parent identity, or landed-work proof. The adapter
 must preserve the registry's reservation, canonical work-contract hash, launch
 key, immediate-parent binding, and completion evidence.
 
@@ -135,14 +139,15 @@ connector, CLI, or app-server bridge.
 
 ## Activation Gate
 
-Keep `ops/orchestration.json` inactive and `clientAdapter` null until a human
-configures repo-local scope, one Firstmate/Boss task identity, task-creation grant, trust policy,
+Keep each private orchestration instance inactive and `clientAdapter` null until a human
+configures repo-local scope, root materialization, logical Boss contract, task-creation grant, trust policy,
 authority envelopes, budgets, completion profiles, adapter, base/worktree
 policy, Browser/GitHub integration, heartbeat, retention/archive policy, and
 binding/reconciliation assurance. Installed examples and a Firstmate title do
 not grant activation or task authority.
 
-For an active adapter, record the matching Boss task ID, a base ref, managed
+For an active adapter, record the matching Boss task ID when materialized (or
+null for an optional unmaterialized root), a base ref, managed
 disjoint-worktree policy, deliberate Browser and GitHub choices, heartbeat
 mode/cadence/registry mutator, retention handoff/archive policy, and a
 reconciliation policy. Also record completion profiles with their required

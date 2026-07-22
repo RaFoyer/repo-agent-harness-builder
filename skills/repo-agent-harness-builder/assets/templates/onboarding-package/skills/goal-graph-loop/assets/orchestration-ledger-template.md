@@ -1,6 +1,6 @@
 # Goal Graph Evidence Ledger
 
-`ops/orchestration.json` is authoritative for role, task parentage, lifecycle, trust, authority, dependencies, and delegation budgets. This ledger supplements it with repository-merge evidence.
+The selected named private orchestration instance is authoritative for role, task parentage, lifecycle, trust, authority, dependencies, and delegation budgets. This ledger supplements it with repository-merge evidence.
 
 ## Graph State
 
@@ -35,7 +35,7 @@ Delivery status vocabulary:
 - reconciled
 - superseded
 
-Lifecycle state remains in `ops/orchestration.json`; do not infer it from delivery status.
+Lifecycle state remains in the selected named private orchestration instance; do not infer it from delivery status.
 
 ## Nodes
 

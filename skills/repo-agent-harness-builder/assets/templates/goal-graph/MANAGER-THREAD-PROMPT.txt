@@ -24,7 +24,7 @@ Manager responsibilities:
 - Follow `AGENT-ORCHESTRATION.md` for role, lifecycle, trust, authority, and child budgets.
 
 Every Worker prompt must include:
-- exact title and immediate parent task ID
+- exact title, parent binding mode, and immediate parent task ID when task-bound (logical-root Managers use null)
 - canonical issue and objective
 - base branch or merge commit
 - allowed files/areas and non-goals

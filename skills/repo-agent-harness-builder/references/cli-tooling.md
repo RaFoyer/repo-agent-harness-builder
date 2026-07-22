@@ -164,7 +164,19 @@ while `AGENT-ORCHESTRATION.md` remains inactive. It must not assume tickets,
 branches, pull requests, or software delivery. Minimum behavior:
 
 - `orchestration status`: summarize the explicit registry scope, roles, states,
-  and validation findings; an inactive valid registry exits successfully.
+  source (tracked example or private instance), and validation findings; an
+  inactive valid example exits successfully but cannot drive operational commands.
+- `orchestration instances`: list named private instances for the selected
+  operator without printing an absolute local path.
+- `orchestration init <name>`: explicitly create one inactive private `0600`
+  instance from `ops/orchestration.example.json`; refuse overwrite.
+- `orchestration migrate <name>`: copy a legacy tracked registry into a new
+  private `0600` instance, preserve the tracked source for reviewed removal,
+  and report validation findings.
+
+Select instances with safe `--operator` and `--instance` names. Composing CLI
+facades use `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` so
+the same private authority state is resolved without accepting a raw path.
 - `orchestration directives`: show schema-v4 governed owner directives, target
   nodes, contract impact, target acknowledgement and resolution evidence, and
   parent-reconciliation state without mutating tasks or treating task messages
@@ -182,7 +194,9 @@ branches, pull requests, or software delivery. Minimum behavior:
 - `orchestration validate`: reject invalid parent/dependency graphs, duplicate
   Bosses, title drift, invalid lifecycle evidence, trust promotion without
   evidence, child authority or budget exceeding the parent, and active-node,
-  active-child, or depth budget overruns.
+  active-child, or depth budget overruns. Validate schema-v5 optional root and
+  logical Manager parent bindings without weakening task-parent requirements
+  for Workers.
 - `orchestration next`: list dependency-eligible graph nodes without creating
   tasks.
 - `orchestration prompt <node-id>`: print the node's role, work kind, governing
@@ -190,8 +204,10 @@ branches, pull requests, or software delivery. Minimum behavior:
   completion profile, objective, and first action.
 - `orchestration launch-spec <node-id>`: print a JSON task-creation contract for
   a thin client adapter. Reject terminal or already materialized nodes,
-  unsatisfied dependencies, inactive child orchestration, parents without T3
-  delegation authority or task IDs, and exhausted child or project capacity.
+  unsatisfied dependencies, disallowed inactive-instance launches, parents
+  without T3 delegation authority, required parent task IDs, and exhausted
+  child or project capacity. Schema-v5 optional-root mode may launch a logical
+  Manager against the configured Boss node before that Boss has a task.
   The contract includes the monotonic registry revision, deterministic launch
   key, expected registry/node/parent states and task identities, parent trust
   and full authority envelope including approval gates, and capacity
@@ -202,16 +218,18 @@ branches, pull requests, or software delivery. Minimum behavior:
   effects. The launch key is the durable task-API idempotency and reconciliation
   key: after an ambiguous create, crash, timeout, or bind failure, keep the
   reservation and reconcile by that key rather than creating again. Its callback
-  requires a configured Boss rather than inserting a placeholder, requires an
-  externally attested immutable task binding, and activates the registry in
-  every Boss bootstrap reservation.
+  requires a configured logical Boss rather than inserting a placeholder,
+  requires an externally attested immutable task binding, and activates the
+  instance when the first permitted Boss or logical Manager is reserved.
 
-All commands are read-only. A Codex, Claude Code, Gemini CLI, Cursor, or other
-adapter may use a launch spec only when current authority allows task creation,
-then must reserve the node by compare-and-set, validate the current reservation
-contract immediately before external task creation, use the launch key as the
-task API idempotency key, and write the returned task ID and working state back
-only with the matching current reservation contract.
+`init` and `migrate` only create a new private `0600` instance and refuse
+overwrite; every other orchestration command is read-only. A Codex, Claude
+Code, Gemini CLI, Cursor, or other adapter may use a launch spec only when
+current authority allows task creation, then must reserve the node by
+compare-and-set, validate the current reservation contract immediately before
+external task creation, use the launch key as the task API idempotency key, and
+write the returned task ID and working state back only with the matching current
+reservation contract.
 This separates a portable repository contract from client-specific task APIs.
 
 ## GitHub Command Contract

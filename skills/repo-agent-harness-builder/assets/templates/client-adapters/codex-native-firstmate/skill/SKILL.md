@@ -11,16 +11,20 @@ Load `$project-orchestration` first. Firstmate is the Codex-facing Boss profile,
 not a new role, portable control plane, external repository, service, or
 runtime dependency. Repositories may leave this adapter inactive or omit it.
 The repository's
-`ops/protocols/AGENT-ORCHESTRATION.md` and `ops/orchestration.json` own roles,
-parentage, lifecycle, trust, authority, budgets, reservations, task bindings,
-and completion. Read them before using this adapter. For ticket-backed
+`ops/protocols/AGENT-ORCHESTRATION.md` and the selected named private
+orchestration instance own roles, parentage, lifecycle, trust, authority,
+budgets, reservations, task bindings, and completion. The tracked
+`ops/orchestration.example.json` remains inactive and identity-free. Read the
+protocol and selected instance before using this adapter. For ticket-backed
 repository delivery, also load `$goal-graph-loop` and read
 `ops/protocols/GOAL-GRAPH.md`; strict chains remain a linear topology inside
 that Manager-owned `repository-merge` specialization.
 
-Treat this repository as the default complete scope: one resident
-Firstmate/Boss task, repo-local Managers, and repo-local Workers backed by this
-repository's registry. Do not require or infer a global project list. Optional
+Treat this repository as the default complete scope. A schema-v5 instance may
+materialize a resident Firstmate/Boss first or let the owner start
+logical-parent Manager feature tasks and add the Boss later. Repo-local
+Managers and Workers remain backed by the selected private instance. Do not
+require or infer a global project list or external FirstMate repository. Optional
 cross-repository orchestration is a separately authorized composition above
 independent repository Firstmates.
 
@@ -41,9 +45,11 @@ independent repository Firstmates.
   Firstmate/Secondmate/Crewmate, or executive display labels only as configured
   presentation. Canonical roles and authority remain unchanged.
 - **Launch durable work:** use persistent Codex tasks and managed worktrees for
-  Managers and write-capable Workers. Bind every task to its immediate parent
-  through the portable launch contract. Refuse materialization if its ordered
-  `requiredSkills` are missing locally.
+  Managers and write-capable Workers. Bind task-parent relationships through
+  the portable launch contract. A schema-v5 logical Manager may bind to the
+  Boss node with no native parent task; Workers always need a task-backed
+  immediate parent. Refuse materialization if ordered `requiredSkills` are
+  missing locally.
 - **Use transient help:** use subagents only for bounded read-heavy help in the
   current worktree. Do not assume subagents have isolated filesystems.
 - **Close or archive:** require the configured completion evidence and landed-
@@ -83,6 +89,7 @@ allows the fallback.
 ## Activation Gate
 
 Do not activate from installed assets alone. A human must configure repo-local scope,
-Boss/task identity, task-creation grant, trust, authority, budgets, completion
+root materialization, logical Boss identity and authority, task-creation grant,
+trust, authority, budgets, completion
 profiles, adapter selection, base/worktree policy, Browser/GitHub integration,
 heartbeat, retention/archive policy, and binding/reconciliation assurance.

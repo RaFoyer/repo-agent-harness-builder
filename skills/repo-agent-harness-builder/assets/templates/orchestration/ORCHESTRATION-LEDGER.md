@@ -1,6 +1,6 @@
 # Project Orchestration Ledger
 
-`ops/orchestration.json` is authoritative. This file is an optional human-readable portfolio view.
+The selected named private orchestration instance is authoritative. This file is an optional human-readable portfolio view.
 
 ## Project Control Plane
 

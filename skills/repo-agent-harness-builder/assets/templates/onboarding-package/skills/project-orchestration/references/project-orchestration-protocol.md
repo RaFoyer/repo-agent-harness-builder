@@ -29,7 +29,16 @@ The Boss must not become the controller for every internal goal graph. The Manag
 
 ## Scope Model
 
-One `ops/orchestration.json` governs one explicit scope. Record:
+Git owns the portable control-plane contract: protocol, schema, inactive
+`ops/orchestration.example.json`, CLI implementation, and tests. It must not
+own developer task IDs, signatures, reservations, directives, or live state.
+
+Each named private orchestration instance governs one explicit scope. In a Git
+repository it lives under the clone's Git common directory and is shared by
+linked worktrees; a non-Git project folder uses a path-keyed private user-state
+store. Safe operator and instance names select state. Raw path overrides are
+not part of the contract because they could redirect live state into Git or
+split one clone across competing registries. Record:
 
 - a non-negative monotonic registry revision
 - scope ID
@@ -38,6 +47,18 @@ One `ops/orchestration.json` governs one explicit scope. Record:
 - single-line objective
 
 “One Boss” means one logical Boss per configured scope. It does not grant authority over other repositories, projects, tasks, accounts, or systems that happen to be visible.
+
+Keep four graphs distinct:
+
+- the tracker graph owns shared work, dependencies, and acceptance outcomes
+- the private orchestration graph owns one operator's hierarchy, trust,
+  authority, reservations, directives, and lifecycle
+- the client task graph maps materialized nodes to Codex tasks or another
+  client's native units
+- the evidence graph owns PRs, commits, artifacts, decisions, deployments, and
+  other completion proof
+
+Cross-references connect these graphs; no graph silently replaces another.
 
 Schema version 4 adds an explicit `coordinationMode`, a stable
 `scope.ownerRef`, and governed `ownerDirectives`:
@@ -64,8 +85,16 @@ reservation before create, bind, or reconciliation, and requires an active
 target to be `blocked` at its current boundary with `blockedByDirectiveIds`
 naming every open replan directive until explicit replan or supersession.
 
+Schema version 5 adds a root materialization policy. With `required`, the Boss
+task is materialized first. With `optional`, the logical Boss contract exists
+but the owner may start one or more Manager feature threads first. Such a
+Manager uses `parentBindingMode: logical`, seals the Boss node identity and a
+null parent task ID into its signed contract, and remains valid if the Boss
+task is materialized later. A Manager may still choose task binding after the
+Boss exists. Workers always require task-bound immediate parents.
+
 For a repository harness, default to the repository itself as the complete
-scope: its own registry, one resident Boss capability, and repo-local Managers
+scope: its own registry, one logical Boss capability, and repo-local Managers
 and Workers. The builder does not require a global project list. A program may
 optionally compose multiple independently governed repository Bosses, but that
 cross-repository layer needs its own explicit scope and authority and must not
@@ -161,7 +190,9 @@ This avoids forcing pull requests onto research, operations, planning, or person
 
 ## Client Adapter Contract
 
-The repo CLI remains read-only and agent-agnostic:
+The repo CLI remains agent-agnostic. `init` and `migrate` only create a private
+`0600` instance and refuse overwrite; inspection, prompt, and launch-spec
+commands remain read-only:
 
 The inactive scaffold may keep `clientAdapter` null. A configured adapter
 record names its client ID, profile, status, project-local required skill, and whether a standing task-
@@ -179,13 +210,18 @@ adapters must declare their required skill explicitly.
    any required project-local skill is missing.
 4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision and status, target node task identity/trust/full authority including approval gates, parent state/task ID/trust/full authority including approval gates, capacity preconditions, and the canonical SHA-256 materialized-work-contract hash. That hash covers scope, budgets, title, objective, work reference and kind, governing protocols, ordered required skills, completion profile, dependencies, trust, authority, and the immediate-parent launch envelope; the contract-derived launch key is the durable idempotency key. On success the reservation records the key and hash and advances the revision.
 5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
-6. Configure a complete Boss, including its eventual delegation authority and budgets, before bootstrapping it; the empty inactive scaffold is intentionally not launchable. Immediately before create and again at bind, compare the current registry to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside `ops/orchestration.json` and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time) and the immutable parent task ID for a non-Boss child, set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan. Boss bootstrap reservation also activates the registry.
+6. Configure a complete logical Boss, including its eventual delegation authority and budgets, before any materialization; the empty inactive scaffold is intentionally not launchable. Materialize the Boss first when root materialization is required. With schema-v5 optional root materialization, a logical Manager may activate the instance first without pretending a Boss task exists. Immediately before create and again at bind, compare the current instance to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or applicable task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside the selected named private orchestration instance and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time). Task-bound children record the immutable parent task ID; logical Managers record null. Set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan.
 7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, the open replan-directive boundary, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, open replan boundary, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
 8. On a timeout, crash, ambiguous create, or failed bind, keep the reservation and reconcile the external task by `launchKey`; release and retry only after proving no task exists for that key.
 9. Require the child to report to its immediate parent and the parent to reconcile evidence.
 10. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
+
+Launch callbacks carry the safe operator/instance selector used to resolve the
+writable private state. A display label is not a filesystem path. Adapters must
+resolve the selector through the same CLI storage contract and must not invent
+a tracked fallback when Git topology or local metadata is damaged.
 
 For a dependency-light Codex app implementation, read
 `references/codex-native-firstmate.md`. It maps the Boss to a persistent
@@ -201,12 +237,12 @@ Reject designs that:
 - put the universal hierarchy inside a software-only goal-graph protocol
 - use a Boss title as implicit permission to create tasks, write files, message people, deploy, or cross project boundaries
 - count queued graph nodes as live tasks
-- allow task creation before dependencies or parent task identity exist
+- allow task creation before dependencies or the binding mode's required parent identity exists
 - treat cancelled or superseded prerequisites as completed work instead of replanning them to a completed replacement
 - allow dependencies between an ancestor and descendant or cycles composed from parent and dependency links
 - allow children to exceed parent trust, capability scope, child budget, or depth budget
 - let a child drop an inherited approval gate
-- bind a task without immutable task-binding metadata, bind a child without its immutable immediate `parentTaskId`, mutate a bound contract in place, or replace a parent task while bound children still reference it
+- bind a task without immutable task-binding metadata, bind a task-bound child without its immutable immediate `parentTaskId`, give a logical Manager a native parent-task claim, mutate a bound contract in place, or replace a parent task while task-bound children still reference it
 - permit task-backed nodes while the registry is inactive
 - let a ready-for-parent or terminal parent retain non-terminal children
 - create a task before a matching compare-and-set reservation succeeds
