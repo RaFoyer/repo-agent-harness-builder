@@ -24,7 +24,8 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 
 - `ops/orchestration.example.json` is tracked policy/example state. It stays inactive and contains no developer identity, task ID, reservation, signature, directive, or live lifecycle state.
 - Each selected private orchestration instance owns one operator's configured scope, monotonic revision, coordination mode, project-owner identity, governed owner directives, hierarchy, task bindings, trust levels, authority envelopes, dependencies, budgets, launch reservations, and current states.
-- In Git repositories, private instances live under the Git common directory so linked worktrees share them without committing them. Non-Git project folders use a path-keyed private user-state store. Both stores use named operator and instance selectors; arbitrary path overrides are forbidden.
+- In Git repositories, private instances live under the Git common directory so linked worktrees share them without committing them. The resolver ignores ambient Git topology and configuration overrides, refuses symlinked Git metadata, and does not fall back to user state when Git metadata is unreadable. Non-Git project folders use a path-keyed private user-state store. Both stores use named operator and instance selectors; arbitrary path overrides are forbidden.
+- The tracked example is a regular file rooted in the repository; neither it nor its path components may be symlinks.
 - `clientAdapter` is null in the inactive scaffold. A configured object names the selected client/profile and activation posture; installed adapter files alone do not select it.
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.

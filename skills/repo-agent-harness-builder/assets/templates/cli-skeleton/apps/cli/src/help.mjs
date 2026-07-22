@@ -71,7 +71,8 @@ Core commands:
   github plan          Show one GitHub profile's authority and isolation plan
   github run           Run classified gh-axi commands through an isolated profile
   orchestration status Summarize project-wide structured delegation
-                       Add --example to inspect only the tracked inactive contract
+                       Use --example with status, validate, adapter-status, or taxonomy
+                       to inspect only the tracked inactive contract
   orchestration instances
                        List named private orchestration instances
   orchestration init <name>
