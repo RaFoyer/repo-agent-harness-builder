@@ -142,16 +142,52 @@ function resolvedRepoRoot() {
   }
 }
 
-function gitTopologyEnvironment() {
+function sanitizedGitEnvironment() {
   const env = { ...process.env };
   for (const name of GIT_TOPOLOGY_OVERRIDE_ENV) delete env[name];
   for (const name of GIT_CONFIG_OVERRIDE_ENV) delete env[name];
   for (const name of Object.keys(env)) {
     if (/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
   }
+  return env;
+}
+
+function gitTopologyEnvironment() {
+  const env = sanitizedGitEnvironment();
   env.GIT_CONFIG_NOSYSTEM = "1";
   env.GIT_CONFIG_GLOBAL = os.devNull;
   return env;
+}
+
+function hasConfiguredExactSafeDirectory(repoRoot) {
+  const env = sanitizedGitEnvironment();
+  for (const scope of ["--global", "--system"]) {
+    const result = spawnSync("git", ["config", scope, "--path", "--null", "--get-all", "safe.directory"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env
+    });
+    if (result.status !== 0) continue;
+    const entries = result.stdout.split("\0").filter(Boolean);
+    if (entries.some((entry) => {
+      if (entry === "*" || entry.endsWith("/*") || !path.isAbsolute(entry)) return false;
+      try {
+        return fs.realpathSync(entry) === repoRoot;
+      } catch {
+        return false;
+      }
+    })) return true;
+  }
+  return false;
+}
+
+function resolveGitTopology(repoRoot, { exactSafeDirectory = false } = {}) {
+  const args = exactSafeDirectory ? ["-c", `safe.directory=${repoRoot}`] : [];
+  return spawnSync("git", [...args, "-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: gitTopologyEnvironment()
+  });
 }
 
 function localStoreRoot() {
@@ -167,11 +203,10 @@ function localStoreRoot() {
     throw new Error("Git metadata must not be a symlink");
   }
   const gitMetadataPresent = gitMarkerStat !== null;
-  const result = spawnSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel", "--git-common-dir"], {
-    encoding: "utf-8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: gitTopologyEnvironment()
-  });
+  let result = resolveGitTopology(repoRoot);
+  if (result.status !== 0 && gitMetadataPresent && hasConfiguredExactSafeDirectory(repoRoot)) {
+    result = resolveGitTopology(repoRoot, { exactSafeDirectory: true });
+  }
   if (result.status === 0) {
     const [topLevel, commonDirValue] = result.stdout.trim().split(/\r?\n/);
     if (!topLevel || !commonDirValue) throw new Error("Git topology did not return a worktree root and common directory");

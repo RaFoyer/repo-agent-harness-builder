@@ -2384,6 +2384,63 @@ fixtureTest("orchestration ignores ambient Git topology path overrides", async (
   }
 });
 
+fixtureTest("orchestration preserves only configured exact-root safe.directory trust", async () => {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), "harness-fake-git-"));
+  const fakeGit = path.join(fakeBin, "git");
+  fs.writeFileSync(fakeGit, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const root = process.env.SAFE_DIRECTORY_TEST_ROOT;
+if (args[0] === "config" && ["--global", "--system"].includes(args[1])) {
+  process.stdout.write(root + "\\0");
+  process.exit(0);
+}
+if (args[0] === "-c" && args[1] === "safe.directory=" + root
+    && args[2] === "-C" && args[3] === root && args[4] === "rev-parse") {
+  process.stdout.write(root + "\\n.git\\n");
+  process.exit(0);
+}
+process.exit(128);
+`, { encoding: "utf-8", mode: 0o755 });
+  const previousPath = process.env.PATH;
+  const previousRoot = process.env.SAFE_DIRECTORY_TEST_ROOT;
+  try {
+    process.env.PATH = `${fakeBin}${path.delimiter}${previousPath || ""}`;
+    process.env.SAFE_DIRECTORY_TEST_ROOT = fs.realpathSync(repoRoot);
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 0, status.out.concat(status.err).join("\n"));
+    assert.match(status.out.join("\n"), /store_kind: "git-common-private"/);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousRoot === undefined) delete process.env.SAFE_DIRECTORY_TEST_ROOT;
+    else process.env.SAFE_DIRECTORY_TEST_ROOT = previousRoot;
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
+
+fixtureTest("orchestration does not promote wildcard safe.directory trust", async () => {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), "harness-fake-git-"));
+  const fakeGit = path.join(fakeBin, "git");
+  fs.writeFileSync(fakeGit, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "config" && ["--global", "--system"].includes(args[1])) {
+  process.stdout.write("*\\0");
+}
+process.exit(args[0] === "config" ? 0 : 128);
+`, { encoding: "utf-8", mode: 0o755 });
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${fakeBin}${path.delimiter}${previousPath || ""}`;
+    const status = capture();
+    assert.equal(await main(["orchestration", "status"], status.io), 1);
+    assert.match(status.out.join("\n"), /Git metadata is present but unreadable/);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
+
 fixtureTest("orchestration rejects a symlinked tracked example", async () => {
   const examplePath = path.join(repoRoot, "ops", "orchestration.example.json");
   const targetPath = path.join(repoRoot, "ops", "orchestration.example.target.json");
