@@ -70,7 +70,7 @@ The canonical tracker owns problem statements, scope, acceptance criteria, and i
 Use the bundled goal-graph assets for DAG planning and delivery evidence:
 
 - `docs/templates/goal-graph/implementation-goal-graph.md`: durable graph shape with dependencies and fan-in.
-- `docs/templates/goal-graph/orchestration-ledger-template.md`: goal-specific branch, PR, merge, and verification evidence that supplements `ops/orchestration.json`.
+- `docs/templates/goal-graph/orchestration-ledger-template.md`: goal-specific branch, PR, merge, and verification evidence that supplements the selected named private orchestration instance.
 - `docs/templates/goal-graph/orchestrator-thread-prompt.txt`: repository-merge specialization for a Boss prompt.
 - `docs/templates/goal-graph/manager-thread-prompt.txt`: repository-merge specialization for a Manager workstream.
 - `docs/templates/goal-graph/subgoal-thread-prompt.txt`: repository-merge specialization for one Worker node.
@@ -79,7 +79,7 @@ The portable onboarding package also includes `skills/goal-graph-loop/SKILL.md` 
 
 ## Orchestration Composition
 
-For delegated goal graphs, declare goal nodes in `ops/orchestration.json` with:
+For delegated goal graphs, declare goal nodes in the selected named private orchestration instance with:
 
 - a canonical issue as `workRef`
 - `workKind: engineering` or another accurate domain slug
@@ -132,4 +132,4 @@ A goal is complete only when:
 
 ## Update Rules
 
-When this protocol changes, update `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help/tests, and any goal-graph templates in the same change. Changes to roles, lifecycle, trust, authority, titles, or launch contracts belong in `AGENT-ORCHESTRATION.md` and `ops/orchestration.json` first.
+When this protocol changes, update `AGENTS-TOC.md`, `ops/HARNESS-CHECKLIST.md`, CLI help/tests, and any goal-graph templates in the same change. Changes to portable roles, lifecycle, trust, authority, titles, or launch contracts belong in `AGENT-ORCHESTRATION.md` and the tracked inactive orchestration example; migrate private instances deliberately rather than rewriting them as a side effect.

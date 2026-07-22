@@ -71,6 +71,12 @@ Core commands:
   github plan          Show one GitHub profile's authority and isolation plan
   github run           Run classified gh-axi commands through an isolated profile
   orchestration status Summarize project-wide structured delegation
+  orchestration instances
+                       List named private orchestration instances
+  orchestration init <name>
+                       Create a private inactive instance from the tracked example
+  orchestration migrate <name>
+                       Copy a legacy tracked registry into a private instance
   orchestration adapter-status
                        Inspect Codex-native Firstmate adapter posture
   orchestration taxonomy
@@ -104,7 +110,7 @@ Safety posture:
   - no-mistakes wrappers summarize setup status without printing raw local paths
   - lavish tracker commands are proposal-first and never write to the tracker
   - lavish update defaults to --check; --apply is explicit
-  - orchestration commands inspect local policy and emit launch material; client adapters create tasks
+  - orchestration init/migrate only create private 0600 instance files; other orchestration commands inspect policy/state and emit launch material; client adapters create tasks
   - GitHub execution refuses ambient global auth, cross-repository targets, unclassified commands, and authority outside the selected profile or node
   - adapter-status performs local read-only feature and asset inspection; it never configures Codex or activates orchestration
   - write-capable operations should support dry-run first

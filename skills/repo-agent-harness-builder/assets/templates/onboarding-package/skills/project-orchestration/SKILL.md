@@ -8,10 +8,12 @@ description: Use when configuring, validating, operating, auditing, or repairing
 ## Boundary
 
 This skill owns the portable control plane. The repository's
-`ops/orchestration.json` is authoritative for scope, nodes, parentage,
-dependencies, lifecycle, trust, authority, budgets, reservations, task
-bindings, and completion. Read `ops/protocols/AGENT-ORCHESTRATION.md` and the
-registry before acting. Read `references/project-orchestration-protocol.md`
+tracked `ops/orchestration.example.json` owns only inactive portable example
+policy. The selected named private instance is authoritative for one operator's
+scope, nodes, parentage, dependencies, lifecycle, trust, authority, budgets,
+reservations, task bindings, and completion. Read
+`ops/protocols/AGENT-ORCHESTRATION.md` and select the private operator/instance
+before acting. Read `references/project-orchestration-protocol.md`
 when the repository protocol is absent or the architecture itself is changing.
 
 Client adapters such as `$codex-native-firstmate` materialize this contract on
@@ -56,10 +58,19 @@ Ordinary conversation inside the existing contract does not require a registry
 event. Scope, authority, dependency, completion, or budget changes require a
 governed directive and explicit replan or supersession.
 
+## Root Materialization
+
+Schema-v5 `required` mode materializes the Boss first. `optional` mode keeps a
+complete logical Boss contract while allowing the owner to start Manager
+feature threads with `parentBindingMode: logical`. Those Managers retain the
+Boss node as their immutable governance parent and a null native parent-task
+binding; a Boss task can be added later without invalidating them. Workers
+always require task-backed immediate parents.
+
 ## Operating Loop
 
 1. Observe repository instructions, tracker state, Git/PR evidence, the
-   registry, task bindings, and completion artifacts.
+   selected private instance, client task bindings, and completion artifacts.
 2. Validate scope, graph acyclicity, parent links, dependency eligibility,
    trust ceilings, authority inheritance, budgets, and evidence requirements.
 3. Reconcile inherited or ambiguous nodes before replacing work. Classify each

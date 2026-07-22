@@ -12,8 +12,10 @@ This is a domain control loop for ticket-backed `repository-merge` work. Load
 launch contract selects Codex Native Firstmate, load `$codex-native-firstmate`
 after the portable skill and before this skill.
 
-`ops/protocols/AGENT-ORCHESTRATION.md` and `ops/orchestration.json` own role,
-parentage, lifecycle, trust, authority, budgets, reservations, and bindings.
+`ops/protocols/AGENT-ORCHESTRATION.md` and the selected named private
+orchestration instance own role, parentage, lifecycle, trust, authority,
+budgets, reservations, and bindings. The tracked orchestration example does
+not contain live graph state.
 `ops/protocols/GOAL-GRAPH.md` owns dependency topology, delivery evidence, and
 fan-in. Read `references/goal-graph-protocol.md` when the repo-local protocol is
 absent or the workflow itself is changing.

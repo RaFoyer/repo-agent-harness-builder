@@ -15,7 +15,8 @@ A repo-agent harness gives future agents a reliable operating environment inside
 | CLI facade | `./{{CLI_NAME}}`, `apps/cli/*` | Deterministic repeatable tasks |
 | Agent CLI ergonomics | `AGENT-CLI-ERGONOMICS.md` | Content-first, token-aware CLI output contract |
 | Connection registry | `ops/connections.json` | Value-safe metadata for external authorities and repo-scoped connector auth profiles |
-| Orchestration registry | `ops/orchestration.json` | Optional project-wide hierarchy, lifecycle, trust, authority, required-skill composition, and evidence state |
+| Orchestration policy | `ops/orchestration.example.json`, `AGENT-ORCHESTRATION.md` | Tracked inactive schema/example and portable control-plane rules |
+| Orchestration runtime | named private instance under Git common state or path-keyed user state | Per-operator hierarchy, client bindings, lifecycle, trust, authority, reservations, directives, and evidence references |
 | Onboarding package | `START-HERE.md`, `AGENT-HANDOFF.md`, `skills/*` | Pre-clone and first-use bridge |
 | Guardrails | preflight, precommit, no-mistakes, CI, secrets, tracker | Safety and consistency checks |
 | Advanced modules | hooks, intent authority, evidence maps | Scale patterns for complex repos |
@@ -29,9 +30,13 @@ A repo-agent harness gives future agents a reliable operating environment inside
 - The CLI has a content-first no-args home view, structured usage errors, and `help`, `context`, `protocols`, `doctor`, `preflight`, `verify`, `ergonomics`, `no-mistakes`, optional `lavish`, and `precommit` before domain-specific commands.
 - Repos with external authorities have `SOURCE-OF-TRUTH.md`, `EXTERNAL-SYSTEMS.md`, `CONNECTOR-AUTH-PROFILES.md`, `PRIVILEGED-DOCUMENTS.md`, and `ops/connections.json`.
 - Harnesses that need structured delegation can carry `AGENT-ORCHESTRATION.md`,
-  `ops/orchestration.json`, the read-only `orchestration` CLI, and generic
+  `ops/orchestration.example.json`, the local-instance `orchestration` CLI, and generic
   Boss/Manager/Worker prompt and ledger templates. The role hierarchy stays
   independent from trust, authority, lifecycle, and work domain.
+- Live orchestration state is never a shared tracked artifact. Git repositories
+  place named operator/instance files under the Git common directory so linked
+  worktrees share a clone-local graph. Non-Git project folders use a path-keyed
+  private user-state root. CLI selectors are safe names, never raw paths.
 - Repos with ticket-backed implementation graphs carry `GOAL-GRAPH.md`, the
   read-only `goals` CLI, and the bundled `goal-graph-loop` project-local skill
   for repository-merge handoffs. A strict chain is a linear graph topology;

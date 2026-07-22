@@ -45,7 +45,7 @@ Use for software repositories and durable team/project folders:
 | CLI tests | focused tests for help, dispatch, redaction, and key safety checks |
 | Source of truth | repo-visible docs vs role-restricted external authority |
 | Connection registry | `ops/connections.json` with value-safe metadata |
-| Orchestration registry | `ops/orchestration.json` when structured delegation is activated |
+| Orchestration policy | tracked inactive `ops/orchestration.example.json` plus a named private instance when structured delegation is activated |
 | Precommit gates | secrets, local paths, protocol front matter, doc drift |
 | No-mistakes PR gate | `.no-mistakes.yaml`, `NO-MISTAKES-GATE.md`, setup script, and value-safe setup/status commands |
 | Skills/onboarding | bootstrap and operator skills when cross-machine handoff matters |
@@ -73,7 +73,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | External authority | `EXTERNAL-SYSTEMS.md`, `PRIVILEGED-DOCUMENTS.md`, `ops/connections.json` | Drive/email/SharePoint/database context matters |
 | Connector auth profiles | `CONNECTOR-AUTH-PROFILES.md`, auth profile metadata, `connections auth-plan`, `connections env` | Browser login or provider CLIs can mutate account/session state |
 | Automations/heartbeats | `AUTOMATIONS.md`, run log, scheduler notes | recurring checks or reminders are useful |
-| Project orchestration | `AGENT-ORCHESTRATION.md`, `ops/orchestration.json`, `orchestration` CLI, prompts and ledger | any project needs structured Boss/Manager/Worker delegation with progressive autonomy |
+| Project orchestration | `AGENT-ORCHESTRATION.md`, `ops/orchestration.example.json`, named private instances, `orchestration` CLI, prompts and ledger | any project needs structured Boss/Manager/Worker delegation with progressive autonomy |
 | Goal-graph workflow | `GOAL-GRAPH.md`, `goals` CLI, `goal-graph-loop`, goal-graph templates | tracker-backed implementation needs dependencies, merge evidence, and fan-in; strict chains are linear graphs |
 | Project tracker | tracker protocol and CLI wrapper | GitHub Issues, Linear, Jira, or similar is canonical |
 | No-mistakes customization | `.no-mistakes.yaml`, `NO-MISTAKES-GATE.md`, setup script, `no-mistakes` CLI | the repo needs a concrete agent, command set, or fork URL beyond the generated default |

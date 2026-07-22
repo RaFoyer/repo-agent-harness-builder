@@ -44,7 +44,7 @@ lacks a tracker, integration branch, or verification gate.
    <id> --artifact <html-file>` before starting the implementation goal. Add
    `--decisions <file>` when decisions are in a separate file.
 9. When project orchestration is active, define nodes in
-   `ops/orchestration.json`, validate with `orchestration validate`, and use
+   the selected named private orchestration instance, validate with `orchestration validate`, and use
    `orchestration launch-spec <node-id>` as the authority-bounded base prompt.
 10. Add `assets/templates/goal-graph/ORCHESTRATOR-THREAD-PROMPT.txt`,
    `MANAGER-THREAD-PROMPT.txt`, or `SUBGOAL-THREAD-PROMPT.txt` only as the

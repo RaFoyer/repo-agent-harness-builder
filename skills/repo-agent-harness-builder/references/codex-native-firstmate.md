@@ -18,12 +18,14 @@ completion adapters when the native surface does not cover a repository's
 needs.
 
 The default installation model is repository-local: each repository carries
-its own registry, protocol, resident Firstmate capability, and one eventual
-Firstmate/Boss task for that repository. Its Managers and Workers remain inside
-that repository's scope. No global project list or external fleet registry is
-required. A cross-repository portfolio may later compose several independent
-repo-local Firstmates under separately authorized policy, but that is optional
-and must not become a hidden prerequisite.
+its own tracked protocol/example plus named private operator instances. A
+private instance may materialize one eventual Firstmate/Boss task for that
+repository, or let the owner start logical-parent Manager feature tasks first
+and add the Boss later. Its Managers and Workers remain inside that
+repository's scope. No global project list, external FirstMate repository, or
+fleet registry is required. A cross-repository portfolio may later compose
+several independent repo-local Firstmates under separately authorized policy,
+but that is optional and must not become a hidden prerequisite.
 
 Schema-v4 hybrid coordination does not make Firstmate a communication
 gatekeeper. The configured project owner may enter Manager and Worker tasks
@@ -96,7 +98,7 @@ title exactly.
 
 | Portable role | Codex-native shape | Responsibility |
 | --- | --- | --- |
-| Boss (`Firstmate` profile) | one persistent task for this repository by default | recurring repo-local portfolio loop over Managers, budgets, exceptions, and fan-in |
+| Boss (`Firstmate` profile) | optional persistent task for this repository | recurring repo-local portfolio loop over Managers, budgets, exceptions, and fan-in once materialized |
 | Manager | one persistent task per bounded workstream | one goal graph/control loop, Worker boundaries, evidence review, and Boss handoff |
 | Worker | one persistent task and managed worktree for durable write work | one bounded execution loop and immediate-parent report |
 | Helper | transient subagent inside the parent's current worktree | bounded read-heavy research, inspection, or review only |
@@ -140,10 +142,12 @@ authority ledger, atomic idempotent task-create key, immutable `parentTaskId`,
 or landed-work proof. Native task creation may also assign the title in a
 separate operation. Therefore:
 
-1. Keep `ops/orchestration.json` and its launch contract authoritative.
+1. Keep the selected named private orchestration instance and its launch contract authoritative; keep `ops/orchestration.example.json` inactive and identity-free.
 2. Reserve before create and preserve the contract-derived `launchKey`.
-3. Record the created task ID, immutable immediate-parent task ID, and binding
-   evidence in the registry through the approved adapter callback.
+3. Record the created task ID, binding evidence, and the binding mode's parent
+   identity through the approved adapter callback. A schema-v5 logical Manager
+   records the Boss node identity and a null parent task ID; task-bound children
+   record the immutable immediate-parent task ID.
 4. Treat task creation plus title assignment as one logical materialization
    transaction. A failed title step does not make an unbound task usable.
 5. On a timeout, crash, ambiguous create, title failure, or failed bind, retain

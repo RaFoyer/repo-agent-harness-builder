@@ -28,12 +28,15 @@ The durable contract lives in ordinary files in the target repo or folder:
 - optional loops, automations, heartbeats, and review workflows
 - optional Boss/Manager/Worker project orchestration with explicit lifecycle,
   trust, authority, budgets, completion evidence, and nested portfolio,
-  goal-graph, bounded execution loops, and schema-v4 hybrid owner-to-node
-  conversation with governed directive reconciliation
+  goal-graph, bounded execution loops, schema-v4 hybrid owner-to-node
+  conversation, and schema-v5 optional Boss materialization
+- tracked inactive orchestration policy plus named private operator instances
+  under Git common state (or path-keyed user state for non-Git folders), so
+  linked worktrees share local runtime state without committing task identity
 - project-local `project-orchestration`, `goal-graph-loop`, and
   `codex-native-firstmate` skills with a deprecated `goal-chain-loop` alias
 - an inactive-by-default Codex-native Firstmate adapter that gives each
-  generated repository its own resident Boss capability, native task/worktree
+  generated repository its own logical Boss capability, native task/worktree
   mapping, and project-local skill without requiring a global project registry
 - portable onboarding material for nontechnical recipients
 
@@ -45,8 +48,10 @@ the goal graph, then node-specific skills. Missing required skills fail closed.
 
 For Codex-heavy teams, the generated harness includes an opt-in
 `codex-native-firstmate` profile. Firstmate is the client-facing Boss persona,
-not a fourth role: one persistent Firstmate task owns the repository portfolio,
-Managers own bounded workstreams, and Workers own bounded execution loops.
+not a fourth role: when materialized, one persistent Firstmate task owns the
+repository portfolio; the owner may also begin with Manager feature tasks and
+add that Boss later. Managers own bounded workstreams, and Workers own bounded
+execution loops.
 The capability is installed per repository but remains inactive until a human
 configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository
@@ -83,6 +88,7 @@ see a read-only readiness result, such as:
 ./harness no-mistakes status
 ./harness lavish status
 ./harness orchestration status
+./harness orchestration instances
 ./harness orchestration directives
 ./harness orchestration adapter-status
 ./harness orchestration taxonomy

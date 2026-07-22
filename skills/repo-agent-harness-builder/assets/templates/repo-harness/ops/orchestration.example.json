@@ -1,8 +1,11 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "revision": 0,
   "status": "inactive",
   "coordinationMode": "hybrid",
+  "rootControl": {
+    "materialization": "optional"
+  },
   "prefix": {{PROJECT_NAME_JSON}},
   "scope": {
     "id": "project",

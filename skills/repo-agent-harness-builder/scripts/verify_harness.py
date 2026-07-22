@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -50,6 +51,7 @@ COMMAND_SMOKE_TESTS = [
     ["github", "status"],
     ["goals", "status"],
     ["orchestration", "status"],
+    ["orchestration", "validate"],
     ["orchestration", "adapter-status"],
     ["orchestration", "taxonomy"],
     ["design", "status"],
@@ -97,13 +99,45 @@ def check_file(path: Path, errors: list[str], root: Path | None = None) -> None:
         errors.append(f"empty: {label}")
 
 
+def validate_orchestration_example(target: Path, errors: list[str]) -> None:
+    path = target / "ops" / "orchestration.example.json"
+    label = display_path(path, target)
+    if path.is_symlink():
+        errors.append(f"orchestration example must not be a symlink: {label}")
+        return
+    if not path.is_file():
+        return
+    try:
+        registry = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        errors.append(f"invalid orchestration example JSON: {label} ({error})")
+        return
+    if not isinstance(registry, dict):
+        errors.append(f"orchestration example must be a JSON object: {label}")
+        return
+    if registry.get("schemaVersion") not in {2, 3, 4, 5}:
+        errors.append(f"orchestration example has unsupported schema version: {label}")
+    if registry.get("revision") != 0:
+        errors.append(f"orchestration example must start at revision 0: {label}")
+    if registry.get("status") != "inactive":
+        errors.append(f"orchestration example must be inactive: {label}")
+    if registry.get("nodes") != []:
+        errors.append(f"orchestration example must not contain live nodes: {label}")
+    if registry.get("ownerDirectives", []) != []:
+        errors.append(f"orchestration example must not contain owner directives: {label}")
+    if registry.get("clientAdapter") is not None:
+        errors.append(f"orchestration example must not select a client adapter: {label}")
+    if registry.get("bindingAttestation") is not None:
+        errors.append(f"orchestration example must not contain binding attestation data: {label}")
+
+
 def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
     owned_exact = {
         "AGENTS.md",
         "AGENTS-TOC.md",
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
-    "ops/orchestration.json",
+        "ops/orchestration.example.json",
     "ops/github-approvals.json",
         ".agents/skills/project-orchestration/SKILL.md",
         ".agents/skills/goal-graph-loop/SKILL.md",
@@ -253,7 +287,7 @@ def main() -> int:
         ".no-mistakes.yaml",
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
-        "ops/orchestration.json",
+        "ops/orchestration.example.json",
         ".agents/skills/project-orchestration/SKILL.md",
         ".agents/skills/project-orchestration/agents/openai.yaml",
         ".agents/skills/goal-graph-loop/SKILL.md",
@@ -302,6 +336,7 @@ def main() -> int:
 
     validate_checklist(target, errors)
     validate_skill_composition(target, errors)
+    validate_orchestration_example(target, errors)
     validate_no_stale_placeholders(target, args.cli_name, errors)
 
     facade = target / args.cli_name
