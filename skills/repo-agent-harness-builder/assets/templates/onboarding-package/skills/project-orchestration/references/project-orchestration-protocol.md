@@ -32,8 +32,12 @@ The Boss must not become the controller for every internal goal graph. The Manag
 Git owns the portable control-plane contract: protocol, schema, inactive
 `ops/orchestration.example.json`, CLI implementation, and tests. It must not
 own developer task IDs, signatures, reservations, directives, or live state.
-For repository-specific tracked policy, use the `extensions` rule in the
-generated `ops/protocols/AGENT-ORCHESTRATION.md`.
+Repository-specific metadata may use `extensions.<lowercase.dotted.namespace>`
+only as `{"kind":"tracked-policy","schemaVersion":1,"policy":{...}}`.
+These entries are declarative discovery metadata, not an authority extension:
+they must not contain runtime, identity, lifecycle, core-authority,
+task/thread-reference, or binding fields and cannot change core eligibility,
+authority, completion, reservation, or launch semantics.
 
 Each named private orchestration instance governs one explicit scope. In a Git
 repository it lives under the clone's Git common directory and is shared by

@@ -422,14 +422,16 @@ path = Path(sys.argv[1])
 registry = json.loads(path.read_text(encoding="utf-8"))
 registry["extensions"] = {
     "example.generated-repo": {
-        "releasePolicy": {"requiresApproval": True}
+        "kind": "tracked-policy",
+        "schemaVersion": 1,
+        "policy": {"releasePolicy": {"requiresApproval": True}}
     }
 }
 path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
 PY
 python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
 
-for runtime_field in taskId state; do
+for runtime_field in taskId task_id externalTaskId TaskID threadId status operator instance ownerRef rootRef authority approvalGates; do
   damaged="$TMP/generated-repo-$runtime_field-orchestration-extension"
   cp -R "$TMP/generated-repo" "$damaged"
   python3 - "$damaged/ops/orchestration.example.json" "$runtime_field" <<'PY'
@@ -440,11 +442,47 @@ from pathlib import Path
 path = Path(sys.argv[1])
 runtime_field = sys.argv[2]
 registry = json.loads(path.read_text(encoding="utf-8"))
-registry["extensions"] = {"example.generated-repo": {runtime_field: "runtime-local-only"}}
+registry["extensions"] = {
+    "example.generated-repo": {
+        "kind": "tracked-policy",
+        "schemaVersion": 1,
+        "policy": {runtime_field: "runtime-local-only"}
+    }
+}
 path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
 PY
   if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
     echo "expected verifier to reject runtime fields in an orchestration extension" >&2
+    exit 1
+  fi
+done
+
+for invalid_extension_case in namespace envelope runtime_reference; do
+  damaged="$TMP/generated-repo-invalid-extension-$invalid_extension_case"
+  cp -R "$TMP/generated-repo" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$invalid_extension_case" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+invalid_case = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+namespace = "not-namespaced" if invalid_case == "namespace" else "example.generated-repo"
+extension = {
+    "kind": "tracked-policy",
+    "schemaVersion": 1,
+    "policy": {"releasePolicy": {"requiresApproval": True}}
+}
+if invalid_case == "envelope":
+    extension["runtimeConfig"] = {"enabled": True}
+elif invalid_case == "runtime_reference":
+    extension["policy"]["workReference"] = "codex://threads/local-runtime-task"
+registry["extensions"] = {namespace: extension}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject invalid orchestration extension case $invalid_extension_case" >&2
     exit 1
   fi
 done

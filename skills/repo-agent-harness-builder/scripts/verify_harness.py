@@ -64,20 +64,25 @@ HARNESS_PLACEHOLDER_RE = re.compile(
     r"(?<!\\)\{\{(?:PROJECT_NAME|PROJECT_NAME_JSON|REPO_SLUG|REPO_SLUG_JSON|CLI_NAME|DEFAULT_BRANCH|DEFAULT_BRANCH_JSON|TRACKER_NAME|TRACKER_NAME_JSON)}}"
 )
 PATH_SEP = "/"
+EXTENSION_NAMESPACE_RE = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
+)
+TRACKED_POLICY_EXTENSION_FIELDS = {"kind", "schemaVersion", "policy"}
 RUNTIME_EXTENSION_FIELDS = {
-    "bindingAttestation",
-    "developerIdentity",
-    "lifecycle",
-    "launchReservation",
-    "ownerDirectives",
-    "parentTaskId",
-    "reservation",
-    "signature",
-    "state",
-    "taskBinding",
-    "taskId",
-    "titleVerification",
+    "accountid", "acknowledgedbyref", "allowedexternalactions", "allowedreads", "allowedwrites",
+    "approvalgates", "authority", "bindingattestation", "boundat", "budgets", "candelegate",
+    "clientadapter", "completedat", "completionevidence", "completionprofile", "coordinationmode",
+    "createdat", "createdby", "dependencies", "developer", "developeridentity", "email", "evidence",
+    "instance", "issuedbyref", "launchkey", "launchedat", "launchreservation", "lifecycle",
+    "maintainer", "maxactivechildren", "nodes", "observedbyref", "operator", "ownerdirectives",
+    "ownerref", "parentbindingmode", "parentid", "parenttaskid", "parentthreadid", "reservation",
+    "resolvedbyref", "revision", "role", "rootcontrol", "rootref", "scope", "signature", "state",
+    "status", "stopconditions", "taskbinding", "taskid", "taskids", "threadid", "threadids",
+    "titleverification", "trustlevel", "trustpolicy", "updatedat", "updatedby", "userid", "username",
+    "workcontracthash",
 }
+RUNTIME_EXTENSION_FIELD_SUFFIXES = ("taskid", "taskids", "threadid", "threadids")
+RUNTIME_EXTENSION_VALUE_RE = re.compile(r"^(?:codex://threads/|task(?:-message)?:)", re.IGNORECASE)
 LOCAL_PATH_PARTS = [
     PATH_SEP + "Users" + PATH_SEP + r"[^\s)'\"]+",
     PATH_SEP + "home" + PATH_SEP + r"[^\s)'\"]+",
@@ -114,12 +119,20 @@ def check_file(path: Path, errors: list[str], root: Path | None = None) -> None:
         errors.append(f"empty: {label}")
 
 
+def normalized_extension_field(value: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
 def runtime_extension_fields(value: object) -> set[str]:
     if isinstance(value, dict):
-        return ({str(key) for key in value if key in RUNTIME_EXTENSION_FIELDS}
+        return ({str(key) for key in value
+                 if normalized_extension_field(key) in RUNTIME_EXTENSION_FIELDS
+                 or normalized_extension_field(key).endswith(RUNTIME_EXTENSION_FIELD_SUFFIXES)}
                 | set().union(*(runtime_extension_fields(item) for item in value.values())))
     if isinstance(value, list):
         return set().union(*(runtime_extension_fields(item) for item in value))
+    if isinstance(value, str) and RUNTIME_EXTENSION_VALUE_RE.search(value.strip()):
+        return {"<runtime-reference-value>"}
     return set()
 
 
@@ -200,12 +213,34 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         if not isinstance(extensions, dict):
             errors.append(f"orchestration example extensions must be an object: {label}")
         else:
-            forbidden_extension_fields = sorted(runtime_extension_fields(extensions))
-            if forbidden_extension_fields:
-                errors.append(
-                    f"orchestration example extensions contain runtime or identity fields: {label} "
-                    f"({', '.join(forbidden_extension_fields)})"
-                )
+            for namespace, extension in extensions.items():
+                if not isinstance(namespace, str) or not EXTENSION_NAMESPACE_RE.fullmatch(namespace):
+                    errors.append(f"orchestration example extension keys must be lowercase dotted namespaces: {label}")
+                    continue
+                if not isinstance(extension, dict):
+                    errors.append(f"orchestration example extension {namespace} must be an object: {label}")
+                    continue
+                unexpected_extension_fields = sorted(set(extension) - TRACKED_POLICY_EXTENSION_FIELDS)
+                if unexpected_extension_fields:
+                    errors.append(
+                        f"orchestration example extension {namespace} contains unsupported envelope fields: {label} "
+                        f"({', '.join(unexpected_extension_fields)})"
+                    )
+                if extension.get("kind") != "tracked-policy":
+                    errors.append(f"orchestration example extension {namespace} kind must be tracked-policy: {label}")
+                extension_schema = extension.get("schemaVersion")
+                if isinstance(extension_schema, bool) or not isinstance(extension_schema, int) or extension_schema < 1:
+                    errors.append(f"orchestration example extension {namespace} schemaVersion must be a positive integer: {label}")
+                policy = extension.get("policy")
+                if not isinstance(policy, dict):
+                    errors.append(f"orchestration example extension {namespace} policy must be an object: {label}")
+                    continue
+                forbidden_extension_fields = sorted(runtime_extension_fields(policy))
+                if forbidden_extension_fields:
+                    errors.append(
+                        f"orchestration example extension {namespace} contains runtime, identity, or core-authority fields: {label} "
+                        f"({', '.join(forbidden_extension_fields)})"
+                    )
     scope = registry.get("scope")
     if not isinstance(scope, dict):
         errors.append(f"orchestration example scope must be an object: {label}")

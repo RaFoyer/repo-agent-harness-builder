@@ -183,6 +183,12 @@ Portable verification uses `--example` with `status`, `validate`,
 `adapter-status`, or `taxonomy`; that selector ignores ambient instance names,
 cannot be combined with `--operator` or `--instance`, and is rejected by every
 operational command.
+Repository-specific tracked metadata uses only a lowercase dotted namespace
+under `extensions`, with a versioned `tracked-policy` envelope. The core CLI
+treats that policy as non-authoritative discovery metadata: it cannot shadow or
+change hierarchy, lifecycle, trust, authority, evidence, reservations, or
+launch contracts, and the verifier rejects runtime or identity fields within
+it.
 - `orchestration directives`: show schema-v4 governed owner directives, target
   nodes, contract impact, target acknowledgement and resolution evidence, and
   parent-reconciliation state without mutating tasks or treating task messages
