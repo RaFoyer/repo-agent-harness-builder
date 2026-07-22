@@ -411,6 +411,44 @@ if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name har
   exit 1
 fi
 
+damaged="$TMP/generated-repo-custom-orchestration-policy"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["extensions"] = {
+    "example.generated-repo": {
+        "releasePolicy": {"requiresApproval": True}
+    }
+}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness
+
+for runtime_field in taskId state; do
+  damaged="$TMP/generated-repo-$runtime_field-orchestration-extension"
+  cp -R "$TMP/generated-repo" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$runtime_field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+runtime_field = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["extensions"] = {"example.generated-repo": {runtime_field: "runtime-local-only"}}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject runtime fields in an orchestration extension" >&2
+    exit 1
+  fi
+done
+
 damaged="$TMP/generated-repo-task-root-orchestration-example"
 cp -R "$TMP/generated-repo" "$damaged"
 python3 - "$damaged/ops/orchestration.example.json" <<'PY'

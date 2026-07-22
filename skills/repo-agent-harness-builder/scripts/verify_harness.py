@@ -64,6 +64,20 @@ HARNESS_PLACEHOLDER_RE = re.compile(
     r"(?<!\\)\{\{(?:PROJECT_NAME|PROJECT_NAME_JSON|REPO_SLUG|REPO_SLUG_JSON|CLI_NAME|DEFAULT_BRANCH|DEFAULT_BRANCH_JSON|TRACKER_NAME|TRACKER_NAME_JSON)}}"
 )
 PATH_SEP = "/"
+RUNTIME_EXTENSION_FIELDS = {
+    "bindingAttestation",
+    "developerIdentity",
+    "lifecycle",
+    "launchReservation",
+    "ownerDirectives",
+    "parentTaskId",
+    "reservation",
+    "signature",
+    "state",
+    "taskBinding",
+    "taskId",
+    "titleVerification",
+}
 LOCAL_PATH_PARTS = [
     PATH_SEP + "Users" + PATH_SEP + r"[^\s)'\"]+",
     PATH_SEP + "home" + PATH_SEP + r"[^\s)'\"]+",
@@ -98,6 +112,15 @@ def check_file(path: Path, errors: list[str], root: Path | None = None) -> None:
         errors.append(f"missing: {label}")
     elif path.is_file() and path.stat().st_size == 0:
         errors.append(f"empty: {label}")
+
+
+def runtime_extension_fields(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return ({str(key) for key in value if key in RUNTIME_EXTENSION_FIELDS}
+                | set().union(*(runtime_extension_fields(item) for item in value.values())))
+    if isinstance(value, list):
+        return set().union(*(runtime_extension_fields(item) for item in value))
+    return set()
 
 
 def validate_orchestration_example(target: Path, errors: list[str]) -> None:
@@ -149,6 +172,7 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         "trustPolicy",
         "nodes",
         "ownerDirectives",
+        "extensions",
     }
     unexpected_root_fields = sorted(set(registry) - allowed_root_fields)
     if unexpected_root_fields:
@@ -171,6 +195,17 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must not select a client adapter: {label}")
     if registry.get("bindingAttestation") is not None or (schema_version in (4, 5) and "bindingAttestation" not in registry):
         errors.append(f"orchestration example must not contain binding attestation data: {label}")
+    extensions = registry.get("extensions")
+    if extensions is not None:
+        if not isinstance(extensions, dict):
+            errors.append(f"orchestration example extensions must be an object: {label}")
+        else:
+            forbidden_extension_fields = sorted(runtime_extension_fields(extensions))
+            if forbidden_extension_fields:
+                errors.append(
+                    f"orchestration example extensions contain runtime or identity fields: {label} "
+                    f"({', '.join(forbidden_extension_fields)})"
+                )
     scope = registry.get("scope")
     if not isinstance(scope, dict):
         errors.append(f"orchestration example scope must be an object: {label}")
