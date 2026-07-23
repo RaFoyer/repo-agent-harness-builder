@@ -68,6 +68,40 @@ EXTENSION_NAMESPACE_RE = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
 )
 TRACKED_POLICY_EXTENSION_FIELDS = {"kind", "schemaVersion", "policy"}
+TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS = {
+    "id",
+    "role",
+    "workRef",
+    "workKind",
+    "governingProtocols",
+    "requiredSkills",
+    "label",
+    "title",
+    "parentId",
+    "dependencies",
+    "state",
+    "objective",
+    "completionProfile",
+    "trustLevel",
+    "authority",
+    "parentBindingMode",
+}
+TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS = {
+    "taskId",
+    "parentTaskId",
+    "taskBinding",
+    "launchReservation",
+    "nextAction",
+    "waitingOn",
+    "blocker",
+    "unblockAction",
+    "blockedByDirectiveIds",
+    "handoffEvidence",
+    "terminalDisposition",
+    "completionEvidence",
+    "completedAt",
+    "trustApproval",
+}
 RUNTIME_EXTENSION_FIELD_WORDS = {
     "account", "acknowledged", "authority", "binding", "budget", "completed",
     "completion", "created", "delegation", "developer", "email", "evidence", "identity",
@@ -222,8 +256,32 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must start at revision 0: {label}")
     if registry.get("status") != "inactive":
         errors.append(f"orchestration example must be inactive: {label}")
-    if registry.get("nodes") != []:
-        errors.append(f"orchestration example must not contain live nodes: {label}")
+    nodes = registry.get("nodes")
+    if not isinstance(nodes, list):
+        errors.append(f"orchestration example nodes must be an array: {label}")
+    elif schema_version != 5 and nodes:
+        errors.append(f"only schema-v5 orchestration examples may contain logical nodes: {label}")
+    else:
+        allowed_node_fields = (
+            TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS
+            | TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS
+        )
+        for node in nodes:
+            if not isinstance(node, dict):
+                errors.append(f"orchestration example nodes must be objects: {label}")
+                continue
+            node_label = f"tracked example node {node.get('id') or '<missing-id>'}"
+            unexpected_node_fields = sorted(set(node) - allowed_node_fields)
+            if unexpected_node_fields:
+                errors.append(
+                    f"{node_label} contains unsupported or runtime fields: {label} "
+                    f"({', '.join(unexpected_node_fields)})"
+                )
+            if node.get("state") != "queued":
+                errors.append(f"{node_label} must remain queued: {label}")
+            for field in sorted(TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS):
+                if node.get(field) is not None:
+                    errors.append(f"{node_label} must not contain live {field}: {label}")
     if registry.get("ownerDirectives", []) != []:
         errors.append(f"orchestration example must not contain owner directives: {label}")
     if registry.get("clientAdapter") is not None or (schema_version in (4, 5) and "clientAdapter" not in registry):
@@ -463,14 +521,6 @@ def main() -> int:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/orchestration.example.json",
-        ".agents/skills/project-orchestration/SKILL.md",
-        ".agents/skills/project-orchestration/agents/openai.yaml",
-        ".agents/skills/goal-graph-loop/SKILL.md",
-        ".agents/skills/goal-graph-loop/agents/openai.yaml",
-        ".agents/skills/goal-chain-loop/SKILL.md",
-        ".agents/skills/goal-chain-loop/agents/openai.yaml",
-        ".agents/skills/codex-native-firstmate/SKILL.md",
-        ".agents/skills/codex-native-firstmate/agents/openai.yaml",
         ".codex/config.firstmate.example.toml",
         ".codex/agents/firstmate-boss.toml",
         ".codex/agents/firstmate-manager.toml",

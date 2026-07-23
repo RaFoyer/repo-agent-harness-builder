@@ -66,8 +66,9 @@ Shared skills have one fleet-level owner. Downstream repository sync commands
 may manage only their own project-specific skill names; they must not replace,
 link, copy, or back up `repo-agent-harness-builder`, `project-orchestration`,
 `goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` in a global
-client skill directory. Repository-local `.agents/skills/` copies remain part
-of the generated harness contract.
+client skill directory. A generated repository may carry reference snapshots
+under `.agents/skills/`, but downstream verification and sync must not require
+or claim ownership of those fleet-owned copies.
 
 Keep recoverable copies under a non-discoverable archive such as
 `.codex/skill-archives/<owner>/<timestamp>/`, never beside active skills as

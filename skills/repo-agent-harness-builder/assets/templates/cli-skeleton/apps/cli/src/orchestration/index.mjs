@@ -18,6 +18,16 @@ const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
 const PARENT_BINDING_MODES = new Set(["task", "logical"]);
 const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy"]);
 const TRACKED_POLICY_EXTENSION_FIELDS = new Set(["kind", "schemaVersion", "policy"]);
+const TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS = new Set([
+  "id", "role", "workRef", "workKind", "governingProtocols", "requiredSkills", "label", "title",
+  "parentId", "dependencies", "state", "objective", "completionProfile", "trustLevel", "authority",
+  "parentBindingMode"
+]);
+const TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS = [
+  "taskId", "parentTaskId", "taskBinding", "launchReservation", "nextAction", "waitingOn",
+  "blocker", "unblockAction", "blockedByDirectiveIds", "handoffEvidence", "terminalDisposition",
+  "completionEvidence", "completedAt", "trustApproval"
+];
 const TRACKED_EXAMPLE_ROOT_FIELDS = new Set([
   "schemaVersion", "revision", "status", "coordinationMode", "rootControl", "prefix", "scope",
   "bindingAttestation", "clientAdapter", "trustPolicy", "nodes", "ownerDirectives", "extensions"
@@ -622,7 +632,29 @@ function validateTrackedExampleRegistry(registry) {
   if (!SUPPORTED_REGISTRY_SCHEMA_VERSIONS.has(schemaVersion)) blockers.push("tracked example has unsupported schema version");
   if (registry.revision !== 0) blockers.push("tracked example must start at revision 0");
   if (registry.status !== "inactive") blockers.push("tracked example must be inactive");
-  if (!Array.isArray(registry.nodes) || registry.nodes.length) blockers.push("tracked example must not contain live nodes");
+  if (!Array.isArray(registry.nodes)) blockers.push("tracked example nodes must be an array");
+  else if (schemaVersion !== 5 && registry.nodes.length) blockers.push("only schema-v5 tracked examples may contain logical nodes");
+  else {
+    const allowedNodeFields = new Set([
+      ...TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS,
+      ...TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS
+    ]);
+    for (const node of registry.nodes) {
+      if (!isObject(node)) {
+        blockers.push("tracked example nodes must be objects");
+        continue;
+      }
+      const label = `tracked example node ${node.id || "<missing-id>"}`;
+      const unexpectedNodeFields = Object.keys(node).filter((field) => !allowedNodeFields.has(field));
+      if (unexpectedNodeFields.length) {
+        blockers.push(`${label} contains unsupported or runtime fields: ${unexpectedNodeFields.sort().join(", ")}`);
+      }
+      if (node.state !== "queued") blockers.push(`${label} must remain queued`);
+      for (const field of TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS) {
+        if (node[field] !== undefined && node[field] !== null) blockers.push(`${label} must not contain live ${field}`);
+      }
+    }
+  }
   if (registry.ownerDirectives !== undefined && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
     blockers.push("tracked example must not contain owner directives");
   }

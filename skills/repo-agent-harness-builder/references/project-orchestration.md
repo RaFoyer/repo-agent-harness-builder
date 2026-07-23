@@ -273,7 +273,13 @@ Reject designs that:
 
 ## Activation And Tests
 
-Keep the module inactive with a valid empty registry by default. Activate it only after scope, owner, Boss, trust policy, authority envelopes, budgets, completion profiles, and client adapter behavior are configured.
+Keep the module inactive by default. An empty scaffold is valid, and a
+schema-v5 tracked example may instead describe a complete identity-free
+logical policy graph. Every tracked logical node remains queued and contains
+no task identity, binding, reservation, trust approval, signature, active
+lifecycle state, or completion evidence. Activate only a private instance
+after scope, owner, Boss, trust policy, authority envelopes, budgets,
+completion profiles, and client adapter behavior are configured.
 
 Focused tests should cover:
 
