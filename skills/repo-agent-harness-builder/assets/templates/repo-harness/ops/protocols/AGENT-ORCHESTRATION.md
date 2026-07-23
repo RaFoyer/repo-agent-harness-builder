@@ -95,6 +95,30 @@ Every node records:
   domain-loop skill in deterministic order
 - `completionProfile`: the evidence shape that makes the node terminal
 
+New schema-v5 harnesses configure `controlLoopPolicy`. Progress means a
+material change to Git, tracker, child, PR, check, external-operation, or
+completion evidence, never merely a heartbeat, attached process, log line, or
+repeated status message. The liveness owner hashes a canonical ASCII-sorted set
+of typed evidence references and appends each comparison to a private
+hash-linked observation history through registry-revision and prior-hash CAS.
+Each active node records that evidence fingerprint and time, unchanged-check
+count, observer/sequence/prior-receipt/prior-state/result, bounded scheduled
+check or event watchdog, last failure fingerprint, the precondition fingerprint
+recorded with that failure, same-failure retry count, and current precondition
+fingerprint. Every receipt carries the failure/precondition state and retry
+count; clearing it requires material progress, and returning to a known pair
+restores its historical retry high-water mark. Policy ceilings are 100
+unchanged checks, 20 same-pair retries, and 2,592,000 seconds across the
+unchanged-check budget.
+
+The immediate parent owns Manager and Worker liveness; the project owner owns
+Boss liveness and owns a logical Manager until a Boss task is actively
+managing. Boss bind/reconcile atomically appends the logical-Manager ownership
+handoff. An overdue schedule/watchdog or exhausted unchanged/same-pair budget
+requires owner action. Another identical retry, replacement task, review run,
+or authentication flow is forbidden until a changed precondition is recorded
+and the retry counter is reset.
+
 Schema version 3 seals the ordered `requiredSkills` composition into new work-
 contract hashes. Schema version 4 also seals coordination mode and owner
 identity while validating governed direct-owner instructions. Versions 2
@@ -200,8 +224,42 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 6. Inspect a bounded prompt with `orchestration prompt <node-id>`, then emit `orchestration launch-spec <node-id>` when a client is authorized to create the task.
 7. Use the client adapter handshake and record the created task ID and, for task-bound children, the immediate parent task ID before implementation begins. A schema-v5 logical Manager records a null parent task ID.
 8. Keep node state, next action or blocker, and evidence current.
-9. Let the immediate parent accept, return, block, or fan in the result.
-10. Promote trust only from recorded evidence; reconcile terminal nodes before archive.
+9. Update the evidence fingerprint only when Git, tracker, child, PR, check,
+   external-operation, or completion evidence materially changes. Increment
+   unchanged or same-failure counters otherwise. Bind each failure to the
+   precondition observed with it; after the current precondition changes,
+   reset the same-failure counter before another attempt. Through the current
+   project-owner or active immediate-parent liveness owner, append a complete
+   hash-linked observation using a registry-revision and prior-receipt-hash
+   compare-and-set. Never replace, truncate, or reinitialize the receipt chain.
+10. At budget exhaustion, block and return control to the immediate parent.
+    Retry only after recording a changed precondition.
+11. Before any shared-runtime recovery, create a private receipt with the
+    preserved active run/head set and compare a second fingerprint immediately
+    before action. Before the first snapshot, use an authority keyed to a stable
+    runtime scope outside project registries to close new-run admission and
+    acquire the single runtime claim. Every start path must consult that
+    authority; an unmanaged bypass blocks recovery. Mirror its claim and
+    admission fingerprints in the private receipt. Proceed only when the
+    active sets match and a registry-revision CAS changes `prepared` to
+    `started` with `actionStartedAt` inside the comparison freshness window.
+    Derive a ledger-unique claim key from the runtime scope, action, pre-action
+    active-set fingerprint, and canonical recovery-precondition fingerprint;
+    permit only one `prepared` or `started` mirror in the project ledger. A
+    second starter must lose the runtime-authority CAS and performs no side
+    effect. `started` records a portable claim owner
+    and bounded immutable lease. Append each state change to the hash-linked
+    transition ledger; accept only `prepared` → `started` →
+    `completed|failed` or `prepared` → `aborted`, with the snapshot matching
+    the ledger tip. If it expires, reconcile that same receipt to `completed`
+    or evidence-backed `failed` before creating another claim.
+    Never repeat a terminal claim key under a new receipt ID; require a changed
+    active set or canonical recovery precondition. Reopen admission through the
+    same authority during terminal reconciliation. Future, stale, changed, or
+    delayed-start receipts abort and replan. A project registry alone never
+    acts as a machine-wide runtime lock.
+12. Let the immediate parent accept, return, block, or fan in the result.
+13. Promote trust only from recorded evidence; reconcile terminal nodes before archive.
 
 ## CLI Support
 
@@ -213,6 +271,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration hierarchy
 ./{{CLI_NAME}} orchestration trust
 ./{{CLI_NAME}} orchestration validate [--example]
+./{{CLI_NAME}} orchestration liveness [--example]
 ./{{CLI_NAME}} orchestration directives
 ./{{CLI_NAME}} orchestration adapter-status [--example]
 ./{{CLI_NAME}} orchestration taxonomy [--example]
@@ -222,7 +281,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration launch-spec <node-id>
 ```
 
-`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
+`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `liveness`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
 
 When the opt-in Codex-native profile is relevant, inspect the portable
 baseline with `./{{CLI_NAME}} orchestration adapter-status --example`, preview
@@ -250,12 +309,21 @@ adapter.
 4. If the compare-and-set fails, do not create a task. Re-read the registry and generate a new launch spec; an old spec or duplicate reservation is never reusable.
 5. Immediately before task creation, atomically compare the reserved registry against `preCreate`: its revision, status, target task identity/reservation key/trust/entire authority envelope including approval gates/work-contract hash, parent state/task ID/trust/entire authority envelope including approval gates, and project/parent capacity must still match. A changed status, target or parent trust/authority/approval gate, work contract, task identity, capacity, or revision invalidates the reservation before the side effect.
 6. Create or adopt the task with the exact title, prompt, and immediate parent from the launch spec, using `externalTask.idempotencyKey` (the contract-derived `launchKey`) as the task API's durable idempotency key and `externalTask.reconciliationKey` for lookup. Read back and verify the exact title before bind; a title failure keeps the reservation quarantined for reconciliation and never permits another create.
-7. Atomically bind the returned task ID only when the complete `bind` current-state contract still matches the reserved registry. Have the trusted external attestor sign the emitted `taskBinding` payload, then persist its Ed25519 attestation with the launch key, canonical work-contract hash, node/task identity, original parent node/task binding, post-bind revision, and UTC RFC3339 bind time. A task-bound non-Boss child records the immediate parent's immutable task ID; a logical Manager records a null parent task ID and immutable Boss node identity. Then set `state` to `working`, add `nextAction`, clear the reservation, and advance the revision once. Validation recomputes the canonical contract and parentage and verifies the attestation for every task-backed node; a mismatch stays blocked until explicit supersession/replan. A failed bind preserves the reservation and triggers reconciliation by `launchKey`, never a second create.
+7. Atomically bind the returned task ID only when the complete `bind` current-state contract still matches the reserved registry. Have the trusted external attestor sign the emitted `taskBinding` payload, then persist its Ed25519 attestation with the launch key, canonical work-contract hash, node/task identity, original parent node/task binding, post-bind revision, and UTC RFC3339 bind time. A task-bound non-Boss child records the immediate parent's immutable task ID; a logical Manager records a null parent task ID and immutable Boss node identity. When an optional logical Boss becomes an active managing task, this same bind/reconcile CAS appends a liveness-owner handoff observation to every active logical Manager. Then set `state` to `working`, add `nextAction`, clear the reservation, and advance the revision once. Validation recomputes the canonical contract and parentage and verifies the attestation for every task-backed node; a mismatch stays blocked until explicit supersession/replan. A failed bind preserves the reservation and triggers reconciliation by `launchKey`, never a second create.
 8. If the task was created but an unrelated valid registry mutation advanced the revision before bind, look up the task by `launchKey` and use `reconcile` to atomically rebind it. Prove the reservation key and base revision, re-read the latest revision, then re-run active-registry, dependency, target task-identity/trust/entire authority envelope including approval gates/work-contract hash, parent task/managing-state/T3 delegation, the full current parent-to-child authority inheritance predicate (trust, read/write/external-action subsets, inherited approval gates, and delegation budget), and capacity checks before binding the found task. A revoked target or parent authority, changed work contract, invalid prerequisite, identity mismatch, or exhausted capacity fails closed and keeps the reservation quarantined for explicit cancel or replan; reconciliation never creates a second task.
 9. If create fails with a definitive proof that no task exists for `launchKey`, atomically clear only the matching reservation and advance the revision before generating a new spec. On a timeout, crash, ambiguous response, or failed bind, retain the reservation and reconcile the external task by `launchKey`; do not clear or retry creation until absence is proven.
 10. The child reports to its immediate parent; the parent reconciles state and evidence in the registry.
 
 `revision` is a non-negative monotonic integer. Every registry mutation advances it exactly once. A pending reservation exists only on a queued or eligible node without a task ID and counts against project and parent active-capacity budgets until it is bound or released.
+
+Observation and shared-runtime active-set fingerprints use the harness portable
+canonical JSON form: UTF-8 compact JSON, recursively ASCII-sorted object keys,
+no whitespace, and ASCII-sorted/deduplicated reference arrays. Control
+references are printable ASCII. Observation sequence starts at one;
+`receiptHash` covers every receipt field except itself, and each later
+`previousReceiptHash` equals the prior receipt hash. The hash chain validates
+transitions; the adapter's registry-revision plus prior-hash compare-and-set
+enforces append-only history.
 
 This adapter boundary makes worker launch easy without hiding external writes inside the repo CLI or binding the protocol to Codex, Claude Code, Gemini CLI, Cursor, or another client.
 
@@ -280,6 +348,19 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Do not let a Worker report around its parent except for material safety risk.
 - Do not create a replacement Worker merely because an earlier task or thread is unavailable; first reconcile tracker movements with Git/PR and orchestration evidence and prove the outcome is incomplete and unowned.
 - Do not leave a live task idle without a named reason and next control action.
+- A heartbeat, attached process, log line, or repeated status response is not
+  evidence of progress.
+- Do not launch an identical retry, replacement Worker, review run, or auth
+  flow after its configured budget is exhausted.
+- Before recovering a shared runtime, preserve per-run evidence, record the
+  exact active set, and acquire the runtime-scoped claim plus admission closure
+  from an external coordinator outside repository and same-user control.
+  Local/XDG ledgers and project receipts are not that authority. Until the
+  coordinator cryptographically authenticates claims, anchors monotonic
+  history, and atomically gates every raw start path, destructive recovery is
+  unavailable. Compare the active set again immediately before the action and
+  abort/replan if it changed. A missing coordinator blocks recovery, not
+  ordinary work. Treat unknown shutdown or resume semantics as non-preserving.
 - Do not activate external writes, deployments, schedules, destructive actions, or messages without their domain protocol and approval gate.
 - Preserve unrelated user work and keep secrets out of repo, chat, logs, trackers, and artifacts.
 
@@ -290,6 +371,9 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Every non-Boss node has a valid logical parent and no parent cycle exists; task-bound children also have a valid parent task.
 - Titles match the registry-derived grammar.
 - Live tasks have task IDs and state-specific control fields.
+- Active instances with `controlLoopPolicy` have valid evidence/precondition
+  fingerprints, bounded unchanged and retry counters, and exactly one
+  scheduled or event-driven next-control condition.
 - Trust and authority never exceed parent or project policy; promoted nodes have auditable approval records.
 - Active node count, active child count, and delegation depth stay within configured budgets.
 - Registry revisions advance monotonically, pending launch reservations consume capacity until they are bound or definitively released, and each reservation's validity snapshot (including its canonical materialized-work-contract hash) matches the current registry before create and bind; a post-create unrelated revision advance may use the reconciliation CAS to bind the task already found by `launchKey`.

@@ -99,6 +99,9 @@ Completed goals should additionally include:
 - Each goal graph has exactly one Manager owner. The Manager runs its
   observe, audit, delegate, monitor, fan-in, reconcile, and repeat loop. The
   Boss runs the outer portfolio loop; Workers run bounded node loops.
+- Each observation compares evidence fingerprints, not process activity.
+  Exhausted unchanged or same-failure budgets block the node until a
+  precondition changes.
 
 - Do not start the next goal from an unmerged feature branch unless the graph
   explicitly allows parallel work.

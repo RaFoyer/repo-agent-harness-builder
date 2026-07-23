@@ -179,7 +179,7 @@ branches, pull requests, or software delivery. Minimum behavior:
 Select instances with safe `--operator` and `--instance` names. Composing CLI
 facades use `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` so
 the same private authority state is resolved without accepting a raw path.
-Portable verification uses `--example` with `status`, `validate`,
+Portable verification uses `--example` with `status`, `validate`, `liveness`,
 `adapter-status`, or `taxonomy`; that selector ignores ambient instance names,
 cannot be combined with `--operator` or `--instance`, and is rejected by every
 operational command.
@@ -210,6 +210,36 @@ it.
   active-child, or depth budget overruns. Validate schema-v5 optional root and
   logical Manager parent bindings without weakening task-parent requirements
   for Workers.
+- `orchestration liveness [--example]`: show the configured progress signal,
+  unchanged-check and same-failure retry budgets, shared-runtime recovery
+  posture, each active node's liveness owner, and its scheduled or event-driven
+  next control, including overdue schedules and event watchdogs. Reject
+  fingerprints not derived from canonical typed evidence references;
+  non-contiguous, truncated, incorrectly hashed, or non-CAS observation
+  histories; observations not owned by the current project owner/active
+  immediate parent; future-dated or overlong control intervals; unpaired
+  failure state; retry counters not reset after a changed precondition; dual
+  or absent wake conditions; and exhausted budgets that have not stopped at a
+  blocked parent-recovery boundary. Observation and active-set hashes use
+  UTF-8 compact JSON with recursively ASCII-sorted object keys and
+  sorted/deduplicated printable-ASCII references. Validate private
+  shared-runtime recovery receipts so a future, stale, changed, or missing
+  fresh `actionStartedAt` comparison cannot authorize a recovery. Require an
+  authoritative runtime-scoped claim and closed-admission proof from outside
+  the repository registry before the first snapshot. Block recovery if any
+  start path can bypass that authority. The repository CLI must not treat a
+  local/XDG ledger, project registry, or same-user-generated hash as that
+  authority. Until a separately implemented coordinator cryptographically
+  authenticates claims, anchors monotonic history, and atomically gates every
+  raw start path, reject every non-empty recovery mirror. Ordinary
+  orchestration without recovery receipts remains available. Validate the
+  future private mirror's
+  deterministic runtime-scope/action/active-set/precondition claim key,
+  per-registry nonterminal exclusivity, bounded immutable lease, terminal
+  replay protection, monotonic hash-linked transition history with a matching
+  current snapshot, terminal admission reopening, and expired-claim owner
+  action. Only that claimant may record `completed` or evidence-backed
+  `failed`; the project mirror never claims machine-wide lock authority.
 - `orchestration next`: list dependency-eligible graph nodes without creating
   tasks.
 - `orchestration prompt <node-id>`: print the node's role, work kind, governing

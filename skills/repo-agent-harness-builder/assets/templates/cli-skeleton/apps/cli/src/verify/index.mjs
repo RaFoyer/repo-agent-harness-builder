@@ -21,6 +21,7 @@ const VERIFY_STEPS = [
   { name: "protocols", run: (io) => listProtocols([], io) },
   { name: "connections status", run: (io) => runConnections(["status"], io) },
   { name: "orchestration status --example", run: (io) => runOrchestration(["status", "--example"], io) },
+  { name: "orchestration liveness --example", run: (io) => runOrchestration(["liveness", "--example"], io) },
   { name: "goals status", run: (io) => runGoals(["status"], io) },
   { name: "ergonomics status", run: (io) => runErgonomics(["status"], io) },
   { name: "no-mistakes status", run: (io) => runNoMistakes(["status"], io) },

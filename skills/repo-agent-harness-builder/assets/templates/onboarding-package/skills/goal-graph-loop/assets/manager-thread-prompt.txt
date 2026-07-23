@@ -20,6 +20,9 @@ Manager responsibilities:
 - Add a contract or design prerequisite instead of parallelizing work that shares a schema, API, migration, state model, or acceptance evidence.
 - Keep Workers on current approved integration state; do not start dependent work from unmerged siblings unless the graph explicitly permits speculation.
 - Review progress, risks, verification, and handoff evidence; assign the next action or state the exact blocker.
+- Compare evidence fingerprints on every observation. A heartbeat, attached
+  process, or unchanged status is not progress; block exhausted unchanged or
+  same-failure loops until a precondition changes.
 - Escalate only human decisions, external access, scope collisions, or merge gates to the Boss.
 - Follow `AGENT-ORCHESTRATION.md` for role, lifecycle, trust, authority, and child budgets.
 

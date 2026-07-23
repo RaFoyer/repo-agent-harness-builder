@@ -18,6 +18,18 @@ Role:
 - Create or activate Managers only for bounded workstreams whose dependencies, completion profiles, and evidence gates are clear.
 - Do not own each Manager's internal goal graph or absorb routine Worker execution.
 - Record every live task ID and the binding mode's parent identity in the private instance; logical Managers retain a null parent task ID.
+- Own Manager liveness by evidence fingerprint. A heartbeat or attached process
+  is not progress; block exhausted unchanged or same-failure loops and require
+  a changed precondition before retry.
+- Before recovering any shared runtime, preserve every active run and compare
+  the exact active set again immediately before the action; abort/replan if it
+  changed. First close admission and acquire the machine-wide runtime claim
+  outside project registries; block recovery if any start path can bypass it.
+  A local/XDG ledger or project receipt never authorizes recovery; without a
+  cryptographic, monotonic, all-start-path external coordinator, stop. Once
+  that adapter exists, mirror its claim before the side effect, reconcile an
+  expired claim on the same receipt, and reopen admission only at terminal
+  reconciliation.
 
 First action:
 - Read project instructions and authoritative work records, validate the registry, then publish the portfolio graph, eligible work, blockers, and decisions required before creating live tasks.

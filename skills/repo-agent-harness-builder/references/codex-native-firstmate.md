@@ -153,7 +153,38 @@ separate operation. Therefore:
 5. On a timeout, crash, ambiguous create, title failure, or failed bind, retain
    the reservation and quarantine the result. Reconcile by launch key and
    observed task identity before any retry.
-6. Never archive a task or remove its worktree until the completion profile's
+6. Have the current project-owner or active immediate-parent liveness owner
+   append a canonical, hash-linked evidence observation on each bounded control
+   check through a registry-revision and prior-receipt-hash CAS. Do not count a
+   heartbeat, attached task, or repeated status as progress, and do not repeat
+   an exhausted failure/precondition pair until the precondition changes and
+   the retry counter resets. Optional Boss bind/reconcile atomically appends
+   logical-Manager ownership handoffs. Record the preserved and immediate
+   pre-action active sets in a fresh private receipt before shared-runtime
+   recovery. Before preservation, an authority outside the repository-private
+   registry must close admission and grant the runtime-scoped claim; every run
+   start path must consult it. Future, stale, changed, delayed-start, or
+   admission-bypass receipts abort/replan. The adapter never treats a
+   local/XDG ledger, project registry, or same-user hash as the runtime
+   authority. Until a separate coordinator cryptographically authenticates
+   claims, anchors monotonic history, and atomically gates every raw start
+   path, destructive recovery is unavailable and every non-empty recovery
+   mirror fails closed. Ordinary work without a recovery receipt remains
+   available. Once the external adapter exists, it mirrors the coordinator
+   generation and authenticated claim reference and then wins the local
+   registry-CAS `prepared` → `started` transition before the side effect.
+   The claim key seals the runtime
+   scope, action, active-set fingerprint, and recovery-precondition
+   fingerprint; it is ledger-unique, and only one nonterminal mirror may exist
+   in the project registry. `started` has a portable owner and
+   bounded immutable lease. Append each monotonic state change to the
+   hash-linked transition ledger and require the current snapshot to match its
+   tip. An expired claim must be reconciled on the same receipt before any new
+   claim, and an unchanged terminal claim key cannot be replayed under a new
+   ID. Only the claimant may record `completed` or evidence-backed `failed`,
+   and terminal reconciliation reopens admission through the same runtime
+   authority. The project registry is never treated as the machine-wide lock.
+7. Never archive a task or remove its worktree until the completion profile's
    landed-work evidence is recorded. A restorable app snapshot is useful but is
    not proof that repository work landed.
 

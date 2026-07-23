@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { generateKeyPairSync, sign as signPayload } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as signPayload } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
@@ -11,7 +11,11 @@ import { main } from "../src/main.mjs";
 import { createGithubChildEnvironment, validateProfileRoot, validateRepositoryTarget } from "../src/github/index.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
-import { materializedWorkContractHash, taskBindingAttestationPayload, taskBindingLegacyAttestationDigest } from "../src/orchestration/index.mjs";
+import {
+  materializedWorkContractHash,
+  taskBindingAttestationPayload,
+  taskBindingLegacyAttestationDigest
+} from "../src/orchestration/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -115,6 +119,298 @@ function orchestrationAuthority({
     maxActiveChildren,
     stopConditions: ["authority-gap", "scope-unclear"]
   };
+}
+
+function orchestrationControlLoopPolicy() {
+  return {
+    progressSignal: "evidence-fingerprint",
+    quietActivityCountsAsProgress: false,
+    maxUnchangedChecks: 3,
+    maxSameFailureRetries: 1,
+    maxControlIntervalSeconds: 900,
+    maxClockSkewSeconds: 300,
+    retryRequiresChangedPrecondition: true,
+    sharedRuntimeRecovery: {
+      requireActiveSetSnapshot: true,
+      requirePreActionCompare: true,
+      activeSetChangeAction: "abort-and-replan",
+      unknownPreservationBehavior: "treat-as-non-preserving",
+      maxReceiptAgeSeconds: 60,
+      maxClaimLeaseSeconds: 900,
+      requireRuntimeScopedClaim: true,
+      requireAdmissionClosure: true,
+      unmanagedStartBehavior: "block-recovery"
+    }
+  };
+}
+
+function controlFingerprint(refs) {
+  return createHash("sha256").update(portableCanonicalJsonForTest([...new Set(refs)].sort(portableAsciiCompareForTest))).digest("hex");
+}
+
+function portableAsciiCompareForTest(left, right) {
+  const leftValue = String(left);
+  const rightValue = String(right);
+  if (leftValue < rightValue) return -1;
+  if (leftValue > rightValue) return 1;
+  return 0;
+}
+
+function canonicalizeForTest(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeForTest);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value).sort(portableAsciiCompareForTest)
+      .map((key) => [key, canonicalizeForTest(value[key])])
+  );
+}
+
+function portableCanonicalJsonForTest(value) {
+  return JSON.stringify(canonicalizeForTest(value));
+}
+
+function controlObservationReceiptHash(receipt) {
+  const payload = Object.fromEntries(
+    Object.entries(receipt).filter(([field]) => field !== "receiptHash")
+  );
+  return createHash("sha256").update(portableCanonicalJsonForTest(payload)).digest("hex");
+}
+
+function completeControlObservationReceipt(payload) {
+  const receipt = { ...payload, receiptHash: "" };
+  receipt.receiptHash = controlObservationReceiptHash(receipt);
+  return receipt;
+}
+
+function sharedRuntimeSetFingerprint(activeSet) {
+  const canonical = activeSet.map((entry) => ({
+    headRef: entry.headRef,
+    preservationEvidenceRefs: [...new Set(entry.preservationEvidenceRefs)].sort(portableAsciiCompareForTest),
+    runRef: entry.runRef
+  })).sort((left, right) => portableAsciiCompareForTest(left.runRef, right.runRef));
+  return createHash("sha256").update(portableCanonicalJsonForTest(canonical)).digest("hex");
+}
+
+function sharedRuntimeClaimKey(receipt) {
+  return createHash("sha256").update(portableCanonicalJsonForTest({
+    actionRef: receipt.actionRef,
+    preActionFingerprint: receipt.preActionFingerprint,
+    recoveryPreconditionFingerprint: receipt.recoveryPreconditionFingerprint,
+    runtimeScopeRef: receipt.runtimeScopeRef
+  })).digest("hex");
+}
+
+function sharedRuntimeTransitionHash(transition) {
+  return createHash("sha256").update(portableCanonicalJsonForTest(Object.fromEntries(
+    Object.entries(transition).filter(([field]) => field !== "transitionHash")
+  ))).digest("hex");
+}
+
+function syncSharedRuntimeReceiptState(receipt) {
+  const latest = receipt.transitionReceipts.at(-1);
+  for (const field of [
+    "status", "claimOwnerRef", "actionStartedAt", "claimExpiresAt",
+    "completedAt", "failureEvidenceRefs", "admissionReopenedAt"
+  ]) {
+    receipt[field] = structuredClone(latest[field]);
+  }
+}
+
+function appendSharedRuntimeTransition(receipt, status, overrides = {}) {
+  const previous = receipt.transitionReceipts.at(-1);
+  const claimed = ["started", "completed", "failed"].includes(status);
+  const recordedAt = overrides.recordedAt || new Date().toISOString();
+  const transition = {
+    sequence: receipt.transitionReceipts.length + 1,
+    claimKey: receipt.claimKey,
+    status,
+    recordedAt,
+    previousTransitionHash: previous?.transitionHash || null,
+    transitionHash: "",
+    claimOwnerRef: claimed
+      ? overrides.claimOwnerRef || previous?.claimOwnerRef || "task:controller"
+      : null,
+    actionStartedAt: claimed
+      ? overrides.actionStartedAt || previous?.actionStartedAt || recordedAt
+      : null,
+    claimExpiresAt: claimed
+      ? overrides.claimExpiresAt || previous?.claimExpiresAt
+        || new Date(Date.parse(recordedAt) + 300_000).toISOString()
+      : null,
+    completedAt: ["completed", "failed", "aborted"].includes(status)
+      ? overrides.completedAt || recordedAt
+      : null,
+    failureEvidenceRefs: status === "failed"
+      ? overrides.failureEvidenceRefs || ["external:error:recovery-action-failed"]
+      : [],
+    admissionReopenedAt: ["completed", "failed", "aborted"].includes(status)
+      ? overrides.admissionReopenedAt || overrides.completedAt || recordedAt
+      : null
+  };
+  transition.transitionHash = sharedRuntimeTransitionHash(transition);
+  receipt.transitionReceipts.push(transition);
+  syncSharedRuntimeReceiptState(receipt);
+  if (status === "aborted") receipt.decision = "abort-and-replan";
+  return transition;
+}
+
+function sharedRuntimeRecoveryReceipt({
+  id,
+  activeSet,
+  actionRef = "external:no-mistakes:abort-run",
+  preActionActiveSet = activeSet,
+  preservedAt = new Date().toISOString(),
+  comparedAt = preservedAt,
+  recordedAt = comparedAt,
+  runtimeScopeRef = "external:no-mistakes:shared-daemon:default",
+  recoveryPreconditionRefs = ["external:daemon:healthy", "external:disk:capacity-ok"]
+}) {
+  const runtimeClaimEvidenceRefs = ["external:runtime-coordination:no-mistakes-default:claim"];
+  const admissionClosureEvidenceRefs = ["external:runtime-coordination:no-mistakes-default:admission-closed"];
+  const receipt = {
+    id,
+    claimKey: "",
+    runtimeScopeRef,
+    runtimeClaimFingerprint: controlFingerprint(runtimeClaimEvidenceRefs),
+    runtimeClaimEvidenceRefs,
+    admissionClosureFingerprint: controlFingerprint(admissionClosureEvidenceRefs),
+    admissionClosureEvidenceRefs,
+    admissionClosedAt: preservedAt,
+    admissionReopenedAt: null,
+    runtimeCoordinatorGeneration: 1,
+    runtimeCoordinatorAttestationHash: "0".repeat(64),
+    actionRef,
+    approvedBy: "project-owner",
+    preservedAt,
+    comparedAt,
+    beforeActiveSet: structuredClone(activeSet),
+    beforeFingerprint: sharedRuntimeSetFingerprint(activeSet),
+    preActionActiveSet: structuredClone(preActionActiveSet),
+    preActionFingerprint: sharedRuntimeSetFingerprint(preActionActiveSet),
+    decision: "proceed",
+    recoveryPreconditionFingerprint: controlFingerprint(recoveryPreconditionRefs),
+    recoveryPreconditionRefs,
+    status: null,
+    claimOwnerRef: null,
+    actionStartedAt: null,
+    claimExpiresAt: null,
+    completedAt: null,
+    failureEvidenceRefs: [],
+    transitionReceipts: []
+  };
+  receipt.claimKey = sharedRuntimeClaimKey(receipt);
+  appendSharedRuntimeTransition(receipt, "prepared", { recordedAt });
+  return receipt;
+}
+
+function orchestrationControlLoop(overrides = {}) {
+  const now = Date.now();
+  const progressEvidenceRefs = overrides.progressEvidenceRefs || ["git:head:fixture", "task:task-boss"];
+  const preconditionRefs = overrides.preconditionRefs || ["external:runtime:available", "task:task-boss"];
+  const lastFailureEvidenceRefs = overrides.lastFailureEvidenceRefs || [];
+  const lastFailurePreconditionRefs = overrides.lastFailurePreconditionRefs || [];
+  const progressFingerprint = controlFingerprint(progressEvidenceRefs);
+  const preconditionFingerprint = controlFingerprint(preconditionRefs);
+  const unchangedChecks = overrides.unchangedChecks ?? 0;
+  const lastFailureFingerprint = lastFailureEvidenceRefs.length
+    ? controlFingerprint(lastFailureEvidenceRefs)
+    : null;
+  const lastFailurePreconditionFingerprint = lastFailurePreconditionRefs.length
+    ? controlFingerprint(lastFailurePreconditionRefs)
+    : null;
+  const sameFailureRetries = overrides.sameFailureRetries ?? 0;
+  const lastProgressAt = overrides.lastProgressAt || new Date(now - 60_000 - (unchangedChecks * 1000)).toISOString();
+  const observationReceipts = [completeControlObservationReceipt({
+    sequence: 1,
+    observerRef: "project-owner",
+    observedAt: lastProgressAt,
+    previousReceiptHash: null,
+    previousProgressFingerprint: null,
+    previousUnchangedChecks: 0,
+    progressChanged: true,
+    progressFingerprint,
+    progressEvidenceRefs,
+    lastProgressAt,
+    unchangedChecks: 0,
+    preconditionFingerprint,
+    preconditionRefs,
+    lastFailureFingerprint,
+    lastFailureEvidenceRefs,
+    lastFailurePreconditionFingerprint,
+    lastFailurePreconditionRefs,
+    sameFailureRetries
+  })];
+  for (let index = 1; index <= unchangedChecks; index += 1) {
+    const previous = observationReceipts.at(-1);
+    observationReceipts.push(completeControlObservationReceipt({
+      sequence: index + 1,
+      observerRef: "project-owner",
+      observedAt: new Date(Date.parse(lastProgressAt) + (index * 1000)).toISOString(),
+      previousReceiptHash: previous.receiptHash,
+      previousProgressFingerprint: previous.progressFingerprint,
+      previousUnchangedChecks: previous.unchangedChecks,
+      progressChanged: false,
+      progressFingerprint,
+      progressEvidenceRefs,
+      lastProgressAt,
+      unchangedChecks: index,
+      preconditionFingerprint,
+      preconditionRefs,
+      lastFailureFingerprint,
+      lastFailureEvidenceRefs,
+      lastFailurePreconditionFingerprint,
+      lastFailurePreconditionRefs,
+      sameFailureRetries
+    }));
+  }
+  return {
+    progressFingerprint,
+    progressEvidenceRefs,
+    lastProgressAt,
+    unchangedChecks,
+    observationReceipts,
+    checkMode: "scheduled",
+    nextCheckAt: new Date(now + 14 * 60_000).toISOString(),
+    wakeEvent: null,
+    watchdogAt: null,
+    lastFailureFingerprint,
+    lastFailureEvidenceRefs,
+    lastFailurePreconditionFingerprint,
+    lastFailurePreconditionRefs,
+    sameFailureRetries,
+    preconditionFingerprint,
+    preconditionRefs,
+    ...overrides
+  };
+}
+
+function appendUnchangedControlObservation(control, {
+  observerRef,
+  observedAt = new Date().toISOString()
+}) {
+  const previous = control.observationReceipts.at(-1);
+  const receipt = completeControlObservationReceipt({
+    sequence: previous.sequence + 1,
+    observerRef,
+    observedAt,
+    previousReceiptHash: previous.receiptHash,
+    previousProgressFingerprint: previous.progressFingerprint,
+    previousUnchangedChecks: previous.unchangedChecks,
+    progressChanged: false,
+    progressFingerprint: previous.progressFingerprint,
+    progressEvidenceRefs: previous.progressEvidenceRefs,
+    lastProgressAt: previous.lastProgressAt,
+    unchangedChecks: previous.unchangedChecks + 1,
+    preconditionFingerprint: control.preconditionFingerprint,
+    preconditionRefs: control.preconditionRefs,
+    lastFailureFingerprint: previous.lastFailureFingerprint,
+    lastFailureEvidenceRefs: previous.lastFailureEvidenceRefs,
+    lastFailurePreconditionFingerprint: previous.lastFailurePreconditionFingerprint,
+    lastFailurePreconditionRefs: previous.lastFailurePreconditionRefs,
+    sameFailureRetries: previous.sameFailureRetries
+  });
+  control.observationReceipts.push(receipt);
+  control.unchangedChecks = receipt.unchangedChecks;
 }
 
 function canonicalAuthorityForTest(authority) {
@@ -622,6 +918,7 @@ test("help lists core commands", () => {
   assert.match(help, /orchestration init/);
   assert.match(help, /orchestration migrate/);
   assert.match(help, /orchestration adapter-status/);
+  assert.match(help, /orchestration liveness/);
   assert.match(help, /orchestration taxonomy/);
   assert.match(help, /orchestration validate/);
   assert.match(help, /orchestration prompt/);
@@ -2240,7 +2537,7 @@ fixtureTest("orchestration keeps the tracked scaffold inert and initializes a pr
   const schemaV3Example = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
   schemaV3Example.schemaVersion = 3;
   schemaV3Example.nodes = [];
-  for (const field of ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]) {
+  for (const field of ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "controlLoopPolicy", "ownerDirectives"]) {
     delete schemaV3Example[field];
   }
   delete schemaV3Example.scope.ownerRef;
@@ -2601,6 +2898,7 @@ fixtureTest("orchestration instances reports directory listing failures without 
 
 fixtureTest("schema-v5 owner-first instances can launch a logical Manager before materializing the Boss", async () => {
   const registry = ownerFirstOrchestrationRegistry();
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
   writeOrchestrationRegistry(registry);
 
   const validation = capture();
@@ -2630,11 +2928,15 @@ fixtureTest("schema-v5 owner-first instances can launch a logical Manager before
   manager.state = "working";
   manager.nextAction = "Deliver the bounded feature outcome.";
   manager.parentTaskId = null;
+  manager.controlLoop = orchestrationControlLoop();
   manager.taskBinding = taskBindingForTest(registry, manager);
   writeOrchestrationRegistry(registry);
 
   const activeValidation = capture();
   assert.equal(await main(["orchestration", "validate"], activeValidation.io), 0, activeValidation.err.join("\n"));
+  const ownerLiveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], ownerLiveness.io), 0, ownerLiveness.out.concat(ownerLiveness.err).join("\n"));
+  assert.match(ownerLiveness.out.join("\n"), /"manager-feature-a","working","project-owner:project-owner"/);
 
   const eligible = capture();
   assert.equal(await main(["orchestration", "next"], eligible.io), 0, eligible.err.join("\n"));
@@ -2646,6 +2948,574 @@ fixtureTest("schema-v5 owner-first instances can launch a logical Manager before
   assert.equal(bossSpec.nodeId, "boss");
   assert.equal(bossSpec.parentTaskId, null);
   assert.equal(bossSpec.callback.reserve.onSuccess.status, undefined);
+  assert.equal(
+    bossSpec.callback.bind.requiredUpdates.some((entry) => entry.includes("liveness-owner handoff observations")),
+    true
+  );
+  assert.equal(
+    bossSpec.callback.reconcile.requiredUpdates.some((entry) => entry.includes("liveness-owner handoff observations")),
+    true
+  );
+
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.taskId = "task-boss";
+  boss.state = "working";
+  boss.nextAction = "Reconcile the feature portfolio.";
+  boss.controlLoop = orchestrationControlLoop();
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const nonAtomicHandoff = capture();
+  assert.equal(await main(["orchestration", "validate"], nonAtomicHandoff.io), 1);
+  assert.match(nonAtomicHandoff.out.join("\n"), /latest controlLoop observation must identify the current project-owner or active immediate-parent liveness owner/);
+
+  const observedAt = new Date(Date.now() - 30_000).toISOString();
+  appendUnchangedControlObservation(manager.controlLoop, {
+    observerRef: "task-boss",
+    observedAt
+  });
+  manager.controlLoop.nextCheckAt = new Date(Date.now() + 10 * 60_000).toISOString();
+  writeOrchestrationRegistry(registry);
+  const bossOwnedValidation = capture();
+  assert.equal(await main(["orchestration", "validate"], bossOwnedValidation.io), 0, bossOwnedValidation.out.concat(bossOwnedValidation.err).join("\n"));
+  const bossOwnedLiveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], bossOwnedLiveness.io), 0, bossOwnedLiveness.out.concat(bossOwnedLiveness.err).join("\n"));
+  assert.match(bossOwnedLiveness.out.join("\n"), /"manager-feature-a","working","parent-task:task-boss"/);
+});
+
+fixtureTest("schema-v5 control-loop policy blocks unchanged polling and repeated identical recovery", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 5;
+  registry.rootControl = { materialization: "required" };
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  for (const node of registry.nodes) node.parentBindingMode = "task";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.controlLoop = orchestrationControlLoop();
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const valid = capture();
+  assert.equal(await main(["orchestration", "validate"], valid.io), 0, valid.out.concat(valid.err).join("\n"));
+
+  const liveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], liveness.io), 0, liveness.out.concat(liveness.err).join("\n"));
+  assert.match(liveness.out.join("\n"), /progress_signal: "evidence-fingerprint"/);
+  assert.match(liveness.out.join("\n"), /"boss","working","project-owner:project-owner","scheduled",false/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_pre_action_compare: true/);
+
+  boss.controlLoop = orchestrationControlLoop({ unchangedChecks: 2 });
+  boss.controlLoop.observationReceipts = [boss.controlLoop.observationReceipts.at(-1)];
+  writeOrchestrationRegistry(registry);
+  const truncated = capture();
+  assert.equal(await main(["orchestration", "validate"], truncated.io), 1);
+  assert.match(truncated.out.join("\n"), /sequence must be the contiguous value 1|previousReceiptHash must link to the prior receipt/);
+
+  delete boss.controlLoop;
+  writeOrchestrationRegistry(registry);
+  const missing = capture();
+  assert.equal(await main(["orchestration", "validate"], missing.io), 1);
+  assert.match(missing.out.join("\n"), /active state requires controlLoop/);
+
+  boss.controlLoop = orchestrationControlLoop({ unchangedChecks: 3 });
+  writeOrchestrationRegistry(registry);
+  const stagnated = capture();
+  assert.equal(await main(["orchestration", "validate"], stagnated.io), 1);
+  assert.match(stagnated.out.join("\n"), /exhausted progress or retry budget requires blocked state/);
+
+  Object.assign(boss, {
+    state: "blocked",
+    blocker: "Progress fingerprint remained unchanged through the configured observation budget.",
+    unblockAction: "Immediate parent must inspect evidence and record a changed precondition before any retry."
+  });
+  delete boss.nextAction;
+  boss.controlLoop = orchestrationControlLoop({
+    unchangedChecks: 3,
+    checkMode: "event",
+    nextCheckAt: null,
+    wakeEvent: "task:boss#changed-precondition",
+    watchdogAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    lastFailureEvidenceRefs: ["external:error:review-timeout"],
+    lastFailurePreconditionRefs: ["external:runtime:available", "task:task-boss"],
+    sameFailureRetries: 1
+  });
+  writeOrchestrationRegistry(registry);
+  const blocked = capture();
+  assert.equal(await main(["orchestration", "validate"], blocked.io), 0, blocked.out.concat(blocked.err).join("\n"));
+  const blockedLiveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], blockedLiveness.io), 0);
+  assert.match(blockedLiveness.out.join("\n"), /"blocked-budget-exhausted",true,"event"/);
+
+  registry.controlLoopPolicy.maxUnchangedChecks = 101;
+  registry.controlLoopPolicy.maxSameFailureRetries = 21;
+  registry.controlLoopPolicy.maxControlIntervalSeconds = 604800;
+  registry.controlLoopPolicy.sharedRuntimeRecovery.requireRuntimeScopedClaim = false;
+  registry.controlLoopPolicy.sharedRuntimeRecovery.requireAdmissionClosure = false;
+  registry.controlLoopPolicy.sharedRuntimeRecovery.unmanagedStartBehavior = "allow";
+  writeOrchestrationRegistry(registry);
+  const unboundedPolicy = capture();
+  assert.equal(await main(["orchestration", "validate"], unboundedPolicy.io), 1);
+  assert.match(unboundedPolicy.out.join("\n"), /safe integer from 1 through 100/);
+  assert.match(unboundedPolicy.out.join("\n"), /safe integer from 0 through 20/);
+  assert.match(unboundedPolicy.out.join("\n"), /may span at most 2592000 seconds/);
+  assert.match(unboundedPolicy.out.join("\n"), /requireRuntimeScopedClaim must be true/);
+  assert.match(unboundedPolicy.out.join("\n"), /requireAdmissionClosure must be true/);
+  assert.match(unboundedPolicy.out.join("\n"), /unmanagedStartBehavior must be block-recovery/);
+});
+
+fixtureTest("control-loop retries are bound to schema-v5 failure/precondition pairs", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 5;
+  registry.rootControl = { materialization: "required" };
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  for (const node of registry.nodes) node.parentBindingMode = "task";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.controlLoop = orchestrationControlLoop({
+    lastFailureEvidenceRefs: ["external:error:review-timeout"],
+    sameFailureRetries: 1
+  });
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const incompletePair = capture();
+  assert.equal(await main(["orchestration", "validate"], incompletePair.io), 1);
+  assert.match(incompletePair.out.join("\n"), /last failure and last failure precondition fingerprints must be recorded or cleared together/);
+
+  boss.controlLoop = orchestrationControlLoop({
+    lastFailureEvidenceRefs: ["external:error:review-timeout"],
+    lastFailurePreconditionRefs: ["external:runtime:unavailable"],
+    sameFailureRetries: 1
+  });
+  writeOrchestrationRegistry(registry);
+  const staleRetryCount = capture();
+  assert.equal(await main(["orchestration", "validate"], staleRetryCount.io), 1);
+  assert.match(staleRetryCount.out.join("\n"), /changed precondition requires sameFailureRetries to reset/);
+
+  boss.controlLoop = orchestrationControlLoop({
+    lastFailureEvidenceRefs: ["external:error:review-timeout"],
+    lastFailurePreconditionRefs: ["external:runtime:unavailable"],
+    sameFailureRetries: 0
+  });
+  writeOrchestrationRegistry(registry);
+  const changedPrecondition = capture();
+  assert.equal(await main(["orchestration", "validate"], changedPrecondition.io), 0, changedPrecondition.out.concat(changedPrecondition.err).join("\n"));
+
+  boss.controlLoop = orchestrationControlLoop({
+    lastFailureEvidenceRefs: ["external:error:review-timeout"],
+    lastFailurePreconditionRefs: ["external:runtime:available", "task:task-boss"],
+    sameFailureRetries: 1
+  });
+  const priorFailureObservation = boss.controlLoop.observationReceipts.at(-1);
+  const resetObservedAt = new Date(Date.parse(priorFailureObservation.observedAt) + 1000).toISOString();
+  const resetFailureObservation = completeControlObservationReceipt({
+    ...priorFailureObservation,
+    sequence: priorFailureObservation.sequence + 1,
+    observedAt: resetObservedAt,
+    previousReceiptHash: priorFailureObservation.receiptHash,
+    previousProgressFingerprint: priorFailureObservation.progressFingerprint,
+    previousUnchangedChecks: priorFailureObservation.unchangedChecks,
+    progressChanged: false,
+    unchangedChecks: priorFailureObservation.unchangedChecks + 1,
+    sameFailureRetries: 0
+  });
+  boss.controlLoop.observationReceipts.push(resetFailureObservation);
+  boss.controlLoop.unchangedChecks = resetFailureObservation.unchangedChecks;
+  boss.controlLoop.sameFailureRetries = 0;
+  writeOrchestrationRegistry(registry);
+  const rewrittenRetry = capture();
+  assert.equal(await main(["orchestration", "validate"], rewrittenRetry.io), 1);
+  assert.match(rewrittenRetry.out.join("\n"), /must preserve or increment its historical retry count exactly once/);
+
+  boss.controlLoop = orchestrationControlLoop({
+    lastFailureEvidenceRefs: ["external:error:review-timeout"],
+    lastFailurePreconditionRefs: ["external:runtime:available", "task:task-boss"],
+    sameFailureRetries: 1
+  });
+  const failureUnderAvailable = boss.controlLoop.observationReceipts.at(-1);
+  const unavailableRefs = ["external:runtime:unavailable", "task:task-boss"];
+  const changedPreconditionObservation = completeControlObservationReceipt({
+    ...failureUnderAvailable,
+    sequence: failureUnderAvailable.sequence + 1,
+    observedAt: new Date(Date.parse(failureUnderAvailable.observedAt) + 1000).toISOString(),
+    previousReceiptHash: failureUnderAvailable.receiptHash,
+    previousProgressFingerprint: failureUnderAvailable.progressFingerprint,
+    previousUnchangedChecks: failureUnderAvailable.unchangedChecks,
+    progressChanged: false,
+    unchangedChecks: failureUnderAvailable.unchangedChecks + 1,
+    preconditionFingerprint: controlFingerprint(unavailableRefs),
+    preconditionRefs: unavailableRefs,
+    sameFailureRetries: 0
+  });
+  boss.controlLoop.observationReceipts.push(changedPreconditionObservation);
+  boss.controlLoop.unchangedChecks = changedPreconditionObservation.unchangedChecks;
+  boss.controlLoop.preconditionFingerprint = changedPreconditionObservation.preconditionFingerprint;
+  boss.controlLoop.preconditionRefs = unavailableRefs;
+  boss.controlLoop.sameFailureRetries = 0;
+  writeOrchestrationRegistry(registry);
+  const changedPairPrecondition = capture();
+  assert.equal(await main(["orchestration", "validate"], changedPairPrecondition.io), 0, changedPairPrecondition.out.concat(changedPairPrecondition.err).join("\n"));
+
+  const returnedPreconditionObservation = completeControlObservationReceipt({
+    ...changedPreconditionObservation,
+    sequence: changedPreconditionObservation.sequence + 1,
+    observedAt: new Date(Date.parse(changedPreconditionObservation.observedAt) + 1000).toISOString(),
+    previousReceiptHash: changedPreconditionObservation.receiptHash,
+    previousProgressFingerprint: changedPreconditionObservation.progressFingerprint,
+    previousUnchangedChecks: changedPreconditionObservation.unchangedChecks,
+    progressChanged: false,
+    unchangedChecks: changedPreconditionObservation.unchangedChecks + 1,
+    preconditionFingerprint: failureUnderAvailable.preconditionFingerprint,
+    preconditionRefs: failureUnderAvailable.preconditionRefs,
+    sameFailureRetries: 0
+  });
+  boss.controlLoop.observationReceipts.push(returnedPreconditionObservation);
+  boss.controlLoop.unchangedChecks = returnedPreconditionObservation.unchangedChecks;
+  boss.controlLoop.preconditionFingerprint = returnedPreconditionObservation.preconditionFingerprint;
+  boss.controlLoop.preconditionRefs = returnedPreconditionObservation.preconditionRefs;
+  writeOrchestrationRegistry(registry);
+  const returnedToExhaustedPair = capture();
+  assert.equal(await main(["orchestration", "validate"], returnedToExhaustedPair.io), 1);
+  assert.match(returnedToExhaustedPair.out.join("\n"), /must preserve or increment its historical retry count exactly once/);
+
+  registry.schemaVersion = 4;
+  delete registry.rootControl;
+  for (const node of registry.nodes) delete node.parentBindingMode;
+  writeOrchestrationRegistry(registry);
+  const legacySchema = capture();
+  assert.equal(await main(["orchestration", "validate"], legacySchema.io), 1);
+  assert.match(legacySchema.out.join("\n"), /controlLoopPolicy requires schemaVersion 5/);
+});
+
+fixtureTest("liveness reports overdue scheduled controls without treating quiet activity as progress", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 5;
+  registry.rootControl = { materialization: "required" };
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  for (const node of registry.nodes) node.parentBindingMode = "task";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  const overdueObservedAt = new Date(Date.now() - 14 * 60_000).toISOString();
+  boss.controlLoop = orchestrationControlLoop({
+    lastProgressAt: overdueObservedAt,
+    nextCheckAt: new Date(Date.now() - 30_000).toISOString()
+  });
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+
+  const liveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], liveness.io), 1);
+  assert.match(liveness.out.join("\n"), /"scheduled-overdue",true,"scheduled"/);
+  assert.match(liveness.out.join("\n"), /owner_action_required: 1 overdue control/);
+
+  boss.controlLoop.checkMode = "event";
+  boss.controlLoop.nextCheckAt = null;
+  boss.controlLoop.wakeEvent = "external:no-mistakes:run-terminal";
+  boss.controlLoop.watchdogAt = new Date(Date.now() - 30_000).toISOString();
+  writeOrchestrationRegistry(registry);
+  const eventLiveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], eventLiveness.io), 1);
+  assert.match(eventLiveness.out.join("\n"), /"event-watchdog-overdue",true,"event"/);
+});
+
+fixtureTest("shared-runtime recovery receipts fail closed on stale or changed active sets", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 5;
+  registry.rootControl = { materialization: "required" };
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  for (const node of registry.nodes) node.parentBindingMode = "task";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.controlLoop = orchestrationControlLoop();
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  const activeSet = [{
+    runRef: "run:aeb-review",
+    headRef: "git:head:f6140bea",
+    preservationEvidenceRefs: ["artifact:bundle:aeb-review", "git:head:f6140bea"]
+  }];
+  const now = new Date().toISOString();
+  const receipt = sharedRuntimeRecoveryReceipt({
+    id: "aeb-review-recovery",
+    activeSet,
+    preservedAt: now,
+    comparedAt: now
+  });
+  registry.sharedRuntimeRecoveryReceipts = [receipt];
+  writeOrchestrationRegistry(registry);
+
+  const prepared = capture();
+  assert.equal(await main(["orchestration", "validate"], prepared.io), 1);
+  assert.match(
+    prepared.out.join("\n"),
+    /destructive shared-runtime recovery is unavailable until a separately implemented external coordinator/
+  );
+
+  const missingRuntimeAuthority = structuredClone(receipt);
+  missingRuntimeAuthority.runtimeClaimEvidenceRefs = [];
+  missingRuntimeAuthority.runtimeClaimFingerprint = controlFingerprint([]);
+  registry.sharedRuntimeRecoveryReceipts = [missingRuntimeAuthority];
+  writeOrchestrationRegistry(registry);
+  const missingRuntimeClaim = capture();
+  assert.equal(await main(["orchestration", "validate"], missingRuntimeClaim.io), 1);
+  assert.match(missingRuntimeClaim.out.join("\n"), /runtimeClaimEvidenceRefs must be a non-empty canonical array/);
+
+  const unboundRuntimeScope = structuredClone(receipt);
+  unboundRuntimeScope.runtimeScopeRef = "external:no-mistakes:shared-daemon:other";
+  registry.sharedRuntimeRecoveryReceipts = [unboundRuntimeScope];
+  writeOrchestrationRegistry(registry);
+  const unboundRuntimeClaim = capture();
+  assert.equal(await main(["orchestration", "validate"], unboundRuntimeClaim.io), 1);
+  assert.match(unboundRuntimeClaim.out.join("\n"), /claimKey must match the canonical runtime scope/);
+
+  const lateAdmissionClosure = structuredClone(receipt);
+  lateAdmissionClosure.admissionClosedAt = new Date(Date.parse(receipt.preservedAt) + 1_000).toISOString();
+  registry.sharedRuntimeRecoveryReceipts = [lateAdmissionClosure];
+  writeOrchestrationRegistry(registry);
+  const lateAdmission = capture();
+  assert.equal(await main(["orchestration", "validate"], lateAdmission.io), 1);
+  assert.match(lateAdmission.out.join("\n"), /admissionClosedAt must not follow preservedAt/);
+
+  registry.sharedRuntimeRecoveryReceipts = [receipt];
+  registry.sharedRuntimeRecoveryReceipts.push({ ...receipt, id: "duplicate-replay-claim" });
+  writeOrchestrationRegistry(registry);
+  const replayedClaim = capture();
+  assert.equal(await main(["orchestration", "validate"], replayedClaim.io), 1);
+  assert.match(replayedClaim.out.join("\n"), /duplicate shared runtime recovery claim key/);
+  registry.sharedRuntimeRecoveryReceipts.pop();
+
+  const competingClaim = {
+    ...sharedRuntimeRecoveryReceipt({
+      id: "competing-recovery-claim",
+      activeSet,
+      actionRef: "external:no-mistakes:daemon-restart",
+      preservedAt: now,
+      comparedAt: now
+    })
+  };
+  registry.sharedRuntimeRecoveryReceipts.push(competingClaim);
+  writeOrchestrationRegistry(registry);
+  const competing = capture();
+  assert.equal(await main(["orchestration", "validate"], competing.io), 1);
+  assert.match(competing.out.join("\n"), /at most one prepared or started claim/);
+  registry.sharedRuntimeRecoveryReceipts.pop();
+
+  registry.sharedRuntimeRecoveryReceipts = [competingClaim];
+  writeOrchestrationRegistry(registry);
+  const crossProjectCompeting = capture();
+  assert.equal(await main(["orchestration", "validate"], crossProjectCompeting.io), 1);
+  assert.match(
+    crossProjectCompeting.out.join("\n"),
+    /destructive shared-runtime recovery is unavailable until a separately implemented external coordinator/
+  );
+
+  const changedActiveSet = [{
+    runRef: "run:aeb-review",
+    headRef: "git:head:changed",
+    preservationEvidenceRefs: ["artifact:bundle:aeb-review", "git:head:changed"]
+  }];
+  const changedReceipt = sharedRuntimeRecoveryReceipt({
+    id: "changed-active-set-recovery",
+    activeSet,
+    preActionActiveSet: changedActiveSet,
+    preservedAt: now,
+    comparedAt: now
+  });
+  registry.sharedRuntimeRecoveryReceipts = [changedReceipt];
+  writeOrchestrationRegistry(registry);
+  const changed = capture();
+  assert.equal(await main(["orchestration", "validate"], changed.io), 1);
+  assert.match(changed.out.join("\n"), /changed active sets require decision abort-and-replan/);
+
+  appendSharedRuntimeTransition(changedReceipt, "aborted");
+  writeOrchestrationRegistry(registry);
+  const aborted = capture();
+  assert.equal(await main(["orchestration", "validate"], aborted.io), 1);
+  assert.match(aborted.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  registry.sharedRuntimeRecoveryReceipts = [receipt];
+  appendSharedRuntimeTransition(receipt, "started");
+  writeOrchestrationRegistry(registry);
+  const started = capture();
+  assert.equal(await main(["orchestration", "validate"], started.io), 1);
+  assert.match(started.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  const startedSnapshot = structuredClone(receipt);
+  const expiredComparedAt = new Date(Date.now() - 90_000).toISOString();
+  const expiredReceipt = sharedRuntimeRecoveryReceipt({
+    id: "expired-started-recovery",
+    activeSet,
+    preservedAt: new Date(Date.now() - 120_000).toISOString(),
+    comparedAt: expiredComparedAt,
+    recordedAt: expiredComparedAt
+  });
+  appendSharedRuntimeTransition(expiredReceipt, "started", {
+    recordedAt: new Date(Date.now() - 60_000).toISOString(),
+    actionStartedAt: new Date(Date.now() - 60_000).toISOString(),
+    claimExpiresAt: new Date(Date.now() - 1_000).toISOString()
+  });
+  registry.sharedRuntimeRecoveryReceipts = [expiredReceipt];
+  writeOrchestrationRegistry(registry);
+  const expiredStarted = capture();
+  assert.equal(await main(["orchestration", "validate"], expiredStarted.io), 1);
+  assert.match(expiredStarted.out.join("\n"), /started recovery claim lease expired/);
+  const expiredLiveness = capture();
+  assert.equal(await main(["orchestration", "liveness"], expiredLiveness.io), 1);
+  assert.match(expiredLiveness.out.join("\n"), /"started-claim-expired",true/);
+  assert.match(expiredLiveness.out.join("\n"), /stale or expired shared-runtime recovery claim/);
+
+  registry.sharedRuntimeRecoveryReceipts = [receipt];
+  appendSharedRuntimeTransition(receipt, "completed");
+  writeOrchestrationRegistry(registry);
+  const completed = capture();
+  assert.equal(await main(["orchestration", "validate"], completed.io), 1);
+  assert.match(completed.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  receipt.status = "started";
+  writeOrchestrationRegistry(registry);
+  const terminalReplay = capture();
+  assert.equal(await main(["orchestration", "validate"], terminalReplay.io), 1);
+  assert.match(terminalReplay.out.join("\n"), /status must match the latest append-only transition receipt/);
+  syncSharedRuntimeReceiptState(receipt);
+
+  const illegalTerminalTransition = appendSharedRuntimeTransition(receipt, "prepared");
+  writeOrchestrationRegistry(registry);
+  const terminalToPrepared = capture();
+  assert.equal(await main(["orchestration", "validate"], terminalToPrepared.io), 1);
+  assert.match(terminalToPrepared.out.join("\n"), /status is not a valid monotonic recovery transition/);
+  receipt.transitionReceipts.pop();
+  assert.equal(receipt.transitionReceipts.includes(illegalTerminalTransition), false);
+  syncSharedRuntimeReceiptState(receipt);
+
+  appendSharedRuntimeTransition(startedSnapshot, "completed", {
+    claimExpiresAt: new Date(
+      Date.parse(startedSnapshot.claimExpiresAt) + 60_000
+    ).toISOString()
+  });
+  registry.sharedRuntimeRecoveryReceipts = [startedSnapshot];
+  writeOrchestrationRegistry(registry);
+  const leaseRenewal = capture();
+  assert.equal(await main(["orchestration", "validate"], leaseRenewal.io), 1);
+  assert.match(leaseRenewal.out.join("\n"), /must preserve the immutable started claim owner, action start, and lease/);
+
+  const failedReceipt = sharedRuntimeRecoveryReceipt({
+    id: "failed-recovery",
+    activeSet,
+    actionRef: "external:no-mistakes:daemon-restart",
+    preservedAt: now,
+    comparedAt: now
+  });
+  appendSharedRuntimeTransition(failedReceipt, "started");
+  appendSharedRuntimeTransition(failedReceipt, "failed");
+  registry.sharedRuntimeRecoveryReceipts = [failedReceipt];
+  writeOrchestrationRegistry(registry);
+  const failedAction = capture();
+  assert.equal(await main(["orchestration", "validate"], failedAction.io), 1);
+  assert.match(failedAction.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  registry.sharedRuntimeRecoveryReceipts.push({
+    ...structuredClone(failedReceipt),
+    id: "failed-replay-claim"
+  });
+  writeOrchestrationRegistry(registry);
+  const failedReplay = capture();
+  assert.equal(await main(["orchestration", "validate"], failedReplay.io), 1);
+  assert.match(failedReplay.out.join("\n"), /duplicate shared runtime recovery claim key/);
+
+  const changedPreconditionRefs = ["external:daemon:healthy", "external:disk:capacity-recovered"];
+  const changedPreconditionClaim = sharedRuntimeRecoveryReceipt({
+    id: "changed-precondition-claim",
+    activeSet,
+    actionRef: failedReceipt.actionRef,
+    preservedAt: now,
+    comparedAt: now,
+    recoveryPreconditionRefs: changedPreconditionRefs
+  });
+  appendSharedRuntimeTransition(changedPreconditionClaim, "started");
+  appendSharedRuntimeTransition(changedPreconditionClaim, "failed");
+  registry.sharedRuntimeRecoveryReceipts = [failedReceipt, changedPreconditionClaim];
+  writeOrchestrationRegistry(registry);
+  const changedPrecondition = capture();
+  assert.equal(await main(["orchestration", "validate"], changedPrecondition.io), 1);
+  assert.match(changedPrecondition.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  const staleComparedAt = new Date(Date.now() - 120_000).toISOString();
+  const staleReceipt = sharedRuntimeRecoveryReceipt({
+    id: "stale-prepared-recovery",
+    activeSet,
+    preservedAt: new Date(Date.now() - 180_000).toISOString(),
+    comparedAt: staleComparedAt,
+    recordedAt: staleComparedAt
+  });
+  registry.sharedRuntimeRecoveryReceipts = [staleReceipt];
+  writeOrchestrationRegistry(registry);
+  const stale = capture();
+  assert.equal(await main(["orchestration", "validate"], stale.io), 1);
+  assert.match(stale.out.join("\n"), /prepared pre-action comparison receipt is stale/);
+
+  appendSharedRuntimeTransition(staleReceipt, "aborted");
+  writeOrchestrationRegistry(registry);
+  const staleAborted = capture();
+  assert.equal(await main(["orchestration", "validate"], staleAborted.io), 1);
+  assert.match(staleAborted.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  const futureComparedAt = new Date(Date.now() + 30_000).toISOString();
+  const futureReceipt = sharedRuntimeRecoveryReceipt({
+    id: "future-comparison-recovery",
+    activeSet,
+    preservedAt: now,
+    comparedAt: futureComparedAt,
+    recordedAt: now
+  });
+  registry.sharedRuntimeRecoveryReceipts = [futureReceipt];
+  writeOrchestrationRegistry(registry);
+  const futurePrepared = capture();
+  assert.equal(await main(["orchestration", "validate"], futurePrepared.io), 1);
+  assert.match(futurePrepared.out.join("\n"), /comparedAt may not be in the future/);
+  appendSharedRuntimeTransition(futureReceipt, "aborted", {
+    recordedAt: new Date().toISOString()
+  });
+  writeOrchestrationRegistry(registry);
+  const futureAborted = capture();
+  assert.equal(await main(["orchestration", "validate"], futureAborted.io), 1);
+  assert.match(futureAborted.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
+
+  const delayedStartReceipt = sharedRuntimeRecoveryReceipt({
+    id: "delayed-action-start",
+    activeSet,
+    preservedAt: new Date(Date.now() - 180_000).toISOString(),
+    comparedAt: staleComparedAt,
+    recordedAt: staleComparedAt
+  });
+  appendSharedRuntimeTransition(delayedStartReceipt, "started");
+  appendSharedRuntimeTransition(delayedStartReceipt, "completed");
+  registry.sharedRuntimeRecoveryReceipts = [delayedStartReceipt];
+  writeOrchestrationRegistry(registry);
+  const staleCompletedCheck = capture();
+  assert.equal(await main(["orchestration", "validate"], staleCompletedCheck.io), 1);
+  assert.match(staleCompletedCheck.out.join("\n"), /action began after the pre-action comparison freshness window/);
+});
+
+fixtureTest("ordinary orchestration validation does not require a runtime coordinator", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 5;
+  registry.rootControl = { materialization: "required" };
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  for (const node of registry.nodes) node.parentBindingMode = "task";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.controlLoop = orchestrationControlLoop();
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  registry.sharedRuntimeRecoveryReceipts = [];
+  writeOrchestrationRegistry(registry, { runtimeCoordinator: false });
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.out.concat(validation.err).join("\n"));
+});
+
+fixtureTest("tracked schema-v5 example exposes anti-stagnation policy without runtime identity", async () => {
+  const liveness = capture();
+  assert.equal(await main(["orchestration", "liveness", "--example"], liveness.io), 0, liveness.out.concat(liveness.err).join("\n"));
+  assert.match(liveness.out.join("\n"), /configured: true/);
+  assert.match(liveness.out.join("\n"), /nodes\[\d+\]/);
+  assert.match(liveness.out.join("\n"), /quiet_activity_counts_as_progress: false/);
+  assert.match(liveness.out.join("\n"), /max_shared_runtime_claim_lease_seconds: 900/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_scoped_claim_required: true/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_admission_closure_required: true/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_unmanaged_start_behavior: "block-recovery"/);
 });
 
 fixtureTest("schema-v5 Firstmate readiness accepts an explicitly optional unmaterialized Boss", async () => {

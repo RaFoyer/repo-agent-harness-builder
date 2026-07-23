@@ -41,6 +41,13 @@ The Boss runs the portfolio loop over Managers: observe, reconcile cross-workstr
 
 Each Manager runs the goal-graph loop below for one bounded workstream. Each Worker runs a bounded node loop: observe assigned inputs, plan, execute, verify, report or hand off to the immediate parent, and repeat until terminal.
 
+Every observation compares the node's evidence fingerprint. Heartbeats,
+attached processes, logs, and repeated status text are activity, not progress.
+When unchanged checks or retries of the same failure/precondition pair exhaust
+the orchestration policy budget, the node stops at a blocked
+immediate-parent-recovery boundary. Another identical Worker, gate, or
+authentication attempt is not a recovery.
+
 ## Manager Goal-Graph Loop
 
 1. Start from the current integration branch and tracker state.

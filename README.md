@@ -93,6 +93,7 @@ see a read-only readiness result, such as:
 ./harness orchestration status --example
 ./harness orchestration instances
 ./harness orchestration directives
+./harness orchestration liveness --example
 ./harness orchestration adapter-status --example
 ./harness orchestration taxonomy --example
 ./harness github status

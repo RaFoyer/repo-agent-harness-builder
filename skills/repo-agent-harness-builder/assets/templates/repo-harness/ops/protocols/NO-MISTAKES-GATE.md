@@ -42,8 +42,17 @@ unless the maintainer explicitly chooses a different PR validation system.
 4. Create or continue work on a feature branch.
 5. Run `./{{CLI_NAME}} verify` and any task-specific checks.
 6. Commit the branch.
-7. Push the committed branch through no-mistakes with `git push no-mistakes <branch-name>`.
-8. Review any no-mistakes findings or auto-fixes before merging.
+7. If the daemon has an authoritative shared-runtime coordinator, obtain its
+   admission-open attestation. The check must cover the same stable runtime
+   scope used by orchestration recovery; a repository-local status check is
+   not sufficient. A local/XDG ledger or project receipt is not authoritative.
+   The separate coordinator must cryptographically authenticate claims, anchor
+   monotonic history, and atomically gate every raw start path. Until that
+   adapter exists, ordinary validation may continue, but every non-empty
+   shared-runtime recovery receipt fails closed.
+8. Push the committed branch through no-mistakes with `git push no-mistakes
+   <branch-name>` only while that admission remains open.
+9. Review any no-mistakes findings or auto-fixes before merging.
 
 ## Guardrails
 
@@ -53,6 +62,11 @@ unless the maintainer explicitly chooses a different PR validation system.
 - Treat active no-mistakes runs on other branches/worktrees as owned by that
   branch. Do not cancel, replace, or take over those runs unless the user says
   that is the current task.
+- Do not start a shared-daemon run while its configured runtime coordinator
+  reports maintenance admission closed. Every start path, including a raw
+  `git push no-mistakes`, must participate in the same admission authority. If
+  the direct push path cannot prove that check, do not use it; fail closed
+  until the daemon or remote hook provides an enforceable path.
 - Do not pass unattended approval flags to no-mistakes unless the user has
   explicitly approved unattended operation for that run.
 - Treat `./{{CLI_NAME}} no-mistakes setup` as a mutating operation because it
@@ -79,7 +93,8 @@ Run:
 ./{{CLI_NAME}} ergonomics audit --strict
 ```
 
-When no-mistakes is installed and initialized, the final PR gate is:
+When no-mistakes is installed and initialized, and any configured
+shared-runtime admission authority attests open, the final PR gate is:
 
 ```bash
 git push no-mistakes <branch-name>

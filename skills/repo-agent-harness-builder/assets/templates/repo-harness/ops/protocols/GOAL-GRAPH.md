@@ -91,6 +91,12 @@ Use `./{{CLI_NAME}} orchestration next`, `orchestration prompt`, and `orchestrat
 
 The Manager repeatedly observes tracker, integration, Worker, PR, and ledger state; audits or rewrites its graph; selects dependency-eligible Workers; monitors and reviews; controls fan-in; reconciles evidence and downstream unlocks; and repeats until every owned node is terminal. The Boss handles dependencies and fan-in across Managers, not the Manager's internal loop.
 
+Each observation compares the node's orchestration evidence fingerprint.
+Heartbeats, attached processes, logs, and repeated status text are not
+progress. Exhausted unchanged-check or same-failure retry budgets stop the node
+at a blocked immediate-parent-recovery boundary; a retry requires a recorded
+changed precondition.
+
 ## Guardrails
 
 - Keep secrets out of repo, chat, logs, tickets, commits, and CI.

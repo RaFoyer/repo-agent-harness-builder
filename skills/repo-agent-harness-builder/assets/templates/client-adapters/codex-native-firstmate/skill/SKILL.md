@@ -72,6 +72,36 @@ independent repository Firstmates.
 - If creation, title assignment, or binding is ambiguous, retain the
   reservation, quarantine the result, reconcile observed task identity, and do
   not retry until absence is proven.
+- Use the portable control-loop policy for liveness. A live task, heartbeat, or
+  attached process is not progress without a parent-owned canonical,
+  hash-linked evidence receipt appended through registry/prior-hash CAS. The
+  project owner observes logical Managers until a Boss task is actively
+  managing; Boss bind/reconcile atomically appends their ownership handoffs.
+  The immediate parent then owns the bounded schedule/watchdog and blocks
+  exhausted failure/precondition loops until the precondition changes and the
+  retry counter resets. Shared-runtime recovery requires a fresh matching
+  private active-set comparison and an action start inside its freshness
+  window. First acquire the runtime-scoped claim and close admission through an
+  authority outside project registries; every start path must consult it, and
+  any unmanaged bypass blocks recovery. Never treat a local/XDG ledger,
+  project registry, or same-user hash as that authority. Until a separate
+  coordinator cryptographically authenticates claims, anchors monotonic
+  history, and atomically gates every raw start path, destructive recovery is
+  unavailable and every non-empty recovery mirror fails closed. Ordinary work
+  without a recovery receipt remains available. Once the external adapter
+  exists, mirror its generation and authenticated claim reference, then win the
+  local registry-CAS `prepared` → `started` transition before the side effect.
+  Seal
+  the runtime scope, action, active-set fingerprint, and recovery-precondition
+  fingerprint in a ledger-unique claim key and permit only one nonterminal
+  project mirror. `started` has a portable owner and bounded immutable lease;
+  reconcile
+  an expired claim on the same receipt before another claim. Append only
+  monotonic state changes to the hash-linked transition ledger and keep the
+  snapshot equal to its tip. Never replay an unchanged terminal claim key under
+  a new ID. Only the claimant may record `completed` or evidence-backed
+  `failed`, then reopen admission through the runtime authority during terminal
+  reconciliation. Never treat the project registry as the machine-wide lock.
 - Never silently replace a missing native capability with another browser,
   connector, CLI, or app-server bridge.
 - When GitHub CLI integration is selected, use the repository `github` facade;

@@ -16,7 +16,7 @@ const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4, 5]);
 const COORDINATION_MODES = new Set(["managed", "hybrid"]);
 const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
 const PARENT_BINDING_MODES = new Set(["task", "logical"]);
-const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy"]);
+const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy", "liveness"]);
 const TRACKED_POLICY_EXTENSION_FIELDS = new Set(["kind", "schemaVersion", "policy"]);
 const TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS = new Set([
   "id", "role", "workRef", "workKind", "governingProtocols", "requiredSkills", "label", "title",
@@ -35,7 +35,7 @@ const TRACKED_EXAMPLE_AUTHORITY_FIELDS = new Set([
 const TRACKED_EXAMPLE_COMPLETION_PROFILE_FIELDS = new Set(["type", "requiredEvidence"]);
 const TRACKED_EXAMPLE_ROOT_FIELDS = new Set([
   "schemaVersion", "revision", "status", "coordinationMode", "rootControl", "prefix", "scope",
-  "bindingAttestation", "clientAdapter", "trustPolicy", "nodes", "ownerDirectives", "extensions"
+  "bindingAttestation", "clientAdapter", "trustPolicy", "controlLoopPolicy", "nodes", "ownerDirectives", "extensions"
 ]);
 const TRACKED_EXAMPLE_SCOPE_FIELDS = new Set(["id", "kind", "rootRef", "ownerRef", "objective"]);
 const TRACKED_EXAMPLE_TRUST_POLICY_FIELDS = new Set([
@@ -119,6 +119,63 @@ const FLEET_MANAGED_SKILLS = new Set([
 const DEPRECATED_SKILL_ALIASES = new Map([["goal-chain-loop", GOAL_GRAPH_SKILL]]);
 const GOAL_GRAPH_PROTOCOLS = new Set(["GOAL-GRAPH", "GOAL-CHAIN"]);
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CONTROL_CHECK_MODES = new Set(["scheduled", "event"]);
+const CONTROL_PROGRESS_SIGNAL = "evidence-fingerprint";
+const SHARED_RUNTIME_ACTIVE_SET_CHANGE_ACTION = "abort-and-replan";
+const SHARED_RUNTIME_UNKNOWN_PRESERVATION_BEHAVIOR = "treat-as-non-preserving";
+const SHARED_RUNTIME_UNMANAGED_START_BEHAVIOR = "block-recovery";
+const MAX_CONTROL_UNCHANGED_CHECKS = 100;
+const MAX_CONTROL_SAME_FAILURE_RETRIES = 20;
+const MAX_CONTROL_STAGNATION_SECONDS = 2592000;
+const CONTROL_LOOP_POLICY_FIELDS = new Set([
+  "progressSignal", "quietActivityCountsAsProgress", "maxUnchangedChecks",
+  "maxSameFailureRetries", "maxControlIntervalSeconds", "maxClockSkewSeconds",
+  "retryRequiresChangedPrecondition", "sharedRuntimeRecovery"
+]);
+const SHARED_RUNTIME_RECOVERY_FIELDS = new Set([
+  "requireActiveSetSnapshot", "requirePreActionCompare", "activeSetChangeAction",
+  "unknownPreservationBehavior", "maxReceiptAgeSeconds", "maxClaimLeaseSeconds",
+  "requireRuntimeScopedClaim", "requireAdmissionClosure", "unmanagedStartBehavior"
+]);
+const NODE_CONTROL_LOOP_FIELDS = new Set([
+  "progressFingerprint", "progressEvidenceRefs", "lastProgressAt", "unchangedChecks",
+  "observationReceipts", "checkMode", "nextCheckAt", "wakeEvent", "watchdogAt",
+  "lastFailureFingerprint", "lastFailureEvidenceRefs",
+  "lastFailurePreconditionFingerprint", "lastFailurePreconditionRefs",
+  "sameFailureRetries", "preconditionFingerprint", "preconditionRefs"
+]);
+const CONTROL_OBSERVATION_RECEIPT_FIELDS = new Set([
+  "sequence", "observerRef", "observedAt", "previousReceiptHash", "receiptHash",
+  "previousProgressFingerprint", "previousUnchangedChecks", "progressChanged",
+  "progressFingerprint", "progressEvidenceRefs", "lastProgressAt",
+  "unchangedChecks", "preconditionFingerprint", "preconditionRefs",
+  "lastFailureFingerprint", "lastFailureEvidenceRefs",
+  "lastFailurePreconditionFingerprint", "lastFailurePreconditionRefs",
+  "sameFailureRetries"
+]);
+const SHARED_RUNTIME_RECEIPT_FIELDS = new Set([
+  "id", "claimKey", "runtimeScopeRef", "runtimeClaimFingerprint",
+  "runtimeClaimEvidenceRefs", "admissionClosureFingerprint",
+  "admissionClosureEvidenceRefs", "admissionClosedAt", "admissionReopenedAt",
+  "runtimeCoordinatorGeneration", "runtimeCoordinatorAttestationHash",
+  "actionRef", "approvedBy", "preservedAt", "comparedAt", "beforeActiveSet",
+  "beforeFingerprint", "preActionActiveSet", "preActionFingerprint", "decision",
+  "recoveryPreconditionFingerprint", "recoveryPreconditionRefs", "status",
+  "claimOwnerRef", "actionStartedAt", "claimExpiresAt", "completedAt",
+  "failureEvidenceRefs", "transitionReceipts"
+]);
+const SHARED_RUNTIME_TRANSITION_FIELDS = new Set([
+  "sequence", "claimKey", "status", "recordedAt", "previousTransitionHash", "transitionHash",
+  "claimOwnerRef", "actionStartedAt", "claimExpiresAt", "completedAt",
+  "failureEvidenceRefs", "admissionReopenedAt"
+]);
+const SHARED_RUNTIME_ACTIVE_ENTRY_FIELDS = new Set([
+  "runRef", "headRef", "preservationEvidenceRefs"
+]);
+const EVIDENCE_REF_RE = /^(?:artifact|check|completion|external|git|pr|task|tracker):[!-~]+$/;
+const PORTABLE_CONTROL_REF_RE = /^[!-~]+$/;
+const RECOVERY_RECEIPT_STATUSES = new Set(["prepared", "started", "completed", "failed", "aborted"]);
+const RECOVERY_RECEIPT_DECISIONS = new Set(["proceed", "abort-and-replan"]);
 const PRESENTATION_PROFILES = new Set(["portable", "nautical", "executive"]);
 const PRESENTATION_ROLE_LABELS = {
   portable: { boss: "Boss", manager: "Manager", worker: "Worker" },
@@ -930,8 +987,20 @@ function canonicalize(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
 }
 
+function portableCanonicalJson(value) {
+  return JSON.stringify(canonicalize(value));
+}
+
+function portableAsciiCompare(left, right) {
+  const leftValue = String(left);
+  const rightValue = String(right);
+  if (leftValue < rightValue) return -1;
+  if (leftValue > rightValue) return 1;
+  return 0;
+}
+
 function canonicalValues(value) {
-  return [...new Set(arrayOrEmpty(value))].sort();
+  return [...new Set(arrayOrEmpty(value))].sort(portableAsciiCompare);
 }
 
 function canonicalAuthority(authority) {
@@ -1103,6 +1172,9 @@ function materializedWorkContract(registry, node, parent) {
   return canonicalize({
     ...(registry.schemaVersion >= 4 ? { coordinationMode: registry.coordinationMode } : {}),
     ...(registry.schemaVersion >= 5 ? { rootControl: registry.rootControl } : {}),
+    ...(registry.schemaVersion >= 5 && registry.controlLoopPolicy
+      ? { controlLoopPolicy: registry.controlLoopPolicy }
+      : {}),
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
     node: nodeContract,
@@ -1113,6 +1185,966 @@ function materializedWorkContract(registry, node, parent) {
       authority: canonicalAuthority(parent.authority)
     } : null
   });
+}
+
+function validateControlLoopPolicy(registry, blockers, warnings) {
+  const policy = registry.controlLoopPolicy;
+  if (policy === undefined) {
+    if (registry.schemaVersion >= 5) {
+      warnings.push("controlLoopPolicy is not configured; add it during the next deliberate private-instance replan to enable anti-stagnation enforcement");
+    }
+    return null;
+  }
+  if (registry.schemaVersion < 5) {
+    blockers.push("controlLoopPolicy requires schemaVersion 5");
+    return null;
+  }
+  if (!isObject(policy)) {
+    blockers.push("controlLoopPolicy must be an object when configured");
+    return null;
+  }
+  const unexpectedPolicyFields = Object.keys(policy).filter((field) => !CONTROL_LOOP_POLICY_FIELDS.has(field));
+  if (unexpectedPolicyFields.length) {
+    blockers.push(`controlLoopPolicy contains unsupported fields: ${unexpectedPolicyFields.sort().join(", ")}`);
+  }
+  if (policy.progressSignal !== CONTROL_PROGRESS_SIGNAL) {
+    blockers.push(`controlLoopPolicy.progressSignal must be ${CONTROL_PROGRESS_SIGNAL}`);
+  }
+  if (policy.quietActivityCountsAsProgress !== false) {
+    blockers.push("controlLoopPolicy.quietActivityCountsAsProgress must be false");
+  }
+  if (!Number.isSafeInteger(policy.maxUnchangedChecks)
+    || policy.maxUnchangedChecks < 1
+    || policy.maxUnchangedChecks > MAX_CONTROL_UNCHANGED_CHECKS) {
+    blockers.push(`controlLoopPolicy.maxUnchangedChecks must be a safe integer from 1 through ${MAX_CONTROL_UNCHANGED_CHECKS}`);
+  }
+  if (!Number.isSafeInteger(policy.maxSameFailureRetries)
+    || policy.maxSameFailureRetries < 0
+    || policy.maxSameFailureRetries > MAX_CONTROL_SAME_FAILURE_RETRIES) {
+    blockers.push(`controlLoopPolicy.maxSameFailureRetries must be a safe integer from 0 through ${MAX_CONTROL_SAME_FAILURE_RETRIES}`);
+  }
+  if (!Number.isInteger(policy.maxControlIntervalSeconds)
+    || policy.maxControlIntervalSeconds < 1
+    || policy.maxControlIntervalSeconds > 604800) {
+    blockers.push("controlLoopPolicy.maxControlIntervalSeconds must be an integer from 1 through 604800");
+  }
+  if (!Number.isInteger(policy.maxClockSkewSeconds)
+    || policy.maxClockSkewSeconds < 0
+    || policy.maxClockSkewSeconds > 3600) {
+    blockers.push("controlLoopPolicy.maxClockSkewSeconds must be an integer from 0 through 3600");
+  }
+  if (Number.isSafeInteger(policy.maxUnchangedChecks)
+    && Number.isSafeInteger(policy.maxControlIntervalSeconds)
+    && policy.maxUnchangedChecks * policy.maxControlIntervalSeconds > MAX_CONTROL_STAGNATION_SECONDS) {
+    blockers.push(`controlLoopPolicy unchanged-check budget may span at most ${MAX_CONTROL_STAGNATION_SECONDS} seconds`);
+  }
+  if (policy.retryRequiresChangedPrecondition !== true) {
+    blockers.push("controlLoopPolicy.retryRequiresChangedPrecondition must be true");
+  }
+  const recovery = policy.sharedRuntimeRecovery;
+  if (!isObject(recovery)) {
+    blockers.push("controlLoopPolicy.sharedRuntimeRecovery must be an object");
+  } else {
+    const unexpectedRecoveryFields = Object.keys(recovery).filter((field) => !SHARED_RUNTIME_RECOVERY_FIELDS.has(field));
+    if (unexpectedRecoveryFields.length) {
+      blockers.push(`controlLoopPolicy.sharedRuntimeRecovery contains unsupported fields: ${unexpectedRecoveryFields.sort().join(", ")}`);
+    }
+    if (recovery.requireActiveSetSnapshot !== true) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.requireActiveSetSnapshot must be true");
+    }
+    if (recovery.requirePreActionCompare !== true) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.requirePreActionCompare must be true");
+    }
+    if (recovery.activeSetChangeAction !== SHARED_RUNTIME_ACTIVE_SET_CHANGE_ACTION) {
+      blockers.push(`controlLoopPolicy.sharedRuntimeRecovery.activeSetChangeAction must be ${SHARED_RUNTIME_ACTIVE_SET_CHANGE_ACTION}`);
+    }
+    if (recovery.unknownPreservationBehavior !== SHARED_RUNTIME_UNKNOWN_PRESERVATION_BEHAVIOR) {
+      blockers.push(`controlLoopPolicy.sharedRuntimeRecovery.unknownPreservationBehavior must be ${SHARED_RUNTIME_UNKNOWN_PRESERVATION_BEHAVIOR}`);
+    }
+    if (recovery.requireRuntimeScopedClaim !== true) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.requireRuntimeScopedClaim must be true");
+    }
+    if (recovery.requireAdmissionClosure !== true) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.requireAdmissionClosure must be true");
+    }
+    if (recovery.unmanagedStartBehavior !== SHARED_RUNTIME_UNMANAGED_START_BEHAVIOR) {
+      blockers.push(`controlLoopPolicy.sharedRuntimeRecovery.unmanagedStartBehavior must be ${SHARED_RUNTIME_UNMANAGED_START_BEHAVIOR}`);
+    }
+    if (!Number.isInteger(recovery.maxReceiptAgeSeconds)
+      || recovery.maxReceiptAgeSeconds < 1
+      || recovery.maxReceiptAgeSeconds > 300) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.maxReceiptAgeSeconds must be an integer from 1 through 300");
+    }
+    if (!Number.isInteger(recovery.maxClaimLeaseSeconds)
+      || recovery.maxClaimLeaseSeconds < 1
+      || recovery.maxClaimLeaseSeconds > 3600) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.maxClaimLeaseSeconds must be an integer from 1 through 3600");
+    }
+  }
+  return policy;
+}
+
+function fingerprintForRefs(refs) {
+  return createHash("sha256").update(portableCanonicalJson(canonicalValues(refs))).digest("hex");
+}
+
+function validateFingerprintRefs(refs, fingerprint, field, label, blockers, { allowEmpty = false } = {}) {
+  if (!isStringArray(refs) || (!allowEmpty && refs.length === 0) || !refs.every((ref) => EVIDENCE_REF_RE.test(ref))) {
+    blockers.push(`${label}: ${field} must be ${allowEmpty ? "a" : "a non-empty"} canonical array of typed evidence references`);
+    return false;
+  }
+  if (!isDeepStrictEqual(refs, canonicalValues(refs))) {
+    blockers.push(`${label}: ${field} must be sorted and deduplicated`);
+    return false;
+  }
+  if (!allowEmpty || refs.length > 0) {
+    const expectedFingerprint = fingerprintForRefs(refs);
+    if (fingerprint !== expectedFingerprint) {
+      blockers.push(`${label}: ${field} does not match its SHA-256 fingerprint`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function livenessOwnerRef(registry, node, parent) {
+  if (node.role === "boss") return registry.scope?.ownerRef || null;
+  if (isTaskBackedNode(parent) && MANAGING_STATES.has(parent.state)) return parent.taskId;
+  if (node.role === "manager"
+    && parent?.role === "boss"
+    && registry.schemaVersion >= 5
+    && registry.rootControl?.materialization === "optional"
+    && node.parentBindingMode === "logical") {
+    return registry.scope?.ownerRef || null;
+  }
+  return null;
+}
+
+function observationReceiptHash(receipt) {
+  const payload = Object.fromEntries(
+    Object.entries(receipt).filter(([field]) => field !== "receiptHash")
+  );
+  return createHash("sha256").update(portableCanonicalJson(payload)).digest("hex");
+}
+
+function observationFailurePairKey(observation) {
+  if (!SHA256_RE.test(String(observation?.lastFailureFingerprint || ""))
+    || !SHA256_RE.test(String(observation?.lastFailurePreconditionFingerprint || ""))) {
+    return null;
+  }
+  return `${observation.lastFailureFingerprint}:${observation.lastFailurePreconditionFingerprint}`;
+}
+
+function validateNodeControlLoop(registry, node, parent, policy, label, blockers) {
+  if (!policy || !ACTIVE_STATES.has(node.state)) return;
+  const control = node.controlLoop;
+  if (!isObject(control)) {
+    blockers.push(`${label}: active state requires controlLoop under the configured controlLoopPolicy`);
+    return;
+  }
+  const unexpectedControlFields = Object.keys(control).filter((field) => !NODE_CONTROL_LOOP_FIELDS.has(field));
+  if (unexpectedControlFields.length) {
+    blockers.push(`${label}: controlLoop contains unsupported fields: ${unexpectedControlFields.sort().join(", ")}`);
+  }
+  if (!SHA256_RE.test(String(control.progressFingerprint || ""))) {
+    blockers.push(`${label}: controlLoop.progressFingerprint must be a lowercase SHA-256 digest`);
+  }
+  validateFingerprintRefs(
+    control.progressEvidenceRefs,
+    control.progressFingerprint,
+    "controlLoop.progressEvidenceRefs",
+    label,
+    blockers
+  );
+  if (!isUtcRfc3339Timestamp(control.lastProgressAt)) {
+    blockers.push(`${label}: controlLoop.lastProgressAt must be a UTC RFC3339 timestamp`);
+  }
+  if (!Number.isInteger(control.unchangedChecks) || control.unchangedChecks < 0) {
+    blockers.push(`${label}: controlLoop.unchangedChecks must be a non-negative integer`);
+  }
+  const observations = control.observationReceipts;
+  let latestObservation = null;
+  if (!Array.isArray(observations) || observations.length === 0) {
+    blockers.push(`${label}: controlLoop.observationReceipts must be a non-empty append-only receipt chain`);
+  } else {
+    let previous = null;
+    const failurePairRetryHighWater = new Map();
+    for (const [index, observation] of observations.entries()) {
+      const observationLabel = `${label}: controlLoop.observationReceipts[${index}]`;
+      if (!isObject(observation)) {
+        blockers.push(`${observationLabel} must be an object`);
+        continue;
+      }
+      const unexpectedObservationFields = Object.keys(observation)
+        .filter((field) => !CONTROL_OBSERVATION_RECEIPT_FIELDS.has(field));
+      const missingObservationFields = [...CONTROL_OBSERVATION_RECEIPT_FIELDS]
+        .filter((field) => !Object.hasOwn(observation, field));
+      if (unexpectedObservationFields.length) {
+        blockers.push(`${observationLabel} contains unsupported fields: ${unexpectedObservationFields.sort().join(", ")}`);
+      }
+      if (missingObservationFields.length) {
+        blockers.push(`${observationLabel} is missing fields: ${missingObservationFields.sort().join(", ")}`);
+      }
+      if (observation.sequence !== index + 1) {
+        blockers.push(`${observationLabel}.sequence must be the contiguous value ${index + 1}`);
+      }
+      if (!PORTABLE_CONTROL_REF_RE.test(String(observation.observerRef || ""))) {
+        blockers.push(`${observationLabel}.observerRef must be a portable printable-ASCII reference`);
+      }
+      if (!isUtcRfc3339Timestamp(observation.observedAt)) {
+        blockers.push(`${observationLabel}.observedAt must be a UTC RFC3339 timestamp`);
+      } else {
+        if (Number.isInteger(policy.maxClockSkewSeconds)
+          && Date.parse(observation.observedAt) > Date.now() + (policy.maxClockSkewSeconds * 1000)) {
+          blockers.push(`${observationLabel}.observedAt exceeds the configured clock-skew allowance`);
+        }
+        if (previous && isUtcRfc3339Timestamp(previous.observedAt)
+          && Date.parse(observation.observedAt) < Date.parse(previous.observedAt)) {
+          blockers.push(`${observationLabel}.observedAt may not precede the prior observation`);
+        }
+      }
+      const expectedPreviousReceiptHash = previous?.receiptHash || null;
+      if (observation.previousReceiptHash !== expectedPreviousReceiptHash) {
+        blockers.push(`${observationLabel}.previousReceiptHash must link to the prior receipt`);
+      }
+      if (!SHA256_RE.test(String(observation.receiptHash || ""))
+        || observation.receiptHash !== observationReceiptHash(observation)) {
+        blockers.push(`${observationLabel}.receiptHash must match the portable canonical receipt payload`);
+      }
+      const expectedPreviousProgress = previous?.progressFingerprint || null;
+      const expectedPreviousUnchanged = previous?.unchangedChecks || 0;
+      if (observation.previousProgressFingerprint !== expectedPreviousProgress) {
+        blockers.push(`${observationLabel}.previousProgressFingerprint must match the prior receipt`);
+      }
+      if (observation.previousUnchangedChecks !== expectedPreviousUnchanged) {
+        blockers.push(`${observationLabel}.previousUnchangedChecks must match the prior receipt`);
+      }
+      const progressRefsValid = validateFingerprintRefs(
+        observation.progressEvidenceRefs,
+        observation.progressFingerprint,
+        `${observationLabel}.progressEvidenceRefs`,
+        label,
+        blockers
+      );
+      const preconditionRefsValid = validateFingerprintRefs(
+        observation.preconditionRefs,
+        observation.preconditionFingerprint,
+        `${observationLabel}.preconditionRefs`,
+        label,
+        blockers
+      );
+      if (!SHA256_RE.test(String(observation.progressFingerprint || ""))) {
+        blockers.push(`${observationLabel}.progressFingerprint must be a lowercase SHA-256 digest`);
+      }
+      if (!SHA256_RE.test(String(observation.preconditionFingerprint || ""))) {
+        blockers.push(`${observationLabel}.preconditionFingerprint must be a lowercase SHA-256 digest`);
+      }
+      const hasObservationFailure = observation.lastFailureFingerprint !== null;
+      const hasObservationFailurePrecondition = observation.lastFailurePreconditionFingerprint !== null;
+      if (hasObservationFailure !== hasObservationFailurePrecondition) {
+        blockers.push(`${observationLabel}: failure and failure-precondition fingerprints must be recorded or cleared together`);
+      }
+      if (hasObservationFailure) {
+        validateFingerprintRefs(
+          observation.lastFailureEvidenceRefs,
+          observation.lastFailureFingerprint,
+          `${observationLabel}.lastFailureEvidenceRefs`,
+          label,
+          blockers
+        );
+        validateFingerprintRefs(
+          observation.lastFailurePreconditionRefs,
+          observation.lastFailurePreconditionFingerprint,
+          `${observationLabel}.lastFailurePreconditionRefs`,
+          label,
+          blockers
+        );
+      } else {
+        if (!Array.isArray(observation.lastFailureEvidenceRefs)
+          || observation.lastFailureEvidenceRefs.length !== 0) {
+          blockers.push(`${observationLabel}.lastFailureEvidenceRefs must be empty without a failure`);
+        }
+        if (!Array.isArray(observation.lastFailurePreconditionRefs)
+          || observation.lastFailurePreconditionRefs.length !== 0) {
+          blockers.push(`${observationLabel}.lastFailurePreconditionRefs must be empty without a failure precondition`);
+        }
+      }
+      if (!Number.isSafeInteger(observation.sameFailureRetries)
+        || observation.sameFailureRetries < 0) {
+        blockers.push(`${observationLabel}.sameFailureRetries must be a non-negative safe integer`);
+      }
+      const failurePairKey = observationFailurePairKey(observation);
+      const priorPairRetryHighWater = failurePairKey
+        ? failurePairRetryHighWater.get(failurePairKey) || 0
+        : 0;
+      if (!failurePairKey) {
+        if (observation.sameFailureRetries !== 0) {
+          blockers.push(`${observationLabel}: no failure pair requires sameFailureRetries zero`);
+        }
+        if (observationFailurePairKey(previous) && observation.progressChanged !== true) {
+          blockers.push(`${observationLabel}: clearing a failure pair requires material progress`);
+        }
+      } else if (observation.lastFailurePreconditionFingerprint !== observation.preconditionFingerprint) {
+        if (index > 0 && failurePairKey !== observationFailurePairKey(previous)) {
+          blockers.push(`${observationLabel}: a newly recorded failure pair must match the current precondition`);
+        }
+        if (observation.sameFailureRetries !== 0) {
+          blockers.push(`${observationLabel}: a changed current precondition must reset the active retry count to zero`);
+        }
+      } else if (priorPairRetryHighWater === 0) {
+        if (observation.sameFailureRetries !== 1) {
+          blockers.push(`${observationLabel}: the first failed attempt for a failure/precondition pair must set sameFailureRetries to one`);
+        }
+      } else if (observation.sameFailureRetries !== priorPairRetryHighWater
+        && observation.sameFailureRetries !== priorPairRetryHighWater + 1) {
+        blockers.push(`${observationLabel}: a known failure/precondition pair must preserve or increment its historical retry count exactly once`);
+      }
+      if (!Number.isSafeInteger(observation.unchangedChecks) || observation.unchangedChecks < 0) {
+        blockers.push(`${observationLabel}.unchangedChecks must be a non-negative safe integer`);
+      }
+      if (!isUtcRfc3339Timestamp(observation.lastProgressAt)) {
+        blockers.push(`${observationLabel}.lastProgressAt must be a UTC RFC3339 timestamp`);
+      }
+      if (typeof observation.progressChanged !== "boolean") {
+        blockers.push(`${observationLabel}.progressChanged must be boolean`);
+      } else if (observation.progressChanged) {
+        if (index > 0 && observation.progressFingerprint === previous?.progressFingerprint) {
+          blockers.push(`${observationLabel}: progressChanged requires a changed evidence fingerprint`);
+        }
+        if (observation.unchangedChecks !== 0) {
+          blockers.push(`${observationLabel}: progressChanged must reset unchangedChecks to zero`);
+        }
+        if (observation.observedAt !== observation.lastProgressAt) {
+          blockers.push(`${observationLabel}: progressChanged must set lastProgressAt to observedAt`);
+        }
+      } else {
+        if (index === 0) {
+          blockers.push(`${observationLabel}: the first observation must establish progress`);
+        }
+        if (observation.progressFingerprint !== previous?.progressFingerprint) {
+          blockers.push(`${observationLabel}: unchanged observation must preserve the evidence fingerprint`);
+        }
+        if (observation.unchangedChecks !== expectedPreviousUnchanged + 1) {
+          blockers.push(`${observationLabel}: unchanged observation must increment unchangedChecks exactly once`);
+        }
+        if (observation.lastProgressAt !== previous?.lastProgressAt) {
+          blockers.push(`${observationLabel}: unchanged observation must preserve lastProgressAt`);
+        }
+      }
+      if (!progressRefsValid || !preconditionRefsValid) {
+        // Detailed blockers above identify the non-canonical evidence.
+      }
+      if (failurePairKey && Number.isSafeInteger(observation.sameFailureRetries)) {
+        failurePairRetryHighWater.set(
+          failurePairKey,
+          Math.max(priorPairRetryHighWater, observation.sameFailureRetries)
+        );
+      }
+      previous = observation;
+      latestObservation = observation;
+    }
+    const expectedObserverRef = livenessOwnerRef(registry, node, parent);
+    if (!expectedObserverRef || latestObservation?.observerRef !== expectedObserverRef) {
+      blockers.push(`${label}: latest controlLoop observation must identify the current project-owner or active immediate-parent liveness owner`);
+    }
+    const latestFields = [
+      "progressFingerprint", "progressEvidenceRefs", "lastProgressAt",
+      "unchangedChecks", "preconditionFingerprint", "preconditionRefs",
+      "lastFailureFingerprint", "lastFailureEvidenceRefs",
+      "lastFailurePreconditionFingerprint", "lastFailurePreconditionRefs",
+      "sameFailureRetries"
+    ];
+    for (const field of latestFields) {
+      if (!isDeepStrictEqual(latestObservation?.[field], control[field])) {
+        blockers.push(`${label}: controlLoop.${field} must match the latest observation receipt`);
+      }
+    }
+  }
+  if (!CONTROL_CHECK_MODES.has(control.checkMode)) {
+    blockers.push(`${label}: controlLoop.checkMode must be scheduled or event`);
+  } else if (control.checkMode === "scheduled") {
+    if (!isUtcRfc3339Timestamp(control.nextCheckAt)) {
+      blockers.push(`${label}: scheduled controlLoop requires nextCheckAt as a UTC RFC3339 timestamp`);
+    }
+    if (control.wakeEvent !== undefined && control.wakeEvent !== null) {
+      blockers.push(`${label}: scheduled controlLoop must not set wakeEvent`);
+    }
+    if (control.watchdogAt !== undefined && control.watchdogAt !== null) {
+      blockers.push(`${label}: scheduled controlLoop must not set watchdogAt`);
+    }
+  } else {
+    if (!isNonEmptyString(control.wakeEvent)) {
+      blockers.push(`${label}: event controlLoop requires wakeEvent`);
+    }
+    if (control.nextCheckAt !== undefined && control.nextCheckAt !== null) {
+      blockers.push(`${label}: event controlLoop must not set nextCheckAt`);
+    }
+    if (!isUtcRfc3339Timestamp(control.watchdogAt)) {
+      blockers.push(`${label}: event controlLoop requires watchdogAt as a UTC RFC3339 timestamp`);
+    }
+  }
+  const controlDeadline = control.checkMode === "event" ? control.watchdogAt : control.nextCheckAt;
+  if (isUtcRfc3339Timestamp(latestObservation?.observedAt)
+    && isUtcRfc3339Timestamp(controlDeadline)
+    && Number.isInteger(policy.maxControlIntervalSeconds)) {
+    const intervalMs = Date.parse(controlDeadline) - Date.parse(latestObservation.observedAt);
+    if (intervalMs <= 0 || intervalMs > policy.maxControlIntervalSeconds * 1000) {
+      blockers.push(`${label}: next scheduled check or event watchdog must fall within the configured control interval after observedAt`);
+    }
+  }
+  const hasLastFailure = control.lastFailureFingerprint !== undefined
+    && control.lastFailureFingerprint !== null;
+  const hasLastFailurePrecondition = control.lastFailurePreconditionFingerprint !== undefined
+    && control.lastFailurePreconditionFingerprint !== null;
+  if (hasLastFailure && !SHA256_RE.test(String(control.lastFailureFingerprint))) {
+    blockers.push(`${label}: controlLoop.lastFailureFingerprint must be null or a lowercase SHA-256 digest`);
+  }
+  if (hasLastFailurePrecondition && !SHA256_RE.test(String(control.lastFailurePreconditionFingerprint))) {
+    blockers.push(`${label}: controlLoop.lastFailurePreconditionFingerprint must be null or a lowercase SHA-256 digest`);
+  }
+  if (hasLastFailure !== hasLastFailurePrecondition) {
+    blockers.push(`${label}: controlLoop last failure and last failure precondition fingerprints must be recorded or cleared together`);
+  }
+  if (!SHA256_RE.test(String(control.preconditionFingerprint || ""))) {
+    blockers.push(`${label}: controlLoop.preconditionFingerprint must be a lowercase SHA-256 digest`);
+  }
+  validateFingerprintRefs(
+    control.preconditionRefs,
+    control.preconditionFingerprint,
+    "controlLoop.preconditionRefs",
+    label,
+    blockers
+  );
+  if (hasLastFailure) {
+    validateFingerprintRefs(
+      control.lastFailureEvidenceRefs,
+      control.lastFailureFingerprint,
+      "controlLoop.lastFailureEvidenceRefs",
+      label,
+      blockers
+    );
+    validateFingerprintRefs(
+      control.lastFailurePreconditionRefs,
+      control.lastFailurePreconditionFingerprint,
+      "controlLoop.lastFailurePreconditionRefs",
+      label,
+      blockers
+    );
+  } else {
+    if (!Array.isArray(control.lastFailureEvidenceRefs) || control.lastFailureEvidenceRefs.length !== 0) {
+      blockers.push(`${label}: controlLoop.lastFailureEvidenceRefs must be empty when no last failure is recorded`);
+    }
+    if (!Array.isArray(control.lastFailurePreconditionRefs) || control.lastFailurePreconditionRefs.length !== 0) {
+      blockers.push(`${label}: controlLoop.lastFailurePreconditionRefs must be empty when no last failure is recorded`);
+    }
+  }
+  if (!Number.isInteger(control.sameFailureRetries) || control.sameFailureRetries < 0) {
+    blockers.push(`${label}: controlLoop.sameFailureRetries must be a non-negative integer`);
+  }
+  if (control.sameFailureRetries > 0 && (!hasLastFailure || !hasLastFailurePrecondition)) {
+    blockers.push(`${label}: a positive sameFailureRetries count requires a complete last failure/precondition pair`);
+  }
+  if (!hasLastFailure && control.sameFailureRetries !== 0) {
+    blockers.push(`${label}: controlLoop.sameFailureRetries must be zero when no last failure is recorded`);
+  }
+  const failurePreconditionMatches = hasLastFailurePrecondition
+    && control.lastFailurePreconditionFingerprint === control.preconditionFingerprint;
+  if (hasLastFailure && !failurePreconditionMatches && control.sameFailureRetries !== 0) {
+    blockers.push(`${label}: changed precondition requires sameFailureRetries to reset before another attempt`);
+  }
+  const stagnated = Number.isInteger(control.unchangedChecks)
+    && Number.isInteger(policy.maxUnchangedChecks)
+    && control.unchangedChecks >= policy.maxUnchangedChecks;
+  const retriesExhausted = Number.isInteger(control.sameFailureRetries)
+    && Number.isInteger(policy.maxSameFailureRetries)
+    && control.sameFailureRetries >= policy.maxSameFailureRetries
+    && hasLastFailure
+    && failurePreconditionMatches;
+  if ((stagnated || retriesExhausted) && node.state !== "blocked") {
+    blockers.push(`${label}: exhausted progress or retry budget requires blocked state and immediate-parent recovery instead of another loop iteration`);
+  }
+}
+
+function canonicalSharedRuntimeActiveSet(activeSet) {
+  if (!Array.isArray(activeSet)) return activeSet;
+  return activeSet.map((entry) => canonicalize({
+    runRef: entry?.runRef,
+    headRef: entry?.headRef,
+    preservationEvidenceRefs: canonicalValues(entry?.preservationEvidenceRefs)
+  })).sort((left, right) => portableAsciiCompare(left.runRef, right.runRef));
+}
+
+function sharedRuntimeActiveSetFingerprint(activeSet) {
+  return createHash("sha256")
+    .update(portableCanonicalJson(canonicalSharedRuntimeActiveSet(activeSet)))
+    .digest("hex");
+}
+
+function sharedRuntimeRecoveryClaimKey(receipt) {
+  return createHash("sha256")
+    .update(portableCanonicalJson({
+      actionRef: receipt?.actionRef,
+      preActionFingerprint: receipt?.preActionFingerprint,
+      recoveryPreconditionFingerprint: receipt?.recoveryPreconditionFingerprint,
+      runtimeScopeRef: receipt?.runtimeScopeRef
+    }))
+    .digest("hex");
+}
+
+function sharedRuntimeRecoveryTransitionHash(transition) {
+  return createHash("sha256")
+    .update(portableCanonicalJson(Object.fromEntries(
+      Object.entries(transition || {}).filter(([field]) => field !== "transitionHash")
+    )))
+    .digest("hex");
+}
+
+function validateRuntimeCoordinatorReceipt(receipt, label, blockers) {
+  if (!Number.isSafeInteger(receipt.runtimeCoordinatorGeneration)
+    || receipt.runtimeCoordinatorGeneration < 1) {
+    blockers.push(`${label}.runtimeCoordinatorGeneration must be a positive external admission epoch`);
+  }
+  if (!SHA256_RE.test(String(receipt.runtimeCoordinatorAttestationHash || ""))) {
+    blockers.push(`${label}.runtimeCoordinatorAttestationHash must be a SHA-256 external attestation reference`);
+  }
+  blockers.push(
+    `${label}: destructive shared-runtime recovery is unavailable until a separately implemented external coordinator cryptographically authenticates the claim, anchors monotonic history, and atomically gates every start path`
+  );
+}
+
+function validateSharedRuntimeActiveSet(activeSet, field, label, blockers) {
+  if (!Array.isArray(activeSet)) {
+    blockers.push(`${label}: ${field} must be an array`);
+    return false;
+  }
+  const runRefs = new Set();
+  let valid = true;
+  for (const [index, entry] of activeSet.entries()) {
+    const entryLabel = `${label}: ${field}[${index}]`;
+    if (!isObject(entry)) {
+      blockers.push(`${entryLabel} must be an object`);
+      valid = false;
+      continue;
+    }
+    const unexpectedFields = Object.keys(entry).filter((key) => !SHARED_RUNTIME_ACTIVE_ENTRY_FIELDS.has(key));
+    if (unexpectedFields.length) {
+      blockers.push(`${entryLabel} contains unsupported fields: ${unexpectedFields.sort().join(", ")}`);
+      valid = false;
+    }
+    if (!PORTABLE_CONTROL_REF_RE.test(String(entry.runRef || ""))
+      || !PORTABLE_CONTROL_REF_RE.test(String(entry.headRef || ""))) {
+      blockers.push(`${entryLabel} requires printable-ASCII runRef and headRef`);
+      valid = false;
+    } else if (runRefs.has(entry.runRef)) {
+      blockers.push(`${label}: ${field} contains duplicate runRef ${entry.runRef}`);
+      valid = false;
+    } else {
+      runRefs.add(entry.runRef);
+    }
+    if (!isStringArray(entry.preservationEvidenceRefs, { nonEmpty: true })
+      || !entry.preservationEvidenceRefs.every((ref) => EVIDENCE_REF_RE.test(ref))
+      || !isDeepStrictEqual(entry.preservationEvidenceRefs, canonicalValues(entry.preservationEvidenceRefs))) {
+      blockers.push(`${entryLabel}.preservationEvidenceRefs must be a non-empty sorted and deduplicated array of typed evidence references`);
+      valid = false;
+    }
+  }
+  if (valid && !isDeepStrictEqual(activeSet, canonicalSharedRuntimeActiveSet(activeSet))) {
+    blockers.push(`${label}: ${field} must be canonical and sorted by runRef`);
+    valid = false;
+  }
+  return valid;
+}
+
+function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
+  const receipts = registry.sharedRuntimeRecoveryReceipts;
+  if (receipts === undefined) return;
+  if (registry.schemaVersion < 5) {
+    blockers.push("sharedRuntimeRecoveryReceipts require schemaVersion 5");
+    return;
+  }
+  if (!policy || !isObject(policy.sharedRuntimeRecovery)) {
+    blockers.push("sharedRuntimeRecoveryReceipts require a valid controlLoopPolicy.sharedRuntimeRecovery contract");
+    return;
+  }
+  if (!Array.isArray(receipts)) {
+    blockers.push("sharedRuntimeRecoveryReceipts must be an array when configured");
+    return;
+  }
+  const ids = new Set();
+  const claimKeys = new Set();
+  const nonterminalClaims = [];
+  for (const [index, receipt] of receipts.entries()) {
+    const label = `shared runtime recovery receipt ${index}`;
+    if (!isObject(receipt)) {
+      blockers.push(`${label} must be an object`);
+      continue;
+    }
+    const unexpectedFields = Object.keys(receipt).filter((field) => !SHARED_RUNTIME_RECEIPT_FIELDS.has(field));
+    const missingFields = [...SHARED_RUNTIME_RECEIPT_FIELDS].filter((field) => !Object.hasOwn(receipt, field));
+    if (unexpectedFields.length) {
+      blockers.push(`${label} contains unsupported fields: ${unexpectedFields.sort().join(", ")}`);
+    }
+    if (missingFields.length) {
+      blockers.push(`${label} is missing fields: ${missingFields.sort().join(", ")}`);
+    }
+    if (!isNonEmptyString(receipt.id) || !/^[a-z0-9][a-z0-9._-]*$/.test(receipt.id)) {
+      blockers.push(`${label}.id must be a lowercase stable identifier`);
+    } else if (ids.has(receipt.id)) {
+      blockers.push(`duplicate shared runtime recovery receipt id: ${receipt.id}`);
+    } else {
+      ids.add(receipt.id);
+    }
+    if (!PORTABLE_CONTROL_REF_RE.test(String(receipt.actionRef || ""))) {
+      blockers.push(`${label}.actionRef must be a portable printable-ASCII reference`);
+    }
+    if (!EVIDENCE_REF_RE.test(String(receipt.runtimeScopeRef || ""))
+      || !String(receipt.runtimeScopeRef || "").startsWith("external:")) {
+      blockers.push(`${label}.runtimeScopeRef must be a typed external reference to the shared runtime`);
+    }
+    const runtimeClaimEvidenceValid = validateFingerprintRefs(
+      receipt.runtimeClaimEvidenceRefs,
+      receipt.runtimeClaimFingerprint,
+      "runtimeClaimEvidenceRefs",
+      label,
+      blockers
+    );
+    if (runtimeClaimEvidenceValid
+      && !receipt.runtimeClaimEvidenceRefs.some((ref) => ref.startsWith("external:"))) {
+      blockers.push(`${label}.runtimeClaimEvidenceRefs must include authoritative external runtime-claim evidence`);
+    }
+    const admissionClosureEvidenceValid = validateFingerprintRefs(
+      receipt.admissionClosureEvidenceRefs,
+      receipt.admissionClosureFingerprint,
+      "admissionClosureEvidenceRefs",
+      label,
+      blockers
+    );
+    if (admissionClosureEvidenceValid
+      && !receipt.admissionClosureEvidenceRefs.some((ref) => ref.startsWith("external:"))) {
+      blockers.push(`${label}.admissionClosureEvidenceRefs must include authoritative external admission-closure evidence`);
+    }
+    const recoveryPreconditionValid = validateFingerprintRefs(
+      receipt.recoveryPreconditionRefs,
+      receipt.recoveryPreconditionFingerprint,
+      "recoveryPreconditionRefs",
+      label,
+      blockers
+    );
+    const expectedClaimKey = sharedRuntimeRecoveryClaimKey(receipt);
+    if (!SHA256_RE.test(String(receipt.claimKey || ""))
+      || (recoveryPreconditionValid && receipt.claimKey !== expectedClaimKey)) {
+      blockers.push(`${label}.claimKey must match the canonical runtime scope, action, pre-action active-set, and recovery-precondition fingerprints`);
+    } else if (claimKeys.has(receipt.claimKey)) {
+      blockers.push(`duplicate shared runtime recovery claim key: ${receipt.claimKey}`);
+    } else {
+      claimKeys.add(receipt.claimKey);
+    }
+    if (!PORTABLE_CONTROL_REF_RE.test(String(receipt.approvedBy || ""))) {
+      blockers.push(`${label}.approvedBy must be a portable printable-ASCII reference`);
+    }
+    if (receipt.approvedBy !== registry.scope?.ownerRef) {
+      blockers.push(`${label}.approvedBy must match scope.ownerRef`);
+    }
+    if (!isUtcRfc3339Timestamp(receipt.admissionClosedAt)) {
+      blockers.push(`${label}.admissionClosedAt must be a UTC RFC3339 timestamp`);
+    } else {
+      if (Date.parse(receipt.admissionClosedAt) > Date.now()) {
+        blockers.push(`${label}.admissionClosedAt may not be in the future`);
+      }
+      if (isUtcRfc3339Timestamp(receipt.preservedAt)
+        && Date.parse(receipt.admissionClosedAt) > Date.parse(receipt.preservedAt)) {
+        blockers.push(`${label}.admissionClosedAt must not follow preservedAt`);
+      }
+    }
+    const comparisonFuture = isUtcRfc3339Timestamp(receipt.comparedAt)
+      && Date.parse(receipt.comparedAt) > Date.now();
+    const comparisonStale = isUtcRfc3339Timestamp(receipt.comparedAt)
+      && Number.isInteger(policy.sharedRuntimeRecovery.maxReceiptAgeSeconds)
+      && Date.now() - Date.parse(receipt.comparedAt)
+        > policy.sharedRuntimeRecovery.maxReceiptAgeSeconds * 1000;
+    const comparisonUnsafe = comparisonFuture || comparisonStale;
+    if (!isUtcRfc3339Timestamp(receipt.preservedAt) || !isUtcRfc3339Timestamp(receipt.comparedAt)) {
+      blockers.push(`${label} requires UTC RFC3339 preservedAt and comparedAt`);
+    } else {
+      if (Date.parse(receipt.comparedAt) < Date.parse(receipt.preservedAt)) {
+        blockers.push(`${label}.comparedAt may not precede preservedAt`);
+      }
+      if (comparisonFuture && receipt.status !== "aborted") {
+        blockers.push(`${label}.comparedAt may not be in the future`);
+      }
+    }
+    const beforeValid = validateSharedRuntimeActiveSet(receipt.beforeActiveSet, "beforeActiveSet", label, blockers);
+    const preActionValid = validateSharedRuntimeActiveSet(receipt.preActionActiveSet, "preActionActiveSet", label, blockers);
+    if (!SHA256_RE.test(String(receipt.beforeFingerprint || ""))
+      || (beforeValid && receipt.beforeFingerprint !== sharedRuntimeActiveSetFingerprint(receipt.beforeActiveSet))) {
+      blockers.push(`${label}.beforeFingerprint must match the canonical beforeActiveSet`);
+    }
+    if (!SHA256_RE.test(String(receipt.preActionFingerprint || ""))
+      || (preActionValid && receipt.preActionFingerprint !== sharedRuntimeActiveSetFingerprint(receipt.preActionActiveSet))) {
+      blockers.push(`${label}.preActionFingerprint must match the canonical preActionActiveSet`);
+    }
+    if (!RECOVERY_RECEIPT_DECISIONS.has(receipt.decision)) {
+      blockers.push(`${label}.decision must be proceed or abort-and-replan`);
+    }
+    if (!RECOVERY_RECEIPT_STATUSES.has(receipt.status)) {
+      blockers.push(`${label}.status must be prepared, started, completed, failed, or aborted`);
+    } else if (receipt.status === "prepared" || receipt.status === "started") {
+      nonterminalClaims.push(receipt.id || `receipt-${index}`);
+    }
+    const activeSetMatches = beforeValid
+      && preActionValid
+      && receipt.beforeFingerprint === receipt.preActionFingerprint;
+    if (activeSetMatches
+      && receipt.decision !== "proceed"
+      && !(comparisonUnsafe
+        && receipt.decision === "abort-and-replan"
+        && receipt.status === "aborted")) {
+      blockers.push(`${label}: matching active sets require decision proceed`);
+    }
+    if (!activeSetMatches && receipt.decision !== "abort-and-replan") {
+      blockers.push(`${label}: changed active sets require decision abort-and-replan`);
+    }
+    if (receipt.decision === "abort-and-replan" && receipt.status !== "aborted") {
+      blockers.push(`${label}: abort-and-replan decision requires aborted status`);
+    }
+    const transitions = receipt.transitionReceipts;
+    if (!Array.isArray(transitions) || transitions.length === 0) {
+      blockers.push(`${label}.transitionReceipts must be a non-empty append-only transition ledger`);
+    } else {
+      let previousTransition = null;
+      for (const [transitionIndex, transition] of transitions.entries()) {
+        const transitionLabel = `${label}: transition ${transitionIndex}`;
+        if (!isObject(transition)) {
+          blockers.push(`${transitionLabel} must be an object`);
+          previousTransition = null;
+          continue;
+        }
+        const unexpectedTransitionFields = Object.keys(transition)
+          .filter((field) => !SHARED_RUNTIME_TRANSITION_FIELDS.has(field));
+        const missingTransitionFields = [...SHARED_RUNTIME_TRANSITION_FIELDS]
+          .filter((field) => !Object.hasOwn(transition, field));
+        if (unexpectedTransitionFields.length) {
+          blockers.push(`${transitionLabel} contains unsupported fields: ${unexpectedTransitionFields.sort().join(", ")}`);
+        }
+        if (missingTransitionFields.length) {
+          blockers.push(`${transitionLabel} is missing fields: ${missingTransitionFields.sort().join(", ")}`);
+        }
+        if (transition.claimKey !== receipt.claimKey) {
+          blockers.push(`${transitionLabel}.claimKey must bind the transition ledger to its runtime-scoped recovery claim`);
+        }
+        if (transition.sequence !== transitionIndex + 1) {
+          blockers.push(`${transitionLabel}.sequence must be contiguous and equal ${transitionIndex + 1}`);
+        }
+        const expectedPreviousHash = previousTransition?.transitionHash || null;
+        if (transition.previousTransitionHash !== expectedPreviousHash) {
+          blockers.push(`${transitionLabel}.previousTransitionHash must match the prior transition`);
+        }
+        if (!SHA256_RE.test(String(transition.transitionHash || ""))
+          || transition.transitionHash !== sharedRuntimeRecoveryTransitionHash(transition)) {
+          blockers.push(`${transitionLabel}.transitionHash must match the portable canonical transition payload`);
+        }
+        if (!isUtcRfc3339Timestamp(transition.recordedAt)) {
+          blockers.push(`${transitionLabel}.recordedAt must be a UTC RFC3339 timestamp`);
+        } else {
+          if (previousTransition && isUtcRfc3339Timestamp(previousTransition.recordedAt)
+            && Date.parse(transition.recordedAt) < Date.parse(previousTransition.recordedAt)) {
+            blockers.push(`${transitionLabel}.recordedAt may not precede the prior transition`);
+          }
+          if (Number.isInteger(policy.maxClockSkewSeconds)
+            && Date.parse(transition.recordedAt) > Date.now() + (policy.maxClockSkewSeconds * 1000)) {
+            blockers.push(`${transitionLabel}.recordedAt exceeds the configured clock-skew allowance`);
+          }
+        }
+        const allowedStatuses = transitionIndex === 0
+          ? ["prepared", "aborted"]
+          : previousTransition?.status === "prepared"
+            ? ["started", "aborted"]
+            : previousTransition?.status === "started"
+              ? ["completed", "failed"]
+              : [];
+        if (!RECOVERY_RECEIPT_STATUSES.has(transition.status)
+          || !allowedStatuses.includes(transition.status)) {
+          blockers.push(`${transitionLabel}.status is not a valid monotonic recovery transition`);
+        }
+        const transitionFailureEvidenceValid = isStringArray(transition.failureEvidenceRefs)
+          && transition.failureEvidenceRefs.every((ref) => EVIDENCE_REF_RE.test(ref))
+          && isDeepStrictEqual(
+            transition.failureEvidenceRefs,
+            canonicalValues(transition.failureEvidenceRefs)
+          );
+        if (!transitionFailureEvidenceValid) {
+          blockers.push(`${transitionLabel}.failureEvidenceRefs must be a sorted and deduplicated array of typed evidence references`);
+        }
+        const transitionClaimed = ["started", "completed", "failed"].includes(transition.status);
+        if (transitionClaimed) {
+          if (!PORTABLE_CONTROL_REF_RE.test(String(transition.claimOwnerRef || ""))
+            || !isUtcRfc3339Timestamp(transition.actionStartedAt)
+            || !isUtcRfc3339Timestamp(transition.claimExpiresAt)) {
+            blockers.push(`${transitionLabel} requires portable claim owner and UTC action-start/lease timestamps`);
+          }
+          if (previousTransition?.status === "started"
+            && (transition.claimOwnerRef !== previousTransition.claimOwnerRef
+              || transition.actionStartedAt !== previousTransition.actionStartedAt
+              || transition.claimExpiresAt !== previousTransition.claimExpiresAt)) {
+            blockers.push(`${transitionLabel} must preserve the immutable started claim owner, action start, and lease`);
+          }
+        } else if (transition.claimOwnerRef !== null
+          || transition.actionStartedAt !== null
+          || transition.claimExpiresAt !== null) {
+          blockers.push(`${transitionLabel}: ${transition.status} must not contain claimed-action fields`);
+        }
+        if (transition.status === "prepared") {
+          if (transition.completedAt !== null
+            || transition.admissionReopenedAt !== null
+            || transition.failureEvidenceRefs?.length) {
+            blockers.push(`${transitionLabel}: prepared must not contain terminal evidence`);
+          }
+        } else if (transition.status === "started") {
+          if (transition.recordedAt !== transition.actionStartedAt) {
+            blockers.push(`${transitionLabel}.recordedAt must equal actionStartedAt`);
+          }
+          if (transition.completedAt !== null
+            || transition.admissionReopenedAt !== null
+            || transition.failureEvidenceRefs?.length) {
+            blockers.push(`${transitionLabel}: started must not contain terminal evidence`);
+          }
+        } else {
+          if (!isUtcRfc3339Timestamp(transition.completedAt)) {
+            blockers.push(`${transitionLabel}: ${transition.status} requires completedAt`);
+          } else if (transition.recordedAt !== transition.completedAt) {
+            blockers.push(`${transitionLabel}.recordedAt must equal completedAt`);
+          }
+          if (transition.status === "failed" && transition.failureEvidenceRefs?.length === 0) {
+            blockers.push(`${transitionLabel}: failed requires failureEvidenceRefs`);
+          }
+          if (transition.status !== "failed" && transition.failureEvidenceRefs?.length) {
+            blockers.push(`${transitionLabel}: only failed may contain failureEvidenceRefs`);
+          }
+          if (!isUtcRfc3339Timestamp(transition.admissionReopenedAt)) {
+            blockers.push(`${transitionLabel}: ${transition.status} requires admissionReopenedAt from the runtime coordination authority`);
+          } else {
+            if (isUtcRfc3339Timestamp(transition.completedAt)
+              && Date.parse(transition.admissionReopenedAt) < Date.parse(transition.completedAt)) {
+              blockers.push(`${transitionLabel}.admissionReopenedAt may not precede completedAt`);
+            }
+            if (Number.isInteger(policy.maxClockSkewSeconds)
+              && Date.parse(transition.admissionReopenedAt)
+                > Date.now() + (policy.maxClockSkewSeconds * 1000)) {
+              blockers.push(`${transitionLabel}.admissionReopenedAt exceeds the configured clock-skew allowance`);
+            }
+          }
+        }
+        previousTransition = transition;
+      }
+      const latestTransition = transitions.at(-1);
+      for (const field of [
+        "status", "claimOwnerRef", "actionStartedAt", "claimExpiresAt",
+        "completedAt", "failureEvidenceRefs", "admissionReopenedAt"
+      ]) {
+        if (!isDeepStrictEqual(receipt[field], latestTransition?.[field])) {
+          blockers.push(`${label}.${field} must match the latest append-only transition receipt`);
+        }
+      }
+    }
+    const failureEvidenceValid = isStringArray(receipt.failureEvidenceRefs)
+      && receipt.failureEvidenceRefs.every((ref) => EVIDENCE_REF_RE.test(ref))
+      && isDeepStrictEqual(receipt.failureEvidenceRefs, canonicalValues(receipt.failureEvidenceRefs));
+    if (!failureEvidenceValid) {
+      blockers.push(`${label}.failureEvidenceRefs must be a sorted and deduplicated array of typed evidence references`);
+    } else if (receipt.status === "failed" && receipt.failureEvidenceRefs.length === 0) {
+      blockers.push(`${label}: failed status requires failureEvidenceRefs`);
+    } else if (receipt.status !== "failed" && receipt.failureEvidenceRefs.length !== 0) {
+      blockers.push(`${label}: failureEvidenceRefs must be empty unless status is failed`);
+    }
+    const actionClaimed = ["started", "completed", "failed"].includes(receipt.status);
+    if (actionClaimed) {
+      if (receipt.decision !== "proceed") {
+        blockers.push(`${label}: ${receipt.status} status requires decision proceed`);
+      }
+      if (!PORTABLE_CONTROL_REF_RE.test(String(receipt.claimOwnerRef || ""))) {
+        blockers.push(`${label}: ${receipt.status} receipt requires a portable printable-ASCII claimOwnerRef`);
+      }
+      if (!isUtcRfc3339Timestamp(receipt.actionStartedAt)) {
+        blockers.push(`${label}: ${receipt.status} receipt requires actionStartedAt`);
+      } else if (isUtcRfc3339Timestamp(receipt.comparedAt)) {
+        if (Date.parse(receipt.actionStartedAt) < Date.parse(receipt.comparedAt)) {
+          blockers.push(`${label}.actionStartedAt may not precede comparedAt`);
+        }
+        if (Number.isInteger(policy.sharedRuntimeRecovery.maxReceiptAgeSeconds)
+          && Date.parse(receipt.actionStartedAt) - Date.parse(receipt.comparedAt)
+            > policy.sharedRuntimeRecovery.maxReceiptAgeSeconds * 1000) {
+          blockers.push(`${label}: action began after the pre-action comparison freshness window`);
+        }
+        if (Number.isInteger(policy.maxClockSkewSeconds)
+          && Date.parse(receipt.actionStartedAt) > Date.now() + (policy.maxClockSkewSeconds * 1000)) {
+          blockers.push(`${label}.actionStartedAt exceeds the configured clock-skew allowance`);
+        }
+      }
+      if (!isUtcRfc3339Timestamp(receipt.claimExpiresAt)) {
+        blockers.push(`${label}: ${receipt.status} receipt requires claimExpiresAt`);
+      } else if (isUtcRfc3339Timestamp(receipt.actionStartedAt)) {
+        const leaseDuration = Date.parse(receipt.claimExpiresAt) - Date.parse(receipt.actionStartedAt);
+        if (leaseDuration <= 0) {
+          blockers.push(`${label}.claimExpiresAt must follow actionStartedAt`);
+        }
+        if (Number.isInteger(policy.sharedRuntimeRecovery.maxClaimLeaseSeconds)
+          && leaseDuration > policy.sharedRuntimeRecovery.maxClaimLeaseSeconds * 1000) {
+          blockers.push(`${label}: recovery claim lease exceeds controlLoopPolicy.sharedRuntimeRecovery.maxClaimLeaseSeconds`);
+        }
+        if (receipt.status === "started" && Date.parse(receipt.claimExpiresAt) <= Date.now()) {
+          blockers.push(`${label}: started recovery claim lease expired and the same receipt must be reconciled to a terminal status before any new claim`);
+        }
+      }
+    } else if (receipt.actionStartedAt !== null && receipt.actionStartedAt !== undefined) {
+      blockers.push(`${label}: ${receipt.status} receipt must not set actionStartedAt`);
+    } else if (receipt.claimOwnerRef !== null && receipt.claimOwnerRef !== undefined) {
+      blockers.push(`${label}: ${receipt.status} receipt must not set claimOwnerRef`);
+    } else if (receipt.claimExpiresAt !== null && receipt.claimExpiresAt !== undefined) {
+      blockers.push(`${label}: ${receipt.status} receipt must not set claimExpiresAt`);
+    }
+    if (receipt.status === "prepared") {
+      if (receipt.decision !== "proceed") blockers.push(`${label}: prepared status requires decision proceed`);
+      if (receipt.completedAt !== null && receipt.completedAt !== undefined) {
+        blockers.push(`${label}: prepared receipt must not set completedAt`);
+      }
+      if (isUtcRfc3339Timestamp(receipt.comparedAt)
+        && Number.isInteger(policy.sharedRuntimeRecovery.maxReceiptAgeSeconds)
+        && Date.now() - Date.parse(receipt.comparedAt) > policy.sharedRuntimeRecovery.maxReceiptAgeSeconds * 1000) {
+        blockers.push(`${label}: prepared pre-action comparison receipt is stale and recovery must abort/replan`);
+      }
+    } else if (receipt.status === "started") {
+      if (receipt.completedAt !== null && receipt.completedAt !== undefined) {
+        blockers.push(`${label}: started receipt must not set completedAt`);
+      }
+    } else if (receipt.status === "completed" || receipt.status === "failed") {
+      if (!isUtcRfc3339Timestamp(receipt.completedAt)) {
+        blockers.push(`${label}: ${receipt.status} receipt requires completedAt`);
+      }
+      if (isUtcRfc3339Timestamp(receipt.completedAt)
+        && isUtcRfc3339Timestamp(receipt.actionStartedAt)) {
+        if (Date.parse(receipt.completedAt) < Date.parse(receipt.actionStartedAt)) {
+          blockers.push(`${label}.completedAt may not precede actionStartedAt`);
+        }
+        if (Number.isInteger(policy.maxClockSkewSeconds)
+          && Date.parse(receipt.completedAt) > Date.now() + (policy.maxClockSkewSeconds * 1000)) {
+          blockers.push(`${label}.completedAt exceeds the configured clock-skew allowance`);
+        }
+      }
+    } else if (receipt.status === "aborted") {
+      if (receipt.decision !== "abort-and-replan") blockers.push(`${label}: aborted status requires decision abort-and-replan`);
+      if (!isUtcRfc3339Timestamp(receipt.completedAt)) {
+        blockers.push(`${label}: aborted receipt requires completedAt`);
+      } else if (isUtcRfc3339Timestamp(receipt.comparedAt)
+        && !comparisonFuture
+        && Date.parse(receipt.completedAt) < Date.parse(receipt.comparedAt)) {
+        blockers.push(`${label}.completedAt may not precede comparedAt`);
+      }
+    }
+    validateRuntimeCoordinatorReceipt(receipt, label, blockers);
+  }
+  if (nonterminalClaims.length > 1) {
+    blockers.push(`sharedRuntimeRecoveryReceipts may contain at most one prepared or started claim; found ${nonterminalClaims.join(", ")}`);
+  }
 }
 
 function validateOwnerDirectives(registry, nodesById, blockers) {
@@ -1621,6 +2653,8 @@ function validateRegistry(registry) {
       blockers.push("rootControl.materialization must be required or optional in schemaVersion 5");
     }
   }
+  const controlLoopPolicy = validateControlLoopPolicy(registry, blockers, warnings);
+  validateSharedRuntimeRecoveryReceipts(registry, controlLoopPolicy, blockers);
   if (registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) {
     if (!isObject(registry.bindingAttestation)
       || registry.bindingAttestation.algorithm !== BINDING_ATTESTATION_ALGORITHM
@@ -1808,6 +2842,7 @@ function validateRegistry(registry) {
     if (node.state === "blocked" && (!isNonEmptyString(node.blocker) || !isNonEmptyString(node.unblockAction))) {
       blockers.push(`${label}: blocked state requires blocker and unblockAction`);
     }
+    validateNodeControlLoop(registry, node, parent, controlLoopPolicy, label, blockers);
     const openReplanDirectiveIds = openReplanDirectiveIdsFor(registry, node.id);
     if (node.blockedByDirectiveIds !== undefined
       && (!isStringArray(node.blockedByDirectiveIds) || !node.blockedByDirectiveIds.every((id) => SAFE_DIRECTIVE_ID_RE.test(id)))) {
@@ -1950,6 +2985,7 @@ function printHelp(io) {
   io.stdout("  hierarchy          Show role, title, and parent-link taxonomy");
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
+  io.stdout("  liveness           Show progress, retry, and recovery-loop posture");
   io.stdout("  directives         Show governed direct owner instructions and reconciliation state");
   io.stdout("  next               List dependency-eligible nodes");
   io.stdout("  prompt boss        Print a bounded Boss prompt");
@@ -1957,8 +2993,108 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("init and migrate only create a private 0600 local instance; all other commands are read-only and no command creates tasks or mutates external systems.");
-  io.stdout("--example forces status, validate, adapter-status, or taxonomy to inspect the tracked inactive example without resolving private runtime state.");
+  io.stdout("--example forces status, validate, adapter-status, taxonomy, or liveness to inspect the tracked inactive example without resolving private runtime state.");
   io.stdout("Use --operator/--instance for orchestration commands or REPO_ORCHESTRATION_OPERATOR/REPO_ORCHESTRATION_INSTANCE for composing facades; raw state paths are unsupported.");
+}
+
+function livenessOwnerFor(registry, node, nodesById) {
+  const parent = node.parentId ? nodesById.get(node.parentId) : null;
+  const ownerRef = livenessOwnerRef(registry, node, parent);
+  if (!ownerRef) return "missing-owner";
+  return node.role === "boss" || !isTaskBackedNode(parent)
+    ? `project-owner:${ownerRef}`
+    : `parent-task:${ownerRef}`;
+}
+
+function controlLoopCondition(node, policy) {
+  if (!ACTIVE_STATES.has(node.state)) return "not-active";
+  if (!policy || !isObject(node.controlLoop)) return "unconfigured";
+  const failurePreconditionMatches = node.controlLoop.lastFailurePreconditionFingerprint
+    && node.controlLoop.lastFailurePreconditionFingerprint === node.controlLoop.preconditionFingerprint;
+  const stagnated = Number.isInteger(node.controlLoop.unchangedChecks)
+    && Number.isInteger(policy.maxUnchangedChecks)
+    && node.controlLoop.unchangedChecks >= policy.maxUnchangedChecks;
+  const retriesExhausted = Number.isInteger(node.controlLoop.sameFailureRetries)
+    && Number.isInteger(policy.maxSameFailureRetries)
+    && node.controlLoop.sameFailureRetries >= policy.maxSameFailureRetries
+    && node.controlLoop.lastFailureFingerprint
+    && failurePreconditionMatches;
+  if (stagnated || retriesExhausted) return "blocked-budget-exhausted";
+  if (node.controlLoop.checkMode === "event") {
+    if (isUtcRfc3339Timestamp(node.controlLoop.watchdogAt)
+      && Date.parse(node.controlLoop.watchdogAt) <= Date.now()) {
+      return "event-watchdog-overdue";
+    }
+    return "waiting-for-event";
+  }
+  if (isUtcRfc3339Timestamp(node.controlLoop.nextCheckAt)
+    && Date.parse(node.controlLoop.nextCheckAt) <= Date.now()) {
+    return "scheduled-overdue";
+  }
+  return "scheduled";
+}
+
+function runLiveness(io) {
+  const loaded = loadRegistry();
+  if (!loaded.exists || loaded.error) {
+    io.stdout("configured: false");
+    io.stdout(`reason: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
+    return 1;
+  }
+  const findings = validateLoadedRegistry(loaded);
+  const policy = loaded.registry.controlLoopPolicy;
+  io.stdout(`configured: ${Boolean(policy)}`);
+  io.stdout(`registry: ${toonString(registryLabel(loaded))}`);
+  io.stdout(`progress_signal: ${toonString(policy?.progressSignal || "unconfigured")}`);
+  io.stdout(`quiet_activity_counts_as_progress: ${policy?.quietActivityCountsAsProgress === true}`);
+  io.stdout(`max_unchanged_checks: ${Number.isInteger(policy?.maxUnchangedChecks) ? policy.maxUnchangedChecks : -1}`);
+  io.stdout(`max_same_failure_retries: ${Number.isInteger(policy?.maxSameFailureRetries) ? policy.maxSameFailureRetries : -1}`);
+  io.stdout(`max_control_interval_seconds: ${Number.isInteger(policy?.maxControlIntervalSeconds) ? policy.maxControlIntervalSeconds : -1}`);
+  io.stdout(`shared_runtime_pre_action_compare: ${policy?.sharedRuntimeRecovery?.requirePreActionCompare === true}`);
+  io.stdout(`max_shared_runtime_claim_lease_seconds: ${Number.isInteger(policy?.sharedRuntimeRecovery?.maxClaimLeaseSeconds) ? policy.sharedRuntimeRecovery.maxClaimLeaseSeconds : -1}`);
+  io.stdout(`shared_runtime_scoped_claim_required: ${policy?.sharedRuntimeRecovery?.requireRuntimeScopedClaim === true}`);
+  io.stdout(`shared_runtime_admission_closure_required: ${policy?.sharedRuntimeRecovery?.requireAdmissionClosure === true}`);
+  io.stdout(`shared_runtime_unmanaged_start_behavior: ${toonString(policy?.sharedRuntimeRecovery?.unmanagedStartBehavior || "unconfigured")}`);
+  io.stdout(`nodes[${findings.nodes.length}]{id,state,liveness_owner,condition,owner_action_required,check_mode,unchanged_checks,same_failure_retries,next_control}:`);
+  let overdueControls = 0;
+  for (const node of findings.nodes) {
+    const control = node.controlLoop;
+    const nextControl = control?.checkMode === "event"
+      ? `${control.wakeEvent || ""}${control.watchdogAt ? ` (watchdog ${control.watchdogAt})` : ""}`
+      : control?.nextCheckAt || "";
+    const condition = controlLoopCondition(node, policy);
+    const ownerActionRequired = condition === "blocked-budget-exhausted"
+      || condition === "scheduled-overdue"
+      || condition === "event-watchdog-overdue";
+    if (condition === "scheduled-overdue" || condition === "event-watchdog-overdue") overdueControls += 1;
+    io.stdout(`  ${toonString(node.id)},${toonString(node.state)},${toonString(livenessOwnerFor(loaded.registry, node, findings.nodesById))},${toonString(condition)},${ownerActionRequired},${toonString(control?.checkMode || "")},${Number.isInteger(control?.unchangedChecks) ? control.unchangedChecks : -1},${Number.isInteger(control?.sameFailureRetries) ? control.sameFailureRetries : -1},${toonString(nextControl)}`);
+  }
+  const recoveryReceipts = arrayOrEmpty(loaded.registry.sharedRuntimeRecoveryReceipts);
+  io.stdout(`shared_runtime_recovery_claims[${recoveryReceipts.length}]{id,runtime_scope,status,claim_owner,condition,owner_action_required,claim_expires_at,admission_closed_at,admission_reopened_at}:`);
+  let recoveryClaimsRequiringAction = 0;
+  for (const receipt of recoveryReceipts) {
+    let condition = receipt?.status || "invalid";
+    if (receipt?.status === "prepared"
+      && isUtcRfc3339Timestamp(receipt.comparedAt)
+      && Number.isInteger(policy?.sharedRuntimeRecovery?.maxReceiptAgeSeconds)
+      && Date.now() - Date.parse(receipt.comparedAt) > policy.sharedRuntimeRecovery.maxReceiptAgeSeconds * 1000) {
+      condition = "prepared-comparison-stale";
+    } else if (receipt?.status === "started"
+      && isUtcRfc3339Timestamp(receipt.claimExpiresAt)
+      && Date.parse(receipt.claimExpiresAt) <= Date.now()) {
+      condition = "started-claim-expired";
+    }
+    const ownerActionRequired = condition === "prepared-comparison-stale"
+      || condition === "started-claim-expired";
+    if (ownerActionRequired) recoveryClaimsRequiringAction += 1;
+    io.stdout(`  ${toonString(receipt?.id || "")},${toonString(receipt?.runtimeScopeRef || "")},${toonString(receipt?.status || "")},${toonString(receipt?.claimOwnerRef || "")},${toonString(condition)},${ownerActionRequired},${toonString(receipt?.claimExpiresAt || "")},${toonString(receipt?.admissionClosedAt || "")},${toonString(receipt?.admissionReopenedAt || "")}`);
+  }
+  printFindings(io, findings);
+  if (overdueControls) io.stdout(`owner_action_required: ${overdueControls} overdue control${overdueControls === 1 ? "" : "s"}`);
+  if (recoveryClaimsRequiringAction) {
+    io.stdout(`owner_action_required: ${recoveryClaimsRequiringAction} stale or expired shared-runtime recovery claim${recoveryClaimsRequiringAction === 1 ? "" : "s"}`);
+  }
+  return findings.blockers.length || overdueControls || recoveryClaimsRequiringAction ? 1 : 0;
 }
 
 function completionProfileCoverageBlockers(nodes, completionProfiles) {
@@ -2424,6 +3560,10 @@ function buildPromptLines(node, parent, registry) {
   lines.push("Role:");
   for (const responsibility of roleResponsibilities(node.role)) lines.push(`- ${responsibility}`);
   lines.push("- Role does not expand the authority envelope.");
+  if (registry.controlLoopPolicy) {
+    lines.push("- A heartbeat or quiet attached process is not progress. Update the evidence fingerprint only when Git, tracker, child, PR, check, or completion evidence materially changes.");
+    lines.push(`- Stop and block for immediate-parent recovery after ${registry.controlLoopPolicy.maxUnchangedChecks} unchanged checks or ${registry.controlLoopPolicy.maxSameFailureRetries} retries of the same failure/precondition pair; another identical retry is forbidden until a changed precondition is recorded and the retry counter is reset.`);
+  }
   lines.push("");
   lines.push("First action:");
   if (replanDirectiveIds.length) {
@@ -2504,6 +3644,12 @@ function runLaunchSpec(nodeId, io) {
   const firstmate = isCodexNativeFirstmateAdapter(loaded.registry.clientAdapter);
   const logicalParent = logicalParentBinding(loaded.registry, node, parent);
   const activatesRegistry = activatesRegistryOnLaunch(loaded.registry, node, parent);
+  const requiresLogicalManagerLivenessHandoff = node.role === "boss"
+    && loaded.registry.schemaVersion >= 5
+    && loaded.registry.rootControl?.materialization === "optional"
+    && Boolean(loaded.registry.controlLoopPolicy);
+  const logicalManagerLivenessHandoffUpdate =
+    "atomically append hash-linked liveness-owner handoff observations to every active logical Manager controlLoop";
   const workContract = materializedWorkContract(loaded.registry, node, parent);
   const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
   const launchKey = launchKeyFor(loaded.registry, node, parent);
@@ -2554,6 +3700,9 @@ function runLaunchSpec(nodeId, io) {
     schemaVersion: loaded.registry.schemaVersion,
     ...(loaded.registry.schemaVersion >= 4 ? { coordinationMode: loaded.registry.coordinationMode } : {}),
     ...(loaded.registry.schemaVersion >= 5 ? { rootControl: loaded.registry.rootControl } : {}),
+    ...(loaded.registry.schemaVersion >= 5 && loaded.registry.controlLoopPolicy
+      ? { controlLoopPolicy: loaded.registry.controlLoopPolicy }
+      : {}),
     operation: "create-task",
     nodeId: node.id,
     role: node.role,
@@ -2618,6 +3767,8 @@ function runLaunchSpec(nodeId, io) {
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
           "nextAction",
+          ...(loaded.registry.controlLoopPolicy ? ["initialize controlLoop progress, retry budget, and next-control fields"] : []),
+          ...(requiresLogicalManagerLivenessHandoff ? [logicalManagerLivenessHandoffUpdate] : []),
           "clear launchReservation"
         ],
         taskBinding: taskBindingUpdate({
@@ -2689,6 +3840,8 @@ function runLaunchSpec(nodeId, io) {
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
           "nextAction",
+          ...(loaded.registry.controlLoopPolicy ? ["initialize controlLoop progress, retry budget, and next-control fields"] : []),
+          ...(requiresLogicalManagerLivenessHandoff ? [logicalManagerLivenessHandoffUpdate] : []),
           "clear launchReservation"
         ],
         mustAdvanceRegistryRevision: true,
@@ -2710,9 +3863,15 @@ function runLaunchSpec(nodeId, io) {
           ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "taskBinding",
           "state=working",
-          "nextAction"
+          "nextAction",
+          ...(loaded.registry.controlLoopPolicy ? ["controlLoop"] : []),
+          ...(requiresLogicalManagerLivenessHandoff ? [logicalManagerLivenessHandoffUpdate] : [])
         ]
-        : ["insert registryNode", "status=active", "taskId", "taskBinding", "state=working", "nextAction"]
+        : [
+          "insert registryNode", "status=active", "taskId", "taskBinding", "state=working", "nextAction",
+          ...(loaded.registry.controlLoopPolicy ? ["controlLoop"] : []),
+          ...(requiresLogicalManagerLivenessHandoff ? [logicalManagerLivenessHandoffUpdate] : [])
+        ]
     }
   }, null, 2));
   return 0;
@@ -2731,7 +3890,7 @@ export async function runOrchestration(argv, io) {
       code: "tracked-example-inspection-only",
       command: `orchestration ${command}`,
       message: "--example is limited to read-only tracked-example inspection commands",
-      hints: [`Use --example with status, validate, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
+      hints: [`Use --example with status, validate, liveness, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
     });
     return 2;
   }
@@ -2781,6 +3940,9 @@ export async function runOrchestration(argv, io) {
     case "validate":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration validate", hints: [`Run ./${CONFIG.cliName} orchestration validate`] })) return 2;
       return runValidate(io);
+    case "liveness":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration liveness", hints: [`Run ./${CONFIG.cliName} orchestration liveness`] })) return 2;
+      return runLiveness(io);
     case "directives":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration directives", hints: [`Run ./${CONFIG.cliName} orchestration directives`] })) return 2;
       return runDirectives(io);

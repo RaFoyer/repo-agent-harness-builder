@@ -82,12 +82,25 @@ always require task-backed immediate parents.
 6. Reserve with compare-and-set semantics before any external task creation.
 7. Let the selected adapter create/adopt, title, verify, and bind the task as one
    logical materialization transaction.
-8. Monitor heartbeats and evidence through the immediate parent. Reconcile
-   crashes or ambiguous creates by launch key; never retry until absence is
-   proven.
-9. Mark responsibility terminal only after owned children are terminal and the
+8. Monitor canonical evidence-reference fingerprints through an append-only,
+   hash-linked receipt history written by the current liveness owner using
+   registry-revision and prior-hash CAS. The project owner owns the Boss and
+   any logical Manager whose Boss task is not actively managing; Boss
+   bind/reconcile atomically appends the handoff to the immediate parent. A
+   heartbeat, attached process, or repeated status message is activity, not
+   proof of progress. Increment the unchanged-check counter when the
+   fingerprint is unchanged; an overdue schedule/watchdog or exhausted budget
+   requires owner action. Every receipt seals failure/precondition evidence and
+   the pair's retry high-water mark; configured check/retry budgets must remain
+   inside the protocol's safety ceilings.
+9. Key each retry to the failure fingerprint and the precondition recorded
+   with that failure.
+   Never repeat an identical failed action after its retry budget is exhausted;
+   resume only after a changed precondition is recorded. Reconcile crashes or
+   ambiguous creates by launch key; never retry until absence is proven.
+10. Mark responsibility terminal only after owned children are terminal and the
    completion profile's exact evidence is recorded.
-10. In hybrid mode, reconcile open owner directives without turning the Boss into a communication gatekeeper.
+11. In hybrid mode, reconcile open owner directives without turning the Boss into a communication gatekeeper.
 
 ## Fail-Closed Rules
 
@@ -99,6 +112,39 @@ always require task-backed immediate parents.
 - Do not silently substitute a client, browser, connector, worktree mode, or
   task API when a required capability is unavailable.
 - Keep an ambiguous reservation quarantined and reconcile by idempotency key.
+- Quietness alone never authorizes recovery. The active immediate parent owns
+  liveness escalation for task-parented children; the project owner owns Boss
+  liveness and logical Managers until the Boss is actively managing.
+- Before recovering a shared runtime, snapshot the exact active set and
+  preservation evidence, compare that set again immediately before the action,
+  and record both canonical fingerprints in a fresh private recovery receipt.
+  Before preservation, close admission and acquire the runtime-scoped claim
+  from an authority outside all repository-private registries. Require every
+  run-start path to consult it; if an unmanaged path can bypass admission,
+  block recovery. Begin the action inside the comparison freshness window.
+  Abort/replan if the set changed, the comparison is future/stale, or the action
+  start is delayed. Never treat a local/XDG ledger, project registry, or
+  same-user hash as the runtime authority. Until a separate coordinator
+  cryptographically authenticates claims, anchors monotonic history, and
+  atomically gates every raw start path, destructive recovery is unavailable
+  and every non-empty recovery mirror fails closed. Ordinary orchestration
+  without recovery receipts remains available. Once that external adapter
+  exists, mirror its coordinator generation and authenticated claim reference,
+  then win the local registry-CAS
+  `prepared` → `started` transition before the side effect. Seal the runtime
+  scope, action, active-set fingerprint, and recovery-precondition fingerprint
+  in a ledger-unique claim key; allow only one nonterminal project mirror.
+  Give `started` a portable owner and bounded immutable lease. Reconcile an
+  expired claim on that same receipt before a new claim. Append only monotonic
+  state changes to its hash-linked transition ledger and keep the snapshot
+  equal to the ledger tip; never replay an unchanged terminal claim key under
+  a new ID. Only the claimant may record `completed` or evidence-backed
+  `failed`, and reopen admission through the runtime authority during terminal
+  reconciliation. The project registry is not the machine-wide lock. Treat
+  unknown shutdown or admission semantics as non-preserving.
+- Do not start another identical retry, replacement Worker, review run, or auth
+  flow after the configured unchanged-progress or same-failure budget is
+  exhausted.
 - Do not archive tasks or remove worktrees until landed-work proof exists.
 - Cross-repository control requires a separately registered scope and explicit
   authority.

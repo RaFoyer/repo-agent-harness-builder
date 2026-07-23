@@ -26,6 +26,26 @@
       "maxDelegationDepth": 2
     }
   },
+  "controlLoopPolicy": {
+    "progressSignal": "evidence-fingerprint",
+    "quietActivityCountsAsProgress": false,
+    "maxUnchangedChecks": 3,
+    "maxSameFailureRetries": 1,
+    "maxControlIntervalSeconds": 900,
+    "maxClockSkewSeconds": 300,
+    "retryRequiresChangedPrecondition": true,
+    "sharedRuntimeRecovery": {
+      "requireActiveSetSnapshot": true,
+      "requirePreActionCompare": true,
+      "activeSetChangeAction": "abort-and-replan",
+      "unknownPreservationBehavior": "treat-as-non-preserving",
+      "maxReceiptAgeSeconds": 60,
+      "maxClaimLeaseSeconds": 900,
+      "requireRuntimeScopedClaim": true,
+      "requireAdmissionClosure": true,
+      "unmanagedStartBehavior": "block-recovery"
+    }
+  },
   "nodes": [],
   "ownerDirectives": []
 }
