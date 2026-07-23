@@ -35,7 +35,7 @@ This package includes:
 - optional no-mistakes PR-gate setup and status templates
 - optional Lavish review-surface protocol and tracker-capture templates
 - optional Boss/Manager/Worker orchestration registry, prompts, ledger, and
-  project-local `project-orchestration` skill
+  fleet-managed `project-orchestration` reference snapshot
 - `goal-graph-loop` templates for repository-merge DAGs, with strict chains as
   linear topology and a deprecated `goal-chain-loop` compatibility alias
 - plain-language setup references
