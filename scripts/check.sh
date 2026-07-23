@@ -481,7 +481,7 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --cli-name harness \
   --run-tests
 
-for live_node_case in task-identity trust-grant signature-reservation active-lifecycle unsupported-identity; do
+for live_node_case in task-identity trust-grant signature-reservation active-lifecycle unsupported-identity nested-completion-evidence nested-signature nested-trust-grant nested-reservation; do
   damaged="$TMP/generated-repo-schema-v5-live-node-$live_node_case"
   cp -R "$logical_graph" "$damaged"
   python3 - "$damaged/ops/orchestration.example.json" "$live_node_case" <<'PY'
@@ -506,6 +506,14 @@ elif case == "signature-reservation":
 elif case == "active-lifecycle":
     node["state"] = "working"
     node["nextAction"] = "Continue live work."
+elif case == "nested-completion-evidence":
+    node["completionProfile"]["completionEvidence"] = ["local-only"]
+elif case == "nested-signature":
+    node["completionProfile"]["signature"] = "local-only"
+elif case == "nested-trust-grant":
+    node["authority"]["trustApproval"] = {"approvedBy": "developer-local"}
+elif case == "nested-reservation":
+    node["authority"]["launchReservation"] = {"key": "local-only"}
 else:
     node["developerIdentity"] = {"taskId": "task-local-only"}
 path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")

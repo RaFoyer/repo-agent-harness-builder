@@ -28,6 +28,11 @@ const TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS = [
   "blocker", "unblockAction", "blockedByDirectiveIds", "handoffEvidence", "terminalDisposition",
   "completionEvidence", "completedAt", "trustApproval"
 ];
+const TRACKED_EXAMPLE_AUTHORITY_FIELDS = new Set([
+  "allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "canDelegate",
+  "maxActiveChildren", "stopConditions"
+]);
+const TRACKED_EXAMPLE_COMPLETION_PROFILE_FIELDS = new Set(["type", "requiredEvidence"]);
 const TRACKED_EXAMPLE_ROOT_FIELDS = new Set([
   "schemaVersion", "revision", "status", "coordinationMode", "rootControl", "prefix", "scope",
   "bindingAttestation", "clientAdapter", "trustPolicy", "nodes", "ownerDirectives", "extensions"
@@ -107,6 +112,10 @@ const BINDING_KEY_ID_ENV = "ORCHESTRATION_BINDING_KEY_ID";
 const CODEX_FIRSTMATE_PROFILE = "codex-native-firstmate";
 const PROJECT_ORCHESTRATION_SKILL = "project-orchestration";
 const GOAL_GRAPH_SKILL = "goal-graph-loop";
+const FLEET_MANAGED_SKILLS = new Set([
+  "repo-agent-harness-builder", PROJECT_ORCHESTRATION_SKILL, GOAL_GRAPH_SKILL,
+  "goal-chain-loop", CODEX_FIRSTMATE_PROFILE
+]);
 const DEPRECATED_SKILL_ALIASES = new Map([["goal-chain-loop", GOAL_GRAPH_SKILL]]);
 const GOAL_GRAPH_PROTOCOLS = new Set(["GOAL-GRAPH", "GOAL-CHAIN"]);
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -118,8 +127,6 @@ const PRESENTATION_ROLE_LABELS = {
 const DEFAULT_EXECUTIVE_MANAGER_CATALOG = ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"];
 const DEFAULT_EXECUTIVE_WORKER_CATALOG = ["Director", "Lead", "Contributor"];
 const CODEX_FIRSTMATE_ASSETS = [
-  ".agents/skills/project-orchestration/SKILL.md",
-  ".agents/skills/codex-native-firstmate/SKILL.md",
   ".codex/config.firstmate.example.toml",
   ".codex/agents/firstmate-boss.toml",
   ".codex/agents/firstmate-manager.toml",
@@ -653,6 +660,46 @@ function validateTrackedExampleRegistry(registry) {
       for (const field of TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS) {
         if (node[field] !== undefined && node[field] !== null) blockers.push(`${label} must not contain live ${field}`);
       }
+      for (const field of ["governingProtocols", "requiredSkills", "dependencies"]) {
+        if (field in node && !isStringArray(node[field])) blockers.push(`${label} ${field} must be an array of strings`);
+      }
+      for (const field of ["id", "role", "workRef", "workKind", "label", "title", "state", "objective", "trustLevel", "parentBindingMode"]) {
+        if (field in node && !isNonEmptyString(node[field])) blockers.push(`${label} ${field} must be a single-line string`);
+      }
+      if ("parentId" in node && node.parentId !== null && !isNonEmptyString(node.parentId)) {
+        blockers.push(`${label} parentId must be a single-line string or null`);
+      }
+      if (node.completionProfile !== undefined && node.completionProfile !== null) {
+        if (!isObject(node.completionProfile)) blockers.push(`${label} completionProfile must be an object`);
+        else {
+          const unexpectedCompletionFields = Object.keys(node.completionProfile)
+            .filter((field) => !TRACKED_EXAMPLE_COMPLETION_PROFILE_FIELDS.has(field));
+          if (unexpectedCompletionFields.length) blockers.push(`${label} completionProfile contains unsupported or runtime fields: ${unexpectedCompletionFields.sort().join(", ")}`);
+          if ("type" in node.completionProfile && !isNonEmptyString(node.completionProfile.type)) {
+            blockers.push(`${label} completionProfile.type must be a single-line string`);
+          }
+          if ("requiredEvidence" in node.completionProfile && !isStringArray(node.completionProfile.requiredEvidence)) {
+            blockers.push(`${label} completionProfile.requiredEvidence must be an array of strings`);
+          }
+        }
+      }
+      if (node.authority !== undefined && node.authority !== null) {
+        if (!isObject(node.authority)) blockers.push(`${label} authority must be an object`);
+        else {
+          const unexpectedAuthorityFields = Object.keys(node.authority)
+            .filter((field) => !TRACKED_EXAMPLE_AUTHORITY_FIELDS.has(field));
+          if (unexpectedAuthorityFields.length) blockers.push(`${label} authority contains unsupported or runtime fields: ${unexpectedAuthorityFields.sort().join(", ")}`);
+          for (const field of AUTHORITY_ARRAY_FIELDS) {
+            if (field in node.authority && !isStringArray(node.authority[field])) blockers.push(`${label} authority.${field} must be an array of strings`);
+          }
+          if ("canDelegate" in node.authority && typeof node.authority.canDelegate !== "boolean") {
+            blockers.push(`${label} authority.canDelegate must be boolean`);
+          }
+          if ("maxActiveChildren" in node.authority && (!Number.isInteger(node.authority.maxActiveChildren) || node.authority.maxActiveChildren < 0)) {
+            blockers.push(`${label} authority.maxActiveChildren must be a non-negative integer`);
+          }
+        }
+      }
     }
   }
   if (registry.ownerDirectives !== undefined && (!Array.isArray(registry.ownerDirectives) || registry.ownerDirectives.length)) {
@@ -765,8 +812,8 @@ function requiredSkillsFor(registry, node) {
   return [...new Set(ordered)];
 }
 
-function missingRequiredSkills(registry, node) {
-  return requiredSkillsFor(registry, node).filter((skillName) => !fs.existsSync(
+function missingProjectLocalSkills(registry, node) {
+  return requiredSkillsFor(registry, node).filter((skillName) => !FLEET_MANAGED_SKILLS.has(skillName) && !fs.existsSync(
     path.join(CONFIG.repoRoot, ".agents", "skills", skillName, "SKILL.md")
   ));
 }
@@ -2435,7 +2482,7 @@ function runLaunchSpec(nodeId, io) {
   const target = loadPromptTarget(nodeId, io);
   if (target.code !== 0) return target.code;
   const { node, parent, findings, loaded } = target;
-  const missingSkills = missingRequiredSkills(loaded.registry, node);
+  const missingSkills = missingProjectLocalSkills(loaded.registry, node);
   if (missingSkills.length) {
     io.stderr(`Node ${node.id} is missing required project-local skills: ${missingSkills.join(", ")}.`);
     return 1;

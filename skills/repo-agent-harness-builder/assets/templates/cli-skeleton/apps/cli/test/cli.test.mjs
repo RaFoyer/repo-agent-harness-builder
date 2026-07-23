@@ -663,7 +663,7 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.match(text, /registry_valid: true/);
   assert.match(text, /adapter_state: "unconfigured"/);
   assert.match(text, /repo_local_scope: true/);
-  assert.match(text, /assets_present: 9/);
+  assert.match(text, /assets_present: 7/);
   for (const profile of ["firstmate-boss", "firstmate-manager", "firstmate-worker"]) {
     const profilePath = path.join(repoRoot, ".codex", "agents", `${profile}.toml`);
     assert.equal(fs.existsSync(profilePath), true);
@@ -2271,6 +2271,61 @@ fixtureTest("orchestration keeps the tracked scaffold inert and initializes a pr
       const invalidExample = capture();
       assert.equal(await main(["orchestration", "validate", "--example"], invalidExample.io), 1);
       assert.match(invalidExample.out.join("\n"), /tracked example/);
+    });
+  }
+
+  const logicalPolicyGraph = JSON.parse(fs.readFileSync(path.join(repoRoot, "ops", "orchestration.example.json"), "utf-8"));
+  logicalPolicyGraph.nodes = [{
+    id: "boss-policy",
+    role: "boss",
+    workRef: "PORTFOLIO",
+    workKind: "governance",
+    governingProtocols: ["AGENT-ORCHESTRATION"],
+    label: "Policy control plane",
+    title: `${CONFIG.projectName} - Boss`,
+    parentId: null,
+    dependencies: [],
+    state: "queued",
+    objective: "Define the policy graph without live state.",
+    trustLevel: "T1",
+    authority: orchestrationAuthority(),
+    parentBindingMode: "task"
+  }, {
+    id: "manager-policy",
+    role: "manager",
+    workRef: "POLICY-1",
+    workKind: "documentation",
+    governingProtocols: ["AGENT-ORCHESTRATION"],
+    requiredSkills: ["project-documentation"],
+    label: "Policy documentation",
+    title: `${CONFIG.projectName} - Manager - POLICY-1 Policy documentation`,
+    parentId: "boss-policy",
+    dependencies: [],
+    state: "queued",
+    objective: "Describe a complete logical policy node without live state.",
+    completionProfile: { type: "artifact", requiredEvidence: ["approved policy"] },
+    trustLevel: "T1",
+    authority: orchestrationAuthority(),
+    parentBindingMode: "logical"
+  }];
+  await withFile("ops/orchestration.example.json", `${JSON.stringify(logicalPolicyGraph, null, 2)}\n`, async () => {
+    const validLogicalExample = capture();
+    assert.equal(await main(["orchestration", "validate", "--example"], validLogicalExample.io), 0, validLogicalExample.err.join("\n"));
+  });
+
+  for (const [field, value] of [
+    ["completionProfile.completionEvidence", ["local-only"]],
+    ["completionProfile.signature", "local-only"],
+    ["authority.trustApproval", { approvedBy: "project-owner" }],
+    ["authority.launchReservation", { key: "local-only" }]
+  ]) {
+    const registry = structuredClone(logicalPolicyGraph);
+    const [container, nestedField] = field.split(".");
+    registry.nodes.find((node) => node.id === "manager-policy")[container][nestedField] = value;
+    await withFile("ops/orchestration.example.json", `${JSON.stringify(registry, null, 2)}\n`, async () => {
+      const invalidLogicalExample = capture();
+      assert.equal(await main(["orchestration", "validate", "--example"], invalidLogicalExample.io), 1);
+      assert.match(invalidLogicalExample.out.join("\n"), /tracked example node manager-policy .*unsupported or runtime fields/);
     });
   }
 
@@ -3991,6 +4046,24 @@ fixtureTest("orchestration seals the configured Firstmate adapter skill into lau
   const spec = JSON.parse(launch.out.join("\n"));
   assert.deepEqual(spec.requiredSkills, ["project-orchestration", "firstmate-fork"]);
   assert.deepEqual(spec.reservation.workContract.payload.node.requiredSkills, spec.requiredSkills);
+});
+
+fixtureTest("orchestration resolves fleet-managed launch skills outside repository copies", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  for (const skill of ["project-orchestration", "goal-graph-loop", "goal-chain-loop", "codex-native-firstmate"]) {
+    fs.rmSync(path.join(repoRoot, ".agents", "skills", skill), { recursive: true, force: true });
+  }
+  writeOrchestrationRegistry(registry);
+
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.deepEqual(spec.requiredSkills, ["project-orchestration", "codex-native-firstmate"]);
+
+  const adapterStatus = capture();
+  assert.equal(await main(["orchestration", "adapter-status"], adapterStatus.io), 0, adapterStatus.err.join("\n"));
+  assert.match(adapterStatus.out.join("\n"), /activation_ready: true/);
 });
 
 fixtureTest("orchestration launch contracts compose goal graph and node skills in order and fail closed when missing", async () => {

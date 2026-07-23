@@ -113,9 +113,11 @@ bind keeps the reservation quarantined. Reconcile the observed task identity
 against the launch key before retry. If absence cannot be proven, require human
 reconciliation rather than creating a duplicate.
 
-Before materialization, require the launch contract's ordered `requiredSkills`
-to be installed locally: `$project-orchestration`, then this adapter, then any
-domain loop such as `$goal-graph-loop`, followed by node-specific skills.
+Before materialization, require every project-local entry in the launch
+contract's ordered `requiredSkills` to be installed under the repository. The
+fleet-managed entries—`$project-orchestration`, this adapter, and any domain
+loop such as `$goal-graph-loop`—must be resolved through their authoritative
+distribution, never copied or synchronized by the downstream repository.
 
 Do not archive a task or remove its worktree until the completion profile's
 landed-work evidence is recorded. A restorable app snapshot is not landed-work

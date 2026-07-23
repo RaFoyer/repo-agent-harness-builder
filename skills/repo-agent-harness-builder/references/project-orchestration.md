@@ -208,7 +208,7 @@ The repo CLI remains agent-agnostic. `init` and `migrate` only create a private
 commands remain read-only:
 
 The inactive scaffold may keep `clientAdapter` null. A configured adapter
-record names its client ID, profile, status, project-local required skill, and whether a standing task-
+record names its client ID, profile, status, required skill, and whether a standing task-
 creation grant exists; client-specific policy may add base/worktree,
 integration, heartbeat, retention, and reconciliation fields. Installing an
 adapter capability does not select or activate it. Active schema-version-3-or-newer
@@ -220,7 +220,8 @@ adapters must declare their required skill explicitly.
    The contract lists ordered `requiredSkills`: `project-orchestration`, the
    active adapter skill, `goal-graph-loop` when the node is governed by the
    goal graph protocol, then node-specific skills. Refuse materialization when
-   any required project-local skill is missing.
+   any required project-local skill is missing; resolve fleet-managed skills
+   through their authoritative distribution without requiring repository copies.
 4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision and status, target node task identity/trust/full authority including approval gates, parent state/task ID/trust/full authority including approval gates, capacity preconditions, and the canonical SHA-256 materialized-work-contract hash. That hash covers scope, budgets, title, objective, work reference and kind, governing protocols, ordered required skills, completion profile, dependencies, trust, authority, and the immediate-parent launch envelope; the contract-derived launch key is the durable idempotency key. On success the reservation records the key and hash and advances the revision.
 5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
 6. Configure a complete logical Boss, including its eventual delegation authority and budgets, before any materialization; the empty inactive scaffold is intentionally not launchable. Materialize the Boss first when root materialization is required. With schema-v5 optional root materialization, a logical Manager may activate the instance first without pretending a Boss task exists. Immediately before create and again at bind, compare the current instance to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or applicable task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside the selected named private orchestration instance and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time). Task-bound children record the immutable parent task ID; logical Managers record null. Set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan.
