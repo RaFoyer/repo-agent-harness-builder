@@ -40,6 +40,9 @@ isolated or exploratory work without durable tracker and integration gates.
    be independently verified and whose authority fits the parent envelope.
 5. Monitor Workers through their immediate parent relationship. Review scope,
    verification, conflicts, PR status, and residual risks.
+   Compare evidence fingerprints rather than treating heartbeats, attached
+   processes, or repeated status as progress. Stop and block at the configured
+   unchanged or same-failure budget; retry only after a precondition changes.
 6. Fan in from the current integration branch. Record the merged PR, reachable
    merge or squash commit, issue disposition, positive verification, risks, and
    downstream unlocks.

@@ -400,6 +400,58 @@ if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name har
   exit 1
 fi
 
+damaged="$TMP/generated-repo-unsafe-control-loop-policy"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["controlLoopPolicy"]["quietActivityCountsAsProgress"] = True
+registry["controlLoopPolicy"]["sharedRuntimeRecovery"]["requirePreActionCompare"] = False
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject unsafe anti-stagnation and shared-runtime recovery policy" >&2
+  exit 1
+fi
+
+customized="$TMP/generated-repo-custom-control-loop-budgets"
+cp -R "$TMP/generated-repo" "$customized"
+python3 - "$customized/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["controlLoopPolicy"]["maxUnchangedChecks"] = 5
+registry["controlLoopPolicy"]["maxSameFailureRetries"] = 2
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+python3 "$SKILL/scripts/verify_harness.py" --target "$customized" --cli-name harness
+
+damaged="$TMP/generated-repo-unbounded-control-loop-budgets"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+registry["controlLoopPolicy"]["maxUnchangedChecks"] = 101
+registry["controlLoopPolicy"]["maxSameFailureRetries"] = 21
+registry["controlLoopPolicy"]["maxControlIntervalSeconds"] = 604800
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject unbounded control-loop budgets" >&2
+  exit 1
+fi
+
 damaged="$TMP/generated-repo-identity-orchestration-example"
 cp -R "$TMP/generated-repo" "$damaged"
 python3 - "$damaged/ops/orchestration.example.json" <<'PY'
@@ -654,7 +706,7 @@ from pathlib import Path
 path = Path(sys.argv[1])
 registry = json.loads(path.read_text(encoding="utf-8"))
 registry["schemaVersion"] = 3
-for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]:
+for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "controlLoopPolicy", "ownerDirectives"]:
     registry.pop(field, None)
 registry["scope"].pop("ownerRef", None)
 path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
@@ -673,7 +725,7 @@ path = Path(sys.argv[1])
 private_field = sys.argv[2]
 registry = json.loads(path.read_text(encoding="utf-8"))
 registry["schemaVersion"] = 3
-for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "ownerDirectives"]:
+for field in ["coordinationMode", "rootControl", "bindingAttestation", "clientAdapter", "controlLoopPolicy", "ownerDirectives"]:
     registry.pop(field, None)
 registry["scope"].pop("ownerRef", None)
 if private_field == "clientAdapter":

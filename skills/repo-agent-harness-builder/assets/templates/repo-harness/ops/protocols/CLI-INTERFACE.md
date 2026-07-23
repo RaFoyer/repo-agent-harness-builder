@@ -95,6 +95,7 @@ Run:
 ./{{CLI_NAME}} orchestration adapter-status --example
 ./{{CLI_NAME}} orchestration taxonomy --example
 ./{{CLI_NAME}} orchestration validate --example
+./{{CLI_NAME}} orchestration liveness --example
 ./{{CLI_NAME}} goals status
 ./{{CLI_NAME}} design status
 ./{{CLI_NAME}} lavish status

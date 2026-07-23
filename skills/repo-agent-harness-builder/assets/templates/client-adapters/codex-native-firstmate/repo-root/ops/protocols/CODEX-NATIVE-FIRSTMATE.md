@@ -113,6 +113,28 @@ bind keeps the reservation quarantined. Reconcile the observed task identity
 against the launch key before retry. If absence cannot be proven, require human
 reconciliation rather than creating a duplicate.
 
+Codex task activity is not portable progress evidence. The current liveness
+owner records a canonical evidence-reference fingerprint and observation
+receipt on each bounded control check by appending to its hash-linked history
+through a registry-revision and prior-receipt-hash CAS; a heartbeat, attached
+task, or repeated commentary does not reset the unchanged or same-failure
+budget. The project owner owns a logical Manager until the Boss task is in an
+active managing state. The Boss bind/reconcile transaction atomically appends
+the ownership handoff before the task-backed immediate parent owns its next
+observation. Before recovering a shared daemon or runtime, preserve every
+active run and record the initial and immediate pre-action active sets in a
+fresh private recovery receipt. Abort/replan if the comparison is future,
+stale, changed, or the action does not begin inside its freshness window. The
+adapter performs no side effect until it wins the registry-CAS transition from
+`prepared` to the exclusive `started` claim; only that claimant records
+`completed` or evidence-backed `failed`. Derive the ledger-unique claim key
+from the action, active-set fingerprint, and recovery-precondition fingerprint,
+and allow only one nonterminal recovery claim. `started` records a portable
+owner and bounded immutable lease. Reconcile an expired claim on the same
+receipt before any new claim. Append only monotonic state changes to the
+hash-linked transition ledger and keep the snapshot equal to its tip; never
+replay an unchanged terminal claim key under a new receipt ID.
+
 Before materialization, require every project-local entry in the launch
 contract's ordered `requiredSkills` to be installed under the repository. The
 fleet-managed entries—`$project-orchestration`, this adapter, and any domain

@@ -106,6 +106,55 @@ null parent task ID into its signed contract, and remains valid if the Boss
 task is materialized later. A Manager may still choose task binding after the
 Boss exists. Workers always require task-bound immediate parents.
 
+New schema-v5 harnesses also configure `controlLoopPolicy`. Progress means a
+material change to the node's Git, tracker, child, PR, check,
+external-operation, or completion evidence—not a heartbeat, attached process,
+log line, or repeated status message. The fingerprint is the SHA-256 of a
+canonical ASCII-sorted set of typed evidence references; the liveness owner
+appends each comparison to a private hash-linked observation receipt chain so
+a Worker cannot self-declare progress by rotating an arbitrary digest. Each
+active node records private `controlLoop` state:
+
+- canonical evidence references, their SHA-256 `progressFingerprint`, and
+  `lastProgressAt`
+- an `unchangedChecks` counter
+- a parent-owned append-only observation sequence with observer identity,
+  observation time, prior receipt hash, prior fingerprint/counter state,
+  resulting evidence/precondition state, and changed/unchanged result
+- either a bounded scheduled `nextCheckAt` or a named `wakeEvent` with a
+  bounded watchdog
+- the last failure fingerprint, the precondition fingerprint recorded with
+  that failure, the current precondition fingerprint, and the retry count for
+  that exact pair; these fields are included in every observation receipt, so
+  clearing a failure requires material progress and a known pair's historical
+  retry high-water mark cannot be reset
+
+The immediate parent owns Manager and Worker liveness; the project owner owns
+Boss liveness and also owns a logical Manager until an actual Boss task is in
+an active managing state. The Boss bind/reconcile transaction atomically
+appends the ownership-handoff observation for every active logical Manager;
+the latest receipt must name the current owner. A future timestamp outside the
+clock-skew allowance, an overdue schedule or event watchdog, exhaustion of the
+unchanged-progress budget, or exhaustion of the same
+failure/precondition retry budget requires owner action.
+Another identical retry, replacement task, review run, or authentication flow
+is forbidden until a changed precondition is recorded and the retry counter is
+reset.
+
+Observation and active-set hashes use the harness portable canonical JSON
+form: UTF-8 compact JSON, recursively ASCII-sorted object keys, no whitespace,
+and ASCII-sorted/deduplicated reference arrays. Control references are
+printable ASCII. Each observation `receiptHash` hashes every receipt field
+except `receiptHash`; sequence starts at one and every later
+`previousReceiptHash` equals the prior receipt hash. Adapters append through a
+registry-revision and prior-receipt-hash compare-and-set. Deleting, truncating,
+reinitializing, or replacing the chain is invalid even when a replacement
+would be internally self-consistent; the hash chain detects broken
+transitions, while the registry CAS enforces append-only history.
+`maxUnchangedChecks` is limited to 100, `maxSameFailureRetries` to 20, and the
+configured unchanged-check count multiplied by the control interval may span
+at most 2,592,000 seconds. These are safety ceilings, not recommended defaults.
+
 For a repository harness, default to the repository itself as the complete
 scope: its own registry, one logical Boss capability, and repo-local Managers
 and Workers. The builder does not require a global project list. A program may
@@ -224,11 +273,48 @@ adapters must declare their required skill explicitly.
    through their authoritative distribution without requiring repository copies.
 4. Let the active client verify current authority, then atomically reserve the node before calling its native task API. The reservation compares the launch spec's revision and status, target node task identity/trust/full authority including approval gates, parent state/task ID/trust/full authority including approval gates, capacity preconditions, and the canonical SHA-256 materialized-work-contract hash. That hash covers scope, budgets, title, objective, work reference and kind, governing protocols, ordered required skills, completion profile, dependencies, trust, authority, and the immediate-parent launch envelope; the contract-derived launch key is the durable idempotency key. On success the reservation records the key and hash and advances the revision.
 5. If reservation fails, do not call the task API; re-read the registry and generate a new spec. Pending reservations consume capacity and make duplicate launches fail before side effects.
-6. Configure a complete logical Boss, including its eventual delegation authority and budgets, before any materialization; the empty inactive scaffold is intentionally not launchable. Materialize the Boss first when root materialization is required. With schema-v5 optional root materialization, a logical Manager may activate the instance first without pretending a Boss task exists. Immediately before create and again at bind, compare the current instance to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or applicable task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside the selected named private orchestration instance and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time). Task-bound children record the immutable parent task ID; logical Managers record null. Set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan.
+6. Configure a complete logical Boss, including its eventual delegation authority and budgets, before any materialization; the empty inactive scaffold is intentionally not launchable. Materialize the Boss first when root materialization is required. With schema-v5 optional root materialization, a logical Manager may activate the instance first without pretending a Boss task exists. Immediately before create and again at bind, compare the current instance to the reservation's complete validity contract. Canonical authority envelopes stable-sort and deduplicate reads, writes, external actions, approval gates, and stop conditions before hashing or snapshot comparison. Any changed revision, status, materialized work contract, target or parent trust/authority/gate, capacity, or applicable task identity invalidates it. Use the `launchKey` as the external task API idempotency and reconciliation key, then bind only with the still-matching reservation. A configured external Ed25519 attestor must sign the binding payload; keep its public-key trust anchor outside the selected named private orchestration instance and provide it at validation time. Record the signed `taskBinding` metadata (launch key, canonical contract hash, node/task/parent identity, and bind revision/time). Task-bound children record the immutable parent task ID; logical Managers record null. When an optional Boss becomes an active managing task, the same bind/reconcile CAS appends an ownership-handoff observation to every active logical Manager. Set working state and next action, clear the reservation, and advance the revision. Validation recomputes every bound contract and parentage and verifies the attestation; change it only through explicit supersession/replan.
 7. If an unrelated valid registry update advances the revision after create but before bind, reconcile the external task by `launchKey` and atomically rebind it against the latest revision. The rebind must prove the reservation identity and re-check active status, dependencies, the open replan-directive boundary, materialized-work-contract hash, target task identity/trust/full authority including approval gates, and the complete current parent-to-child authority inheritance predicate: parent task/managing-state/delegation, trust ceiling, read/write/external-action subsets, inherited approval gates, delegated budget, and capacity. It never creates another task. Any revoked target or parent authority, open replan boundary, changed contract, invalid prerequisite, or identity mismatch keeps the reservation quarantined for explicit cancel or replan.
 8. On a timeout, crash, ambiguous create, or failed bind, keep the reservation and reconcile the external task by `launchKey`; release and retry only after proving no task exists for that key.
-9. Require the child to report to its immediate parent and the parent to reconcile evidence.
-10. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.
+9. On every control check, compare the node's evidence fingerprint. Increment
+   unchanged or same-failure counters when evidence and preconditions have not
+   changed; never reset them merely because a process is still attached. Bind
+   each failure to the precondition fingerprint observed with it. A changed
+   current precondition permits a materially different attempt only after the
+   same-failure counter is reset. Append the complete observation receipt with
+   a registry-revision and prior-receipt-hash CAS; never replace or truncate
+   the existing receipt chain.
+10. At budget exhaustion, block and return control to the immediate parent.
+    Resume only after the parent records the changed precondition that makes a
+    new attempt materially different.
+11. Before recovering a shared runtime, preserve per-run evidence and create a
+    private recovery receipt containing the canonical active run/head set,
+    preservation evidence, and its fingerprint. Record a second canonical
+    snapshot immediately before the action. A matching comparison authorizes
+    action only after an adapter atomically changes the persisted receipt from
+    `prepared` to the exclusive `started` claim with `actionStartedAt` no
+    earlier than that comparison and inside the configured freshness window.
+    Derive the immutable claim key from the action, pre-action active-set
+    fingerprint, and canonical recovery-precondition fingerprint. Claim keys
+    are ledger-unique, and the ledger may contain only one `prepared` or
+    `started` claim at a time. A second starter must lose the registry CAS and
+    perform no side effect. `started` records a portable claim owner and an
+    immutable bounded lease. Append every state change to the receipt's
+    hash-linked transition ledger; only `prepared` → `started` →
+    `completed|failed` or `prepared` → `aborted` is valid, and the latest
+    snapshot must match the ledger tip. An expired claim is an
+    owner-action requirement:
+    reconcile that same receipt to `completed` or evidence-backed `failed`
+    before creating another claim. Only the actor holding `started` may record
+    those terminal states. A failed claim key cannot be retried under a new
+    receipt ID; a new attempt requires a changed active set or canonical
+    recovery precondition. A future, stale, or changed comparison records
+    `abort-and-replan`; it cannot be relabeled completed after the freshness
+    window.
+    Adapters and repository facades fail closed without that receipt. Treat
+    unknown shutdown or resume behavior as non-preserving.
+12. Require the child to report to its immediate parent and the parent to reconcile evidence.
+13. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.
 
 Adapters may translate the launch contract into Codex tasks, Claude Code agents, Gemini CLI workers, another client, or copy-ready prompts. Adapter code may contain invocation details; it must not fork the shared role, trust, lifecycle, or authority model.
 
@@ -269,6 +355,12 @@ Reject designs that:
 - let Managers silently absorb Worker implementation or Workers bypass their immediate parent for routine updates
 - treat a direct owner message as implicit authority, omit a contract-relevant owner directive from the registry, or mark one terminal without resolution and parent-observation evidence
 - let a Boss directly operate every goal graph, leave a graph without exactly one Manager owner, or create replacement Workers merely because previous task context is unavailable
+- count quiet process activity, heartbeats, repeated log lines, or unchanged
+  status output as progress
+- repeat the same failed action after its retry budget is exhausted without a
+  changed precondition
+- force-recover a shared runtime without preserving each active run and
+  comparing the exact active set immediately before the action
 - generate a launch contract without ordered required skills or materialize it
   while a required project-local skill is missing
 
@@ -300,3 +392,6 @@ Focused tests should cover:
 - terminal disposition and terminal-parent reconciliation
 - inherited approval-gate enforcement, inactive task rejection, and ready-parent reconciliation
 - deterministic stale-spec, authority-revocation, reservation, duplicate-launch, crash-reconciliation, and reserved-capacity behavior
+- configured progress observations, unchanged-check exhaustion, same-failure
+  retry exhaustion, event-vs-scheduled wakeups, and shared-runtime recovery
+  compare requirements

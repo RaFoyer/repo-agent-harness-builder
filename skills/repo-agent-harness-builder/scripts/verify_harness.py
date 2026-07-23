@@ -53,6 +53,7 @@ COMMAND_SMOKE_TESTS = [
     ["goals", "status"],
     ["orchestration", "status", "--example"],
     ["orchestration", "validate", "--example"],
+    ["orchestration", "liveness", "--example"],
     ["orchestration", "adapter-status", "--example"],
     ["orchestration", "taxonomy", "--example"],
     ["design", "status"],
@@ -305,6 +306,7 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         "bindingAttestation",
         "clientAdapter",
         "trustPolicy",
+        "controlLoopPolicy",
         "nodes",
         "ownerDirectives",
         "extensions",
@@ -429,6 +431,75 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         limits = trust_policy.get("limits")
         if not isinstance(limits, dict) or set(limits) - {"maxActiveNodes", "maxDelegationDepth"}:
             errors.append(f"orchestration example trustPolicy.limits contains unsupported fields: {label}")
+    control_loop_policy = registry.get("controlLoopPolicy")
+    if schema_version == 5:
+        expected_control_loop_fields = {
+            "progressSignal",
+            "quietActivityCountsAsProgress",
+            "maxUnchangedChecks",
+            "maxSameFailureRetries",
+            "maxControlIntervalSeconds",
+            "maxClockSkewSeconds",
+            "retryRequiresChangedPrecondition",
+            "sharedRuntimeRecovery",
+        }
+        shared_runtime_recovery = (
+            control_loop_policy.get("sharedRuntimeRecovery")
+            if isinstance(control_loop_policy, dict)
+            else None
+        )
+        shared_runtime_recovery_is_safe = (
+            isinstance(shared_runtime_recovery, dict)
+            and set(shared_runtime_recovery) == {
+                "requireActiveSetSnapshot",
+                "requirePreActionCompare",
+                "activeSetChangeAction",
+                "unknownPreservationBehavior",
+                "maxReceiptAgeSeconds",
+                "maxClaimLeaseSeconds",
+            }
+            and shared_runtime_recovery.get("requireActiveSetSnapshot") is True
+            and shared_runtime_recovery.get("requirePreActionCompare") is True
+            and shared_runtime_recovery.get("activeSetChangeAction") == "abort-and-replan"
+            and shared_runtime_recovery.get("unknownPreservationBehavior") == "treat-as-non-preserving"
+            and isinstance(shared_runtime_recovery.get("maxReceiptAgeSeconds"), int)
+            and not isinstance(shared_runtime_recovery.get("maxReceiptAgeSeconds"), bool)
+            and 1 <= shared_runtime_recovery["maxReceiptAgeSeconds"] <= 300
+            and isinstance(shared_runtime_recovery.get("maxClaimLeaseSeconds"), int)
+            and not isinstance(shared_runtime_recovery.get("maxClaimLeaseSeconds"), bool)
+            and 1 <= shared_runtime_recovery["maxClaimLeaseSeconds"] <= 3600
+        )
+        policy_is_safe = (
+            isinstance(control_loop_policy, dict)
+            and set(control_loop_policy) == expected_control_loop_fields
+            and control_loop_policy.get("progressSignal") == "evidence-fingerprint"
+            and control_loop_policy.get("quietActivityCountsAsProgress") is False
+            and isinstance(control_loop_policy.get("maxUnchangedChecks"), int)
+            and not isinstance(control_loop_policy.get("maxUnchangedChecks"), bool)
+            and 1 <= control_loop_policy["maxUnchangedChecks"] <= 100
+            and isinstance(control_loop_policy.get("maxSameFailureRetries"), int)
+            and not isinstance(control_loop_policy.get("maxSameFailureRetries"), bool)
+            and 0 <= control_loop_policy["maxSameFailureRetries"] <= 20
+            and isinstance(control_loop_policy.get("maxControlIntervalSeconds"), int)
+            and not isinstance(control_loop_policy.get("maxControlIntervalSeconds"), bool)
+            and 1 <= control_loop_policy["maxControlIntervalSeconds"] <= 604800
+            and (
+                control_loop_policy["maxUnchangedChecks"]
+                * control_loop_policy["maxControlIntervalSeconds"]
+                <= 2592000
+            )
+            and isinstance(control_loop_policy.get("maxClockSkewSeconds"), int)
+            and not isinstance(control_loop_policy.get("maxClockSkewSeconds"), bool)
+            and 0 <= control_loop_policy["maxClockSkewSeconds"] <= 3600
+            and control_loop_policy.get("retryRequiresChangedPrecondition") is True
+            and shared_runtime_recovery_is_safe
+        )
+        if not policy_is_safe:
+            errors.append(
+                f"schema-v5 orchestration example must configure a safe anti-stagnation controlLoopPolicy: {label}"
+            )
+    elif control_loop_policy is not None:
+        errors.append(f"controlLoopPolicy requires schema-v5 orchestration example: {label}")
 
 
 def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
