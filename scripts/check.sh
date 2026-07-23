@@ -352,10 +352,6 @@ for required_path in \
   "ops/protocols/GOAL-GRAPH.md" \
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md" \
   "ops/orchestration.example.json" \
-  ".agents/skills/project-orchestration/SKILL.md" \
-  ".agents/skills/goal-graph-loop/SKILL.md" \
-  ".agents/skills/goal-chain-loop/SKILL.md" \
-  ".agents/skills/codex-native-firstmate/SKILL.md" \
   ".codex/config.firstmate.example.toml" \
   ".codex/agents/firstmate-boss.toml" \
   ".codex/agents/firstmate-manager.toml" \
@@ -369,6 +365,16 @@ for required_path in \
     exit 1
   fi
 done
+
+echo "== downstream fleet skill ownership boundary =="
+downstream_without_fleet_skills="$TMP/generated-repo-without-fleet-skill-copies"
+cp -R "$TMP/generated-repo" "$downstream_without_fleet_skills"
+for fleet_skill in project-orchestration goal-graph-loop goal-chain-loop codex-native-firstmate; do
+  rm -r "$downstream_without_fleet_skills/.agents/skills/$fleet_skill"
+done
+python3 "$SKILL/scripts/verify_harness.py" \
+  --target "$downstream_without_fleet_skills" \
+  --cli-name harness
 
 echo "== orchestration example verifier boundaries =="
 REPO_ORCHESTRATION_OPERATOR='../../invalid' \
@@ -410,6 +416,113 @@ if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name har
   echo "expected verifier to reject runtime or identity fields in the tracked orchestration example" >&2
   exit 1
 fi
+
+logical_graph="$TMP/generated-repo-schema-v5-logical-policy-graph"
+cp -R "$TMP/generated-repo" "$logical_graph"
+python3 - "$logical_graph/ops/orchestration.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+registry = json.loads(path.read_text(encoding="utf-8"))
+authority = {
+    "allowedReads": ["repository"],
+    "allowedWrites": [],
+    "allowedExternalActions": [],
+    "approvalGates": ["merge"],
+    "canDelegate": False,
+    "maxActiveChildren": 0,
+    "stopConditions": ["authority-gap"],
+}
+registry["nodes"] = [
+    {
+        "id": "boss",
+        "role": "boss",
+        "workRef": "PORTFOLIO",
+        "workKind": "portfolio-governance",
+        "governingProtocols": ["AGENT-ORCHESTRATION"],
+        "label": "Project control plane",
+        "title": "Generated Repo - Boss",
+        "parentId": None,
+        "dependencies": [],
+        "state": "queued",
+        "objective": "Own portfolio reconciliation without claiming a live task.",
+        "trustLevel": "T1",
+        "authority": authority,
+        "parentBindingMode": "task",
+    },
+    {
+        "id": "manager-feature",
+        "role": "manager",
+        "workRef": "FEATURE",
+        "workKind": "feature",
+        "governingProtocols": ["AGENT-ORCHESTRATION", "GOAL-GRAPH"],
+        "requiredSkills": ["example-project-skill"],
+        "label": "Feature workstream",
+        "title": "Generated Repo - Manager - FEATURE Feature workstream",
+        "parentId": "boss",
+        "dependencies": [],
+        "state": "queued",
+        "objective": "Own the logical feature workstream without materialization.",
+        "completionProfile": {
+            "type": "repository-merge",
+            "requiredEvidence": ["merged pull request"],
+        },
+        "trustLevel": "T1",
+        "authority": authority,
+        "parentBindingMode": "logical",
+    },
+]
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+python3 "$SKILL/scripts/verify_harness.py" \
+  --target "$logical_graph" \
+  --cli-name harness \
+  --run-tests
+
+for live_node_case in task-identity trust-grant signature-reservation active-lifecycle unsupported-identity nested-completion-evidence nested-signature nested-trust-grant nested-reservation; do
+  damaged="$TMP/generated-repo-schema-v5-live-node-$live_node_case"
+  cp -R "$logical_graph" "$damaged"
+  python3 - "$damaged/ops/orchestration.example.json" "$live_node_case" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+case = sys.argv[2]
+registry = json.loads(path.read_text(encoding="utf-8"))
+node = next(node for node in registry["nodes"] if node["id"] == "manager-feature")
+if case == "task-identity":
+    node["taskId"] = "task-live-only"
+elif case == "trust-grant":
+    node["trustApproval"] = {
+        "approvedBy": "developer-local",
+        "approvedAt": "2026-07-23",
+        "evidence": ["local-only"],
+    }
+elif case == "signature-reservation":
+    node["launchReservation"] = {"signature": "local-only"}
+elif case == "active-lifecycle":
+    node["state"] = "working"
+    node["nextAction"] = "Continue live work."
+elif case == "nested-completion-evidence":
+    node["completionProfile"]["completionEvidence"] = ["local-only"]
+elif case == "nested-signature":
+    node["completionProfile"]["signature"] = "local-only"
+elif case == "nested-trust-grant":
+    node["authority"]["trustApproval"] = {"approvedBy": "developer-local"}
+elif case == "nested-reservation":
+    node["authority"]["launchReservation"] = {"key": "local-only"}
+else:
+    node["developerIdentity"] = {"taskId": "task-local-only"}
+path.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+PY
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+    echo "expected verifier to reject schema-v5 live node case $live_node_case" >&2
+    exit 1
+  fi
+done
 
 damaged="$TMP/generated-repo-custom-orchestration-policy"
 cp -R "$TMP/generated-repo" "$damaged"

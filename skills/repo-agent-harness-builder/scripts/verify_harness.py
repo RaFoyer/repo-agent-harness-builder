@@ -68,6 +68,50 @@ EXTENSION_NAMESPACE_RE = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"
 )
 TRACKED_POLICY_EXTENSION_FIELDS = {"kind", "schemaVersion", "policy"}
+TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS = {
+    "id",
+    "role",
+    "workRef",
+    "workKind",
+    "governingProtocols",
+    "requiredSkills",
+    "label",
+    "title",
+    "parentId",
+    "dependencies",
+    "state",
+    "objective",
+    "completionProfile",
+    "trustLevel",
+    "authority",
+    "parentBindingMode",
+}
+TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS = {
+    "taskId",
+    "parentTaskId",
+    "taskBinding",
+    "launchReservation",
+    "nextAction",
+    "waitingOn",
+    "blocker",
+    "unblockAction",
+    "blockedByDirectiveIds",
+    "handoffEvidence",
+    "terminalDisposition",
+    "completionEvidence",
+    "completedAt",
+    "trustApproval",
+}
+TRACKED_EXAMPLE_AUTHORITY_FIELDS = {
+    "allowedReads",
+    "allowedWrites",
+    "allowedExternalActions",
+    "approvalGates",
+    "canDelegate",
+    "maxActiveChildren",
+    "stopConditions",
+}
+TRACKED_EXAMPLE_COMPLETION_PROFILE_FIELDS = {"type", "requiredEvidence"}
 RUNTIME_EXTENSION_FIELD_WORDS = {
     "account", "acknowledged", "authority", "binding", "budget", "completed",
     "completion", "created", "delegation", "developer", "email", "evidence", "identity",
@@ -158,6 +202,62 @@ def runtime_extension_fields(value: object) -> set[str]:
     return set()
 
 
+def is_string_array(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def validate_tracked_example_node_policy(
+    node: dict[str, object], node_label: str, label: str, errors: list[str]
+) -> None:
+    for field in ("governingProtocols", "requiredSkills", "dependencies"):
+        if field in node and not is_string_array(node[field]):
+            errors.append(f"{node_label} {field} must be an array of strings: {label}")
+    for field in ("id", "role", "workRef", "workKind", "label", "title", "state", "objective", "trustLevel", "parentBindingMode"):
+        if field in node and not isinstance(node[field], str):
+            errors.append(f"{node_label} {field} must be a string: {label}")
+    if "parentId" in node and node["parentId"] is not None and not isinstance(node["parentId"], str):
+        errors.append(f"{node_label} parentId must be a string or null: {label}")
+
+    completion_profile = node.get("completionProfile")
+    if completion_profile is not None:
+        if not isinstance(completion_profile, dict):
+            errors.append(f"{node_label} completionProfile must be an object: {label}")
+        else:
+            unexpected_completion_fields = sorted(
+                set(completion_profile) - TRACKED_EXAMPLE_COMPLETION_PROFILE_FIELDS
+            )
+            if unexpected_completion_fields:
+                errors.append(
+                    f"{node_label} completionProfile contains unsupported or runtime fields: {label} "
+                    f"({', '.join(unexpected_completion_fields)})"
+                )
+            if "type" in completion_profile and not isinstance(completion_profile["type"], str):
+                errors.append(f"{node_label} completionProfile.type must be a string: {label}")
+            if "requiredEvidence" in completion_profile and not is_string_array(completion_profile["requiredEvidence"]):
+                errors.append(f"{node_label} completionProfile.requiredEvidence must be an array of strings: {label}")
+
+    authority = node.get("authority")
+    if authority is not None:
+        if not isinstance(authority, dict):
+            errors.append(f"{node_label} authority must be an object: {label}")
+        else:
+            unexpected_authority_fields = sorted(set(authority) - TRACKED_EXAMPLE_AUTHORITY_FIELDS)
+            if unexpected_authority_fields:
+                errors.append(
+                    f"{node_label} authority contains unsupported or runtime fields: {label} "
+                    f"({', '.join(unexpected_authority_fields)})"
+                )
+            for field in ("allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "stopConditions"):
+                if field in authority and not is_string_array(authority[field]):
+                    errors.append(f"{node_label} authority.{field} must be an array of strings: {label}")
+            if "canDelegate" in authority and not isinstance(authority["canDelegate"], bool):
+                errors.append(f"{node_label} authority.canDelegate must be boolean: {label}")
+            if "maxActiveChildren" in authority and (
+                isinstance(authority["maxActiveChildren"], bool) or not isinstance(authority["maxActiveChildren"], int)
+            ):
+                errors.append(f"{node_label} authority.maxActiveChildren must be an integer: {label}")
+
+
 def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     path = target / "ops" / "orchestration.example.json"
     label = display_path(path, target)
@@ -222,8 +322,33 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         errors.append(f"orchestration example must start at revision 0: {label}")
     if registry.get("status") != "inactive":
         errors.append(f"orchestration example must be inactive: {label}")
-    if registry.get("nodes") != []:
-        errors.append(f"orchestration example must not contain live nodes: {label}")
+    nodes = registry.get("nodes")
+    if not isinstance(nodes, list):
+        errors.append(f"orchestration example nodes must be an array: {label}")
+    elif schema_version != 5 and nodes:
+        errors.append(f"only schema-v5 orchestration examples may contain logical nodes: {label}")
+    else:
+        allowed_node_fields = (
+            TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS
+            | TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS
+        )
+        for node in nodes:
+            if not isinstance(node, dict):
+                errors.append(f"orchestration example nodes must be objects: {label}")
+                continue
+            node_label = f"tracked example node {node.get('id') or '<missing-id>'}"
+            unexpected_node_fields = sorted(set(node) - allowed_node_fields)
+            if unexpected_node_fields:
+                errors.append(
+                    f"{node_label} contains unsupported or runtime fields: {label} "
+                    f"({', '.join(unexpected_node_fields)})"
+                )
+            if node.get("state") != "queued":
+                errors.append(f"{node_label} must remain queued: {label}")
+            for field in sorted(TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS):
+                if node.get(field) is not None:
+                    errors.append(f"{node_label} must not contain live {field}: {label}")
+            validate_tracked_example_node_policy(node, node_label, label, errors)
     if registry.get("ownerDirectives", []) != []:
         errors.append(f"orchestration example must not contain owner directives: {label}")
     if registry.get("clientAdapter") is not None or (schema_version in (4, 5) and "clientAdapter" not in registry):
@@ -463,14 +588,6 @@ def main() -> int:
         "ops/HARNESS-CHECKLIST.md",
         "ops/connections.json",
         "ops/orchestration.example.json",
-        ".agents/skills/project-orchestration/SKILL.md",
-        ".agents/skills/project-orchestration/agents/openai.yaml",
-        ".agents/skills/goal-graph-loop/SKILL.md",
-        ".agents/skills/goal-graph-loop/agents/openai.yaml",
-        ".agents/skills/goal-chain-loop/SKILL.md",
-        ".agents/skills/goal-chain-loop/agents/openai.yaml",
-        ".agents/skills/codex-native-firstmate/SKILL.md",
-        ".agents/skills/codex-native-firstmate/agents/openai.yaml",
         ".codex/config.firstmate.example.toml",
         ".codex/agents/firstmate-boss.toml",
         ".codex/agents/firstmate-manager.toml",

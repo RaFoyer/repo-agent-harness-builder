@@ -6,7 +6,7 @@ Start with a read-only audit. Do not install, replace, delete, move, regenerate,
 
 ## Objective
 
-Bring this repository's harness, project-local skills, and CLI facade into alignment with the current portable architecture while preserving repository-specific protocols, commands, tests, integrations, authority boundaries, and other intentional custom logic.
+Bring this repository's harness, project-specific skills, and CLI facade into alignment with the current portable architecture while preserving repository-specific protocols, commands, tests, integrations, authority boundaries, and other intentional custom logic.
 
 ## Read-Only Audit
 
@@ -35,7 +35,7 @@ Bring this repository's harness, project-local skills, and CLI facade into align
 - Project restart is not a maintained primary skill or protocol surface.
 - Schema-v3 launch contracts emit and hash-seal ordered `requiredSkills`; schema-v4 adds sealed coordination mode, project-owner identity, and governed owner directives; schema-v5 seals root materialization and parent binding mode. Explicit schema-v2/v3/v4 compatibility remains bounded to existing attestations until deliberate migration.
 - Shared fleet skills are globally owned by their authoritative distribution. A downstream repository may sync only its own project-specific skill names and must keep recoverable backups outside discoverable skill roots.
-- Repository-local skills remain project-owned and may be installed under the repository's `.agents/skills/` contract.
+- Project-specific repository-local skills remain project-owned and may be installed under the repository's `.agents/skills/` contract. Fleet-managed snapshots there remain distribution-owned.
 - GitHub binaries may be global, but mutable account state and Worker credentials should be repository/profile scoped. `gh-axi` is the ergonomic executor, not the authentication or authority owner; Git transport needs its own explicit boundary.
 
 ## Findings To Present Before Changes
@@ -60,7 +60,7 @@ Wait for approval after presenting the audit and migration proposal.
 - Preserve unrelated and user-owned changes.
 - Update authoritative templates or generators before generated files.
 - Keep the harness agent-agnostic and client adapters thin.
-- Install the current project-local skill composition without allowing repository sync commands to seize shared fleet names.
+- Install the current project-specific skill composition without allowing repository sync commands to seize shared fleet names; resolve fleet-managed skills through their authoritative distribution.
 - For a legacy tracked live registry, first create a named private instance with the repository CLI's migration command, verify permissions and semantic equivalence, then remove the tracked runtime file and replace it with an inactive identity-free example in a reviewed change. Never combine failed import with source deletion. Make portable verification explicitly inspect that example; do not let a developer's selected instance determine whether a distributable harness passes.
 - Move displaced local copies into a named, non-discoverable archive instead of deleting them.
 - Add regression coverage for customized CLI behavior, skill ownership, symlink handling, archive location, launch-contract composition, and fail-closed missing-skill behavior.

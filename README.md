@@ -33,11 +33,13 @@ The durable contract lives in ordinary files in the target repo or folder:
 - tracked inactive orchestration policy plus named private operator instances
   under Git common state (or path-keyed user state for non-Git folders), so
   linked worktrees share local runtime state without committing task identity
-- project-local `project-orchestration`, `goal-graph-loop`, and
-  `codex-native-firstmate` skills with a deprecated `goal-chain-loop` alias
+- fleet-managed `project-orchestration`, `goal-graph-loop`, and
+  `codex-native-firstmate` reference snapshots with a deprecated
+  `goal-chain-loop` alias; their authoritative distributions remain outside
+  downstream repository ownership
 - an inactive-by-default Codex-native Firstmate adapter that gives each
-  generated repository its own logical Boss capability, native task/worktree
-  mapping, and project-local skill without requiring a global project registry
+  generated repository its own logical Boss capability and native task/worktree
+  mapping without requiring a global project registry
 - portable onboarding material for nontechnical recipients
 
 Codex, Claude Code, Gemini CLI, Kimi, Cursor, and future coding agents are
@@ -66,8 +68,9 @@ Shared skills have one fleet-level owner. Downstream repository sync commands
 may manage only their own project-specific skill names; they must not replace,
 link, copy, or back up `repo-agent-harness-builder`, `project-orchestration`,
 `goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` in a global
-client skill directory. Repository-local `.agents/skills/` copies remain part
-of the generated harness contract.
+client skill directory. A generated repository may carry reference snapshots
+under `.agents/skills/`, but downstream verification and sync must not require
+or claim ownership of those fleet-owned copies.
 
 Keep recoverable copies under a non-discoverable archive such as
 `.codex/skill-archives/<owner>/<timestamp>/`, never beside active skills as
@@ -231,13 +234,15 @@ The skill can help with:
   and Workers own bounded node loops; a strict chain is a linear graph topology
 - bundled orchestration and goal-graph assets for prompts, registries, ledgers,
   graph templates, and handoff records
-- repo-local Codex-native Firstmate assets under `.codex/` and
-  `.agents/skills/codex-native-firstmate/`, scaffolded as examples and inactive
-  protocol support rather than an implicit runtime dependency; its custom-agent
-  profiles are namespaced to preserve existing repository profiles
-- repo-local portable skills under `.agents/skills/project-orchestration/` and
-  `.agents/skills/goal-graph-loop/`, plus the deprecated
-  `.agents/skills/goal-chain-loop/` compatibility redirect
+- repo-local Codex-native Firstmate assets under `.codex/` and a
+  fleet-managed reference snapshot under `.agents/skills/codex-native-firstmate/`,
+  scaffolded as inactive protocol support rather than an implicit runtime
+  dependency; its custom-agent profiles are namespaced to preserve existing
+  repository profiles
+- fleet-managed reference snapshots under `.agents/skills/project-orchestration/`
+  and `.agents/skills/goal-graph-loop/`, plus the deprecated
+  `.agents/skills/goal-chain-loop/` compatibility redirect; downstream sync and
+  verification resolve these skills through their authoritative distribution
 
 ## Build The Portable Package
 

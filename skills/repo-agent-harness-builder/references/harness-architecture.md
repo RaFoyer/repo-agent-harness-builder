@@ -38,12 +38,14 @@ A repo-agent harness gives future agents a reliable operating environment inside
   worktrees share a clone-local graph. Non-Git project folders use a path-keyed
   private user-state root. CLI selectors are safe names, never raw paths.
 - Repos with ticket-backed implementation graphs carry `GOAL-GRAPH.md`, the
-  read-only `goals` CLI, and the bundled `goal-graph-loop` project-local skill
-  for repository-merge handoffs. A strict chain is a linear graph topology;
-  goal graphs compose with project orchestration and do not own the hierarchy.
-- Generated repositories install `project-orchestration`, `goal-graph-loop`,
+  read-only `goals` CLI, and a `goal-graph-loop` reference snapshot for
+  repository-merge handoffs. A strict chain is a linear graph topology; goal
+  graphs compose with project orchestration and do not own the hierarchy.
+- Generated repositories may carry `project-orchestration`, `goal-graph-loop`,
   the deprecated `goal-chain-loop` compatibility alias, and the inactive
-  `codex-native-firstmate` adapter under `.agents/skills/`.
+  `codex-native-firstmate` adapter under `.agents/skills/` as fleet-managed
+  reference snapshots. Their authoritative distributions, not the downstream
+  repository, own installation and verification.
 - Every CLI command has a documented contract and a focused test.
 - New docs are classified as root instruction, protocol, reference, human surface, knowledge reference, or temporal record.
 

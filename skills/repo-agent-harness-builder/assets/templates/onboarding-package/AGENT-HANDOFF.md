@@ -100,9 +100,9 @@ cd "$HOME/Documents/Home Harness"
 - External authority, permanent Google/Microsoft/email/document/database connections, repo-scoped auth profiles, and role boundaries: `references/EXTERNAL-AUTHORITY-AND-CONNECTIONS.md`
 - Agent clients and skill installation: `references/AGENT-CLIENTS-AND-SKILL-INSTALL.md`
 - Automations, heartbeats, goals, loops, noninteractive runs, and scheduled tasks across agent clients: `references/AUTOMATIONS-AND-HEARTBEATS.md`
-- Project-wide hierarchy and progressive autonomy: `skills/project-orchestration/SKILL.md` and `skill/repo-agent-harness-builder/references/project-orchestration.md`; after scaffolding, use the repo-local `AGENT-ORCHESTRATION.md`, inactive `ops/orchestration.example.json`, a named private operator instance, and the `orchestration` CLI
-- Codex-native repo-local Firstmate profile: `skills/codex-native-firstmate/SKILL.md` and `skill/repo-agent-harness-builder/references/codex-native-firstmate.md`; load it after `project-orchestration`, and do not require a global project registry
-- Bundled Manager-owned repository-merge DAG skill: `skills/goal-graph-loop/SKILL.md`; `skills/goal-chain-loop/SKILL.md` is a deprecated compatibility redirect
+- Project-wide hierarchy and progressive autonomy: the fleet-managed `skills/project-orchestration/SKILL.md` reference and `skill/repo-agent-harness-builder/references/project-orchestration.md`; after scaffolding, use the repo-local `AGENT-ORCHESTRATION.md`, inactive `ops/orchestration.example.json`, a named private operator instance, and the `orchestration` CLI
+- Codex-native Firstmate reference: the fleet-managed `skills/codex-native-firstmate/SKILL.md` and `skill/repo-agent-harness-builder/references/codex-native-firstmate.md`; load it after `project-orchestration`, resolve it through its authoritative distribution, and do not require a global project registry
+- Bundled Manager-owned repository-merge DAG reference: the fleet-managed `skills/goal-graph-loop/SKILL.md`; `skills/goal-chain-loop/SKILL.md` is a deprecated compatibility redirect
 - CLI extension and maintenance: `references/CLI-MAINTENANCE.md`
 - Archive safety: `references/ARCHIVE-INSPECTION.md`
 - Secrets and privacy boundaries: `references/SECRETS-AND-PRIVACY.md`

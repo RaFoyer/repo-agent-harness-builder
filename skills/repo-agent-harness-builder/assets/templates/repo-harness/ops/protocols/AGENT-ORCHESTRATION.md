@@ -239,12 +239,12 @@ authority.
 The repository harness is agent-agnostic, so task creation belongs to a thin client adapter. Apart from explicit private-instance initialization and migration, the CLI remains read-only; the adapter performs the compare-and-set operations described by the launch spec.
 
 The inactive scaffold may keep `clientAdapter` null. A configured adapter names
-its client ID, profile, status, project-local `requiredSkill`, and task-creation
-grant posture. Active schema-version-3-or-newer adapters must declare their
+its client ID, profile, status, required skill, and task-creation grant
+posture. Active schema-version-3-or-newer adapters must declare their
 required skill explicitly; installation alone does not select or activate an
 adapter.
 
-1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`. Its ordered `requiredSkills` must begin with `project-orchestration`, then the selected client adapter, then `goal-graph-loop` for nodes governed by `GOAL-GRAPH` or its deprecated `GOAL-CHAIN` alias, followed by node-specific skills. Missing project-local skills block materialization.
+1. Run `orchestration validate`, then select a node from `orchestration next` and run `orchestration launch-spec <node-id>`. Its ordered `requiredSkills` must begin with `project-orchestration`, then the selected client adapter, then `goal-graph-loop` for nodes governed by `GOAL-GRAPH` or its deprecated `GOAL-CHAIN` alias, followed by node-specific skills. Missing project-local skills block materialization; fleet-managed skills resolve through their authoritative distribution and are never required as repository copies.
 2. The active client verifies that the current user request or recorded scope grant authorizes task creation.
 3. Configure the complete logical Boss node, including its intended delegation authority and budgets, before any launch; the empty inactive scaffold is not launchable. In Boss-first mode, materialize it first. In schema-v5 optional-root mode, a logical Manager may activate the instance before the Boss task exists. Before any external side effect, atomically compare the registry revision, expected registry status, target node state/task identity/trust/entire canonical authority envelope, immediate parent state/task identity or logical-root identity/trust/entire canonical authority envelope, capacity preconditions, and the `workContract.hash` from `reservation`. Canonical authority arrays are stable sorted and deduplicated for reads, writes, external actions, approval gates, and stop conditions. The SHA-256 work-contract hash canonically covers the scope, root policy, project budgets, node title/objective/work reference and kind/governing protocols/ordered required skills/parent binding mode/completion profile/dependencies/trust/authority, and the immediate-parent launch envelope. On a match, add the exact `launchReservation` key with its complete `validity` snapshot, advance the registry revision by one, reserve capacity, and activate the instance when this is its first permitted materialization.
 4. If the compare-and-set fails, do not create a task. Re-read the registry and generate a new launch spec; an old spec or duplicate reservation is never reusable.
@@ -266,8 +266,9 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - A child may not drop an approval gate required by its parent.
 - Do not fan out overlapping write sets or unstable contracts.
 - Do not create a task from a launch spec whose required task parent is missing or whose dependencies are unsatisfied. Only a schema-v5 logical Manager under an optional Boss root may omit a parent task.
-- Do not create a task when any ordered `requiredSkills` entry is missing from
-  the repository-local skill installation.
+- Do not create a task when a project-local `requiredSkills` entry is missing
+  from the repository-local skill installation. Resolve fleet-managed entries
+  through their authoritative distribution without copying them downstream.
 - Never create a task before the launch spec's atomic reservation and immediate `preCreate` comparison succeed; a stale revision, changed status, parent authority or approval gate, task identity, occupied reservation, or exhausted reserved capacity is a pre-side-effect failure.
 - Use `launchKey` as the durable external idempotency and reconciliation key. An indeterminate create or bind result keeps its reservation until lookup proves no external task exists.
 - Create child tasks only while the parent is `working`, `waiting`, or `blocked`; a `ready-for-parent` node must not acquire new unfinished responsibility.

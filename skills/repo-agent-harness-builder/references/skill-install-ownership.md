@@ -25,6 +25,11 @@ A downstream repository sync command must:
 
 Project-owned skills may use symlinks when the repository is deliberately authoritative and the client supports them. Shared fleet skills should use verified copies or installer-managed immutable sources so one downstream worktree cannot silently replace fleet behavior.
 
+A downstream harness verifier must not require repository-owned copies of
+shared fleet skills. A repository may carry an inert reference snapshot, but
+its sync allowlist, status, repair, backup, and cleanup paths must still be
+limited to project-owned names.
+
 ## Repair Procedure
 
 When a shared skill is owned by the wrong repository:

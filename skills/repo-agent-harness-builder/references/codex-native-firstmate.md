@@ -213,7 +213,7 @@ through a hidden global registry.
 
 ## Generated Assets
 
-The adapter template installs:
+The adapter template carries these inactive reference assets:
 
 - `.agents/skills/codex-native-firstmate/SKILL.md`
 - `.codex/config.firstmate.example.toml`
@@ -223,6 +223,11 @@ The adapter template installs:
 - `docs/templates/orchestration/codex-native-firstmate-prompt.txt`
 - `docs/templates/orchestration/codex-native-firstmate-adapter.example.json`
 - `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`
+
+The `.agents/skills/codex-native-firstmate/` entry is a fleet-managed reference
+snapshot. A downstream repository neither owns nor needs it for verification;
+resolve the adapter through its authoritative distribution when materializing
+work.
 
 For a portable check, run
 `./{{CLI_NAME}} orchestration adapter-status --example` and
