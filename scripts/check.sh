@@ -492,7 +492,7 @@ from pathlib import Path
 path = Path(sys.argv[1])
 case = sys.argv[2]
 registry = json.loads(path.read_text(encoding="utf-8"))
-node = registry["nodes"][0]
+node = next(node for node in registry["nodes"] if node["id"] == "manager-feature")
 if case == "task-identity":
     node["taskId"] = "task-live-only"
 elif case == "trust-grant":
