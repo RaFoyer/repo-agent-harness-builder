@@ -290,29 +290,45 @@ adapters must declare their required skill explicitly.
 11. Before recovering a shared runtime, preserve per-run evidence and create a
     private recovery receipt containing the canonical active run/head set,
     preservation evidence, and its fingerprint. Record a second canonical
-    snapshot immediately before the action. A matching comparison authorizes
-    action only after an adapter atomically changes the persisted receipt from
-    `prepared` to the exclusive `started` claim with `actionStartedAt` no
-    earlier than that comparison and inside the configured freshness window.
-    Derive the immutable claim key from the action, pre-action active-set
-    fingerprint, and canonical recovery-precondition fingerprint. Claim keys
-    are ledger-unique, and the ledger may contain only one `prepared` or
-    `started` claim at a time. A second starter must lose the registry CAS and
-    perform no side effect. `started` records a portable claim owner and an
-    immutable bounded lease. Append every state change to the receipt's
-    hash-linked transition ledger; only `prepared` → `started` →
+    snapshot immediately before the action. First acquire an authoritative
+    claim keyed to a stable `runtimeScopeRef` outside every repository-private
+    project registry. The same runtime authority must atomically close new-run
+    admission before the preservation snapshot; every start path must consult
+    it. If a raw or unmanaged start path can bypass admission, recovery is
+    blocked. The portable repository harness does not manufacture that
+    machine-wide authority. A local file, XDG-selected ledger, repository
+    registry, or same-user-generated hash is never authoritative. Until a
+    separately implemented runtime coordinator cryptographically authenticates
+    claims, anchors monotonic history outside repository control, and
+    atomically gates every raw start path, destructive shared-runtime recovery
+    is unavailable and every non-empty recovery mirror fails validation.
+    Ordinary orchestration with no recovery receipts remains available. Once
+    such an adapter exists, mirror its admission generation and authenticated
+    claim reference plus the runtime claim and admission-closure fingerprints
+    in the private receipt, then atomically change that receipt from `prepared`
+    to `started` with `actionStartedAt` no earlier than the comparison and
+    inside the configured freshness window.
+    Derive the immutable claim key from the runtime scope, action, pre-action
+    active-set fingerprint, and canonical recovery-precondition fingerprint.
+    Claim keys are ledger-unique, and each project mirror may contain only one
+    `prepared` or `started` claim. A second starter must lose the
+    runtime-authority CAS and perform no side effect. `started` records a
+    portable claim owner and immutable bounded lease. Append every state change
+    to the receipt's hash-linked transition ledger; only `prepared` → `started` →
     `completed|failed` or `prepared` → `aborted` is valid, and the latest
     snapshot must match the ledger tip. An expired claim is an
-    owner-action requirement:
-    reconcile that same receipt to `completed` or evidence-backed `failed`
-    before creating another claim. Only the actor holding `started` may record
-    those terminal states. A failed claim key cannot be retried under a new
-    receipt ID; a new attempt requires a changed active set or canonical
-    recovery precondition. A future, stale, or changed comparison records
+    owner-action requirement: reconcile that same receipt to `completed` or
+    evidence-backed `failed` before creating another claim. Only the actor
+    holding `started` may record those terminal states. A failed claim key
+    cannot be retried under a new receipt ID; a new attempt requires a changed
+    active set or canonical recovery precondition. Terminal reconciliation
+    records authoritative admission reopening before the local claim is
+    released. A future, stale, or changed comparison records
     `abort-and-replan`; it cannot be relabeled completed after the freshness
     window.
-    Adapters and repository facades fail closed without that receipt. Treat
-    unknown shutdown or resume behavior as non-preserving.
+    Adapters and repository facades fail closed without both the runtime claim
+    and its private mirror. A project registry is not a machine-wide lock.
+    Treat unknown shutdown, resume, or admission behavior as non-preserving.
 12. Require the child to report to its immediate parent and the parent to reconcile evidence.
 13. In hybrid mode, surface open owner directives in the target prompt and require the immediate parent to reconcile contract-relevant outcomes. The Boss observes the portfolio; it does not become a mandatory relay for owner conversation.
 

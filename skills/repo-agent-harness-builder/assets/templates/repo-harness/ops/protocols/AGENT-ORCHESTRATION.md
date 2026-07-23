@@ -236,21 +236,28 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
     Retry only after recording a changed precondition.
 11. Before any shared-runtime recovery, create a private receipt with the
     preserved active run/head set and compare a second fingerprint immediately
-    before action. Proceed only when the active sets match and a
-    registry-revision CAS atomically changes `prepared` to the single
-    `started` claim with `actionStartedAt` inside the comparison freshness
-    window. Derive a ledger-unique claim key from the action, pre-action
+    before action. Before the first snapshot, use an authority keyed to a stable
+    runtime scope outside project registries to close new-run admission and
+    acquire the single runtime claim. Every start path must consult that
+    authority; an unmanaged bypass blocks recovery. Mirror its claim and
+    admission fingerprints in the private receipt. Proceed only when the
+    active sets match and a registry-revision CAS changes `prepared` to
+    `started` with `actionStartedAt` inside the comparison freshness window.
+    Derive a ledger-unique claim key from the runtime scope, action, pre-action
     active-set fingerprint, and canonical recovery-precondition fingerprint;
-    permit only one `prepared` or `started` claim in the ledger. A second
-    starter performs no side effect. `started` records a portable claim owner
+    permit only one `prepared` or `started` mirror in the project ledger. A
+    second starter must lose the runtime-authority CAS and performs no side
+    effect. `started` records a portable claim owner
     and bounded immutable lease. Append each state change to the hash-linked
     transition ledger; accept only `prepared` → `started` →
     `completed|failed` or `prepared` → `aborted`, with the snapshot matching
     the ledger tip. If it expires, reconcile that same receipt to `completed`
     or evidence-backed `failed` before creating another claim.
     Never repeat a terminal claim key under a new receipt ID; require a changed
-    active set or canonical recovery precondition. Future, stale, changed, or
-    delayed-start receipts abort and replan.
+    active set or canonical recovery precondition. Reopen admission through the
+    same authority during terminal reconciliation. Future, stale, changed, or
+    delayed-start receipts abort and replan. A project registry alone never
+    acts as a machine-wide runtime lock.
 12. Let the immediate parent accept, return, block, or fan in the result.
 13. Promote trust only from recorded evidence; reconcile terminal nodes before archive.
 
@@ -346,9 +353,14 @@ This adapter boundary makes worker launch easy without hiding external writes in
 - Do not launch an identical retry, replacement Worker, review run, or auth
   flow after its configured budget is exhausted.
 - Before recovering a shared runtime, preserve per-run evidence, record the
-  exact active set, compare it again immediately before the action, and
-  abort/replan if it changed. Treat unknown shutdown or resume semantics as
-  non-preserving.
+  exact active set, and acquire the runtime-scoped claim plus admission closure
+  from an external coordinator outside repository and same-user control.
+  Local/XDG ledgers and project receipts are not that authority. Until the
+  coordinator cryptographically authenticates claims, anchors monotonic
+  history, and atomically gates every raw start path, destructive recovery is
+  unavailable. Compare the active set again immediately before the action and
+  abort/replan if it changed. A missing coordinator blocks recovery, not
+  ordinary work. Treat unknown shutdown or resume semantics as non-preserving.
 - Do not activate external writes, deployments, schedules, destructive actions, or messages without their domain protocol and approval gate.
 - Preserve unrelated user work and keep secrets out of repo, chat, logs, trackers, and artifacts.
 

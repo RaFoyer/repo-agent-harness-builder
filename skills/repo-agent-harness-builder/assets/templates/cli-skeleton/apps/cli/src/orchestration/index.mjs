@@ -123,6 +123,7 @@ const CONTROL_CHECK_MODES = new Set(["scheduled", "event"]);
 const CONTROL_PROGRESS_SIGNAL = "evidence-fingerprint";
 const SHARED_RUNTIME_ACTIVE_SET_CHANGE_ACTION = "abort-and-replan";
 const SHARED_RUNTIME_UNKNOWN_PRESERVATION_BEHAVIOR = "treat-as-non-preserving";
+const SHARED_RUNTIME_UNMANAGED_START_BEHAVIOR = "block-recovery";
 const MAX_CONTROL_UNCHANGED_CHECKS = 100;
 const MAX_CONTROL_SAME_FAILURE_RETRIES = 20;
 const MAX_CONTROL_STAGNATION_SECONDS = 2592000;
@@ -133,7 +134,8 @@ const CONTROL_LOOP_POLICY_FIELDS = new Set([
 ]);
 const SHARED_RUNTIME_RECOVERY_FIELDS = new Set([
   "requireActiveSetSnapshot", "requirePreActionCompare", "activeSetChangeAction",
-  "unknownPreservationBehavior", "maxReceiptAgeSeconds", "maxClaimLeaseSeconds"
+  "unknownPreservationBehavior", "maxReceiptAgeSeconds", "maxClaimLeaseSeconds",
+  "requireRuntimeScopedClaim", "requireAdmissionClosure", "unmanagedStartBehavior"
 ]);
 const NODE_CONTROL_LOOP_FIELDS = new Set([
   "progressFingerprint", "progressEvidenceRefs", "lastProgressAt", "unchangedChecks",
@@ -152,16 +154,20 @@ const CONTROL_OBSERVATION_RECEIPT_FIELDS = new Set([
   "sameFailureRetries"
 ]);
 const SHARED_RUNTIME_RECEIPT_FIELDS = new Set([
-  "id", "claimKey", "actionRef", "approvedBy", "preservedAt", "comparedAt", "beforeActiveSet",
+  "id", "claimKey", "runtimeScopeRef", "runtimeClaimFingerprint",
+  "runtimeClaimEvidenceRefs", "admissionClosureFingerprint",
+  "admissionClosureEvidenceRefs", "admissionClosedAt", "admissionReopenedAt",
+  "runtimeCoordinatorGeneration", "runtimeCoordinatorAttestationHash",
+  "actionRef", "approvedBy", "preservedAt", "comparedAt", "beforeActiveSet",
   "beforeFingerprint", "preActionActiveSet", "preActionFingerprint", "decision",
   "recoveryPreconditionFingerprint", "recoveryPreconditionRefs", "status",
   "claimOwnerRef", "actionStartedAt", "claimExpiresAt", "completedAt",
   "failureEvidenceRefs", "transitionReceipts"
 ]);
 const SHARED_RUNTIME_TRANSITION_FIELDS = new Set([
-  "sequence", "status", "recordedAt", "previousTransitionHash", "transitionHash",
+  "sequence", "claimKey", "status", "recordedAt", "previousTransitionHash", "transitionHash",
   "claimOwnerRef", "actionStartedAt", "claimExpiresAt", "completedAt",
-  "failureEvidenceRefs"
+  "failureEvidenceRefs", "admissionReopenedAt"
 ]);
 const SHARED_RUNTIME_ACTIVE_ENTRY_FIELDS = new Set([
   "runRef", "headRef", "preservationEvidenceRefs"
@@ -1255,6 +1261,15 @@ function validateControlLoopPolicy(registry, blockers, warnings) {
     if (recovery.unknownPreservationBehavior !== SHARED_RUNTIME_UNKNOWN_PRESERVATION_BEHAVIOR) {
       blockers.push(`controlLoopPolicy.sharedRuntimeRecovery.unknownPreservationBehavior must be ${SHARED_RUNTIME_UNKNOWN_PRESERVATION_BEHAVIOR}`);
     }
+    if (recovery.requireRuntimeScopedClaim !== true) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.requireRuntimeScopedClaim must be true");
+    }
+    if (recovery.requireAdmissionClosure !== true) {
+      blockers.push("controlLoopPolicy.sharedRuntimeRecovery.requireAdmissionClosure must be true");
+    }
+    if (recovery.unmanagedStartBehavior !== SHARED_RUNTIME_UNMANAGED_START_BEHAVIOR) {
+      blockers.push(`controlLoopPolicy.sharedRuntimeRecovery.unmanagedStartBehavior must be ${SHARED_RUNTIME_UNMANAGED_START_BEHAVIOR}`);
+    }
     if (!Number.isInteger(recovery.maxReceiptAgeSeconds)
       || recovery.maxReceiptAgeSeconds < 1
       || recovery.maxReceiptAgeSeconds > 300) {
@@ -1670,7 +1685,8 @@ function sharedRuntimeRecoveryClaimKey(receipt) {
     .update(portableCanonicalJson({
       actionRef: receipt?.actionRef,
       preActionFingerprint: receipt?.preActionFingerprint,
-      recoveryPreconditionFingerprint: receipt?.recoveryPreconditionFingerprint
+      recoveryPreconditionFingerprint: receipt?.recoveryPreconditionFingerprint,
+      runtimeScopeRef: receipt?.runtimeScopeRef
     }))
     .digest("hex");
 }
@@ -1681,6 +1697,19 @@ function sharedRuntimeRecoveryTransitionHash(transition) {
       Object.entries(transition || {}).filter(([field]) => field !== "transitionHash")
     )))
     .digest("hex");
+}
+
+function validateRuntimeCoordinatorReceipt(receipt, label, blockers) {
+  if (!Number.isSafeInteger(receipt.runtimeCoordinatorGeneration)
+    || receipt.runtimeCoordinatorGeneration < 1) {
+    blockers.push(`${label}.runtimeCoordinatorGeneration must be a positive external admission epoch`);
+  }
+  if (!SHA256_RE.test(String(receipt.runtimeCoordinatorAttestationHash || ""))) {
+    blockers.push(`${label}.runtimeCoordinatorAttestationHash must be a SHA-256 external attestation reference`);
+  }
+  blockers.push(
+    `${label}: destructive shared-runtime recovery is unavailable until a separately implemented external coordinator cryptographically authenticates the claim, anchors monotonic history, and atomically gates every start path`
+  );
 }
 
 function validateSharedRuntimeActiveSet(activeSet, field, label, blockers) {
@@ -1768,6 +1797,32 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
     if (!PORTABLE_CONTROL_REF_RE.test(String(receipt.actionRef || ""))) {
       blockers.push(`${label}.actionRef must be a portable printable-ASCII reference`);
     }
+    if (!EVIDENCE_REF_RE.test(String(receipt.runtimeScopeRef || ""))
+      || !String(receipt.runtimeScopeRef || "").startsWith("external:")) {
+      blockers.push(`${label}.runtimeScopeRef must be a typed external reference to the shared runtime`);
+    }
+    const runtimeClaimEvidenceValid = validateFingerprintRefs(
+      receipt.runtimeClaimEvidenceRefs,
+      receipt.runtimeClaimFingerprint,
+      "runtimeClaimEvidenceRefs",
+      label,
+      blockers
+    );
+    if (runtimeClaimEvidenceValid
+      && !receipt.runtimeClaimEvidenceRefs.some((ref) => ref.startsWith("external:"))) {
+      blockers.push(`${label}.runtimeClaimEvidenceRefs must include authoritative external runtime-claim evidence`);
+    }
+    const admissionClosureEvidenceValid = validateFingerprintRefs(
+      receipt.admissionClosureEvidenceRefs,
+      receipt.admissionClosureFingerprint,
+      "admissionClosureEvidenceRefs",
+      label,
+      blockers
+    );
+    if (admissionClosureEvidenceValid
+      && !receipt.admissionClosureEvidenceRefs.some((ref) => ref.startsWith("external:"))) {
+      blockers.push(`${label}.admissionClosureEvidenceRefs must include authoritative external admission-closure evidence`);
+    }
     const recoveryPreconditionValid = validateFingerprintRefs(
       receipt.recoveryPreconditionRefs,
       receipt.recoveryPreconditionFingerprint,
@@ -1778,7 +1833,7 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
     const expectedClaimKey = sharedRuntimeRecoveryClaimKey(receipt);
     if (!SHA256_RE.test(String(receipt.claimKey || ""))
       || (recoveryPreconditionValid && receipt.claimKey !== expectedClaimKey)) {
-      blockers.push(`${label}.claimKey must match the canonical action, pre-action active-set, and recovery-precondition fingerprints`);
+      blockers.push(`${label}.claimKey must match the canonical runtime scope, action, pre-action active-set, and recovery-precondition fingerprints`);
     } else if (claimKeys.has(receipt.claimKey)) {
       blockers.push(`duplicate shared runtime recovery claim key: ${receipt.claimKey}`);
     } else {
@@ -1789,6 +1844,17 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
     }
     if (receipt.approvedBy !== registry.scope?.ownerRef) {
       blockers.push(`${label}.approvedBy must match scope.ownerRef`);
+    }
+    if (!isUtcRfc3339Timestamp(receipt.admissionClosedAt)) {
+      blockers.push(`${label}.admissionClosedAt must be a UTC RFC3339 timestamp`);
+    } else {
+      if (Date.parse(receipt.admissionClosedAt) > Date.now()) {
+        blockers.push(`${label}.admissionClosedAt may not be in the future`);
+      }
+      if (isUtcRfc3339Timestamp(receipt.preservedAt)
+        && Date.parse(receipt.admissionClosedAt) > Date.parse(receipt.preservedAt)) {
+        blockers.push(`${label}.admissionClosedAt must not follow preservedAt`);
+      }
     }
     const comparisonFuture = isUtcRfc3339Timestamp(receipt.comparedAt)
       && Date.parse(receipt.comparedAt) > Date.now();
@@ -1863,6 +1929,9 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
         if (missingTransitionFields.length) {
           blockers.push(`${transitionLabel} is missing fields: ${missingTransitionFields.sort().join(", ")}`);
         }
+        if (transition.claimKey !== receipt.claimKey) {
+          blockers.push(`${transitionLabel}.claimKey must bind the transition ledger to its runtime-scoped recovery claim`);
+        }
         if (transition.sequence !== transitionIndex + 1) {
           blockers.push(`${transitionLabel}.sequence must be contiguous and equal ${transitionIndex + 1}`);
         }
@@ -1925,14 +1994,18 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
           blockers.push(`${transitionLabel}: ${transition.status} must not contain claimed-action fields`);
         }
         if (transition.status === "prepared") {
-          if (transition.completedAt !== null || transition.failureEvidenceRefs?.length) {
+          if (transition.completedAt !== null
+            || transition.admissionReopenedAt !== null
+            || transition.failureEvidenceRefs?.length) {
             blockers.push(`${transitionLabel}: prepared must not contain terminal evidence`);
           }
         } else if (transition.status === "started") {
           if (transition.recordedAt !== transition.actionStartedAt) {
             blockers.push(`${transitionLabel}.recordedAt must equal actionStartedAt`);
           }
-          if (transition.completedAt !== null || transition.failureEvidenceRefs?.length) {
+          if (transition.completedAt !== null
+            || transition.admissionReopenedAt !== null
+            || transition.failureEvidenceRefs?.length) {
             blockers.push(`${transitionLabel}: started must not contain terminal evidence`);
           }
         } else {
@@ -1947,13 +2020,26 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
           if (transition.status !== "failed" && transition.failureEvidenceRefs?.length) {
             blockers.push(`${transitionLabel}: only failed may contain failureEvidenceRefs`);
           }
+          if (!isUtcRfc3339Timestamp(transition.admissionReopenedAt)) {
+            blockers.push(`${transitionLabel}: ${transition.status} requires admissionReopenedAt from the runtime coordination authority`);
+          } else {
+            if (isUtcRfc3339Timestamp(transition.completedAt)
+              && Date.parse(transition.admissionReopenedAt) < Date.parse(transition.completedAt)) {
+              blockers.push(`${transitionLabel}.admissionReopenedAt may not precede completedAt`);
+            }
+            if (Number.isInteger(policy.maxClockSkewSeconds)
+              && Date.parse(transition.admissionReopenedAt)
+                > Date.now() + (policy.maxClockSkewSeconds * 1000)) {
+              blockers.push(`${transitionLabel}.admissionReopenedAt exceeds the configured clock-skew allowance`);
+            }
+          }
         }
         previousTransition = transition;
       }
       const latestTransition = transitions.at(-1);
       for (const field of [
         "status", "claimOwnerRef", "actionStartedAt", "claimExpiresAt",
-        "completedAt", "failureEvidenceRefs"
+        "completedAt", "failureEvidenceRefs", "admissionReopenedAt"
       ]) {
         if (!isDeepStrictEqual(receipt[field], latestTransition?.[field])) {
           blockers.push(`${label}.${field} must match the latest append-only transition receipt`);
@@ -2054,6 +2140,7 @@ function validateSharedRuntimeRecoveryReceipts(registry, policy, blockers) {
         blockers.push(`${label}.completedAt may not precede comparedAt`);
       }
     }
+    validateRuntimeCoordinatorReceipt(receipt, label, blockers);
   }
   if (nonterminalClaims.length > 1) {
     blockers.push(`sharedRuntimeRecoveryReceipts may contain at most one prepared or started claim; found ${nonterminalClaims.join(", ")}`);
@@ -2965,6 +3052,9 @@ function runLiveness(io) {
   io.stdout(`max_control_interval_seconds: ${Number.isInteger(policy?.maxControlIntervalSeconds) ? policy.maxControlIntervalSeconds : -1}`);
   io.stdout(`shared_runtime_pre_action_compare: ${policy?.sharedRuntimeRecovery?.requirePreActionCompare === true}`);
   io.stdout(`max_shared_runtime_claim_lease_seconds: ${Number.isInteger(policy?.sharedRuntimeRecovery?.maxClaimLeaseSeconds) ? policy.sharedRuntimeRecovery.maxClaimLeaseSeconds : -1}`);
+  io.stdout(`shared_runtime_scoped_claim_required: ${policy?.sharedRuntimeRecovery?.requireRuntimeScopedClaim === true}`);
+  io.stdout(`shared_runtime_admission_closure_required: ${policy?.sharedRuntimeRecovery?.requireAdmissionClosure === true}`);
+  io.stdout(`shared_runtime_unmanaged_start_behavior: ${toonString(policy?.sharedRuntimeRecovery?.unmanagedStartBehavior || "unconfigured")}`);
   io.stdout(`nodes[${findings.nodes.length}]{id,state,liveness_owner,condition,owner_action_required,check_mode,unchanged_checks,same_failure_retries,next_control}:`);
   let overdueControls = 0;
   for (const node of findings.nodes) {
@@ -2980,7 +3070,7 @@ function runLiveness(io) {
     io.stdout(`  ${toonString(node.id)},${toonString(node.state)},${toonString(livenessOwnerFor(loaded.registry, node, findings.nodesById))},${toonString(condition)},${ownerActionRequired},${toonString(control?.checkMode || "")},${Number.isInteger(control?.unchangedChecks) ? control.unchangedChecks : -1},${Number.isInteger(control?.sameFailureRetries) ? control.sameFailureRetries : -1},${toonString(nextControl)}`);
   }
   const recoveryReceipts = arrayOrEmpty(loaded.registry.sharedRuntimeRecoveryReceipts);
-  io.stdout(`shared_runtime_recovery_claims[${recoveryReceipts.length}]{id,status,claim_owner,condition,owner_action_required,claim_expires_at}:`);
+  io.stdout(`shared_runtime_recovery_claims[${recoveryReceipts.length}]{id,runtime_scope,status,claim_owner,condition,owner_action_required,claim_expires_at,admission_closed_at,admission_reopened_at}:`);
   let recoveryClaimsRequiringAction = 0;
   for (const receipt of recoveryReceipts) {
     let condition = receipt?.status || "invalid";
@@ -2997,7 +3087,7 @@ function runLiveness(io) {
     const ownerActionRequired = condition === "prepared-comparison-stale"
       || condition === "started-claim-expired";
     if (ownerActionRequired) recoveryClaimsRequiringAction += 1;
-    io.stdout(`  ${toonString(receipt?.id || "")},${toonString(receipt?.status || "")},${toonString(receipt?.claimOwnerRef || "")},${toonString(condition)},${ownerActionRequired},${toonString(receipt?.claimExpiresAt || "")}`);
+    io.stdout(`  ${toonString(receipt?.id || "")},${toonString(receipt?.runtimeScopeRef || "")},${toonString(receipt?.status || "")},${toonString(receipt?.claimOwnerRef || "")},${toonString(condition)},${ownerActionRequired},${toonString(receipt?.claimExpiresAt || "")},${toonString(receipt?.admissionClosedAt || "")},${toonString(receipt?.admissionReopenedAt || "")}`);
   }
   printFindings(io, findings);
   if (overdueControls) io.stdout(`owner_action_required: ${overdueControls} overdue control${overdueControls === 1 ? "" : "s"}`);

@@ -123,17 +123,28 @@ active managing state. The Boss bind/reconcile transaction atomically appends
 the ownership handoff before the task-backed immediate parent owns its next
 observation. Before recovering a shared daemon or runtime, preserve every
 active run and record the initial and immediate pre-action active sets in a
-fresh private recovery receipt. Abort/replan if the comparison is future,
-stale, changed, or the action does not begin inside its freshness window. The
-adapter performs no side effect until it wins the registry-CAS transition from
-`prepared` to the exclusive `started` claim; only that claimant records
+fresh private recovery receipt. Before preservation, close admission and
+acquire the runtime-scoped claim from an authority outside all project
+registries; every start path must consult it. Abort/replan if the comparison is
+future, stale, changed, delayed, or an unmanaged start can bypass admission.
+Never treat a local/XDG ledger, project registry, or same-user hash as the
+runtime authority. Until a separate coordinator cryptographically authenticates
+claims, anchors monotonic history, and atomically gates every raw start path,
+destructive recovery is unavailable and every non-empty mirror fails closed.
+Ordinary work without a recovery receipt remains available. Once the external
+adapter exists, mirror its generation and authenticated claim reference, then
+win the registry-CAS `prepared` → `started` transition before the side effect;
+only that claimant records
 `completed` or evidence-backed `failed`. Derive the ledger-unique claim key
-from the action, active-set fingerprint, and recovery-precondition fingerprint,
-and allow only one nonterminal recovery claim. `started` records a portable
-owner and bounded immutable lease. Reconcile an expired claim on the same
-receipt before any new claim. Append only monotonic state changes to the
-hash-linked transition ledger and keep the snapshot equal to its tip; never
-replay an unchanged terminal claim key under a new receipt ID.
+from the runtime
+scope, action, active-set fingerprint, and recovery-precondition fingerprint,
+and allow only one nonterminal mirror in the project registry. `started`
+records a portable owner and bounded immutable lease. Reconcile an expired
+claim on the same receipt before any new claim. Append only monotonic state
+changes to the hash-linked transition ledger and keep the snapshot equal to its
+tip; never replay an unchanged terminal claim key under a new receipt ID.
+Terminal reconciliation reopens admission through the runtime authority. The
+project registry is not the machine-wide lock.
 
 Before materialization, require every project-local entry in the launch
 contract's ordered `requiredSkills` to be installed under the repository. The

@@ -118,17 +118,30 @@ always require task-backed immediate parents.
 - Before recovering a shared runtime, snapshot the exact active set and
   preservation evidence, compare that set again immediately before the action,
   and record both canonical fingerprints in a fresh private recovery receipt.
-  Begin the action inside the comparison freshness window. Abort/replan if the
-  set changed, the comparison is future/stale, or the action start is delayed.
-  Win the exclusive registry-CAS `prepared` → `started` claim before the side
-  effect. Seal the action, active-set fingerprint, and recovery-precondition
-  fingerprint in a ledger-unique claim key; allow only one nonterminal claim.
+  Before preservation, close admission and acquire the runtime-scoped claim
+  from an authority outside all repository-private registries. Require every
+  run-start path to consult it; if an unmanaged path can bypass admission,
+  block recovery. Begin the action inside the comparison freshness window.
+  Abort/replan if the set changed, the comparison is future/stale, or the action
+  start is delayed. Never treat a local/XDG ledger, project registry, or
+  same-user hash as the runtime authority. Until a separate coordinator
+  cryptographically authenticates claims, anchors monotonic history, and
+  atomically gates every raw start path, destructive recovery is unavailable
+  and every non-empty recovery mirror fails closed. Ordinary orchestration
+  without recovery receipts remains available. Once that external adapter
+  exists, mirror its coordinator generation and authenticated claim reference,
+  then win the local registry-CAS
+  `prepared` → `started` transition before the side effect. Seal the runtime
+  scope, action, active-set fingerprint, and recovery-precondition fingerprint
+  in a ledger-unique claim key; allow only one nonterminal project mirror.
   Give `started` a portable owner and bounded immutable lease. Reconcile an
   expired claim on that same receipt before a new claim. Append only monotonic
   state changes to its hash-linked transition ledger and keep the snapshot
   equal to the ledger tip; never replay an unchanged terminal claim key under
   a new ID. Only the claimant may record `completed` or evidence-backed
-  `failed`. Treat unknown shutdown semantics as non-preserving.
+  `failed`, and reopen admission through the runtime authority during terminal
+  reconciliation. The project registry is not the machine-wide lock. Treat
+  unknown shutdown or admission semantics as non-preserving.
 - Do not start another identical retry, replacement Worker, review run, or auth
   flow after the configured unchanged-progress or same-failure budget is
   exhausted.

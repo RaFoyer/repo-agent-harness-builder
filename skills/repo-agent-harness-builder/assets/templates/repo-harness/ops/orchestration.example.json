@@ -40,7 +40,10 @@
       "activeSetChangeAction": "abort-and-replan",
       "unknownPreservationBehavior": "treat-as-non-preserving",
       "maxReceiptAgeSeconds": 60,
-      "maxClaimLeaseSeconds": 900
+      "maxClaimLeaseSeconds": 900,
+      "requireRuntimeScopedClaim": true,
+      "requireAdmissionClosure": true,
+      "unmanagedStartBehavior": "block-recovery"
     }
   },
   "nodes": [],

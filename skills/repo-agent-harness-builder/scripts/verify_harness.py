@@ -457,6 +457,9 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
                 "unknownPreservationBehavior",
                 "maxReceiptAgeSeconds",
                 "maxClaimLeaseSeconds",
+                "requireRuntimeScopedClaim",
+                "requireAdmissionClosure",
+                "unmanagedStartBehavior",
             }
             and shared_runtime_recovery.get("requireActiveSetSnapshot") is True
             and shared_runtime_recovery.get("requirePreActionCompare") is True
@@ -468,6 +471,9 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
             and isinstance(shared_runtime_recovery.get("maxClaimLeaseSeconds"), int)
             and not isinstance(shared_runtime_recovery.get("maxClaimLeaseSeconds"), bool)
             and 1 <= shared_runtime_recovery["maxClaimLeaseSeconds"] <= 3600
+            and shared_runtime_recovery.get("requireRuntimeScopedClaim") is True
+            and shared_runtime_recovery.get("requireAdmissionClosure") is True
+            and shared_runtime_recovery.get("unmanagedStartBehavior") == "block-recovery"
         )
         policy_is_safe = (
             isinstance(control_loop_policy, dict)

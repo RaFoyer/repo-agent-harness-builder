@@ -11,7 +11,11 @@ import { main } from "../src/main.mjs";
 import { createGithubChildEnvironment, validateProfileRoot, validateRepositoryTarget } from "../src/github/index.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
-import { materializedWorkContractHash, taskBindingAttestationPayload, taskBindingLegacyAttestationDigest } from "../src/orchestration/index.mjs";
+import {
+  materializedWorkContractHash,
+  taskBindingAttestationPayload,
+  taskBindingLegacyAttestationDigest
+} from "../src/orchestration/index.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -132,7 +136,10 @@ function orchestrationControlLoopPolicy() {
       activeSetChangeAction: "abort-and-replan",
       unknownPreservationBehavior: "treat-as-non-preserving",
       maxReceiptAgeSeconds: 60,
-      maxClaimLeaseSeconds: 900
+      maxClaimLeaseSeconds: 900,
+      requireRuntimeScopedClaim: true,
+      requireAdmissionClosure: true,
+      unmanagedStartBehavior: "block-recovery"
     }
   };
 }
@@ -188,7 +195,8 @@ function sharedRuntimeClaimKey(receipt) {
   return createHash("sha256").update(portableCanonicalJsonForTest({
     actionRef: receipt.actionRef,
     preActionFingerprint: receipt.preActionFingerprint,
-    recoveryPreconditionFingerprint: receipt.recoveryPreconditionFingerprint
+    recoveryPreconditionFingerprint: receipt.recoveryPreconditionFingerprint,
+    runtimeScopeRef: receipt.runtimeScopeRef
   })).digest("hex");
 }
 
@@ -202,7 +210,7 @@ function syncSharedRuntimeReceiptState(receipt) {
   const latest = receipt.transitionReceipts.at(-1);
   for (const field of [
     "status", "claimOwnerRef", "actionStartedAt", "claimExpiresAt",
-    "completedAt", "failureEvidenceRefs"
+    "completedAt", "failureEvidenceRefs", "admissionReopenedAt"
   ]) {
     receipt[field] = structuredClone(latest[field]);
   }
@@ -214,6 +222,7 @@ function appendSharedRuntimeTransition(receipt, status, overrides = {}) {
   const recordedAt = overrides.recordedAt || new Date().toISOString();
   const transition = {
     sequence: receipt.transitionReceipts.length + 1,
+    claimKey: receipt.claimKey,
     status,
     recordedAt,
     previousTransitionHash: previous?.transitionHash || null,
@@ -233,7 +242,10 @@ function appendSharedRuntimeTransition(receipt, status, overrides = {}) {
       : null,
     failureEvidenceRefs: status === "failed"
       ? overrides.failureEvidenceRefs || ["external:error:recovery-action-failed"]
-      : []
+      : [],
+    admissionReopenedAt: ["completed", "failed", "aborted"].includes(status)
+      ? overrides.admissionReopenedAt || overrides.completedAt || recordedAt
+      : null
   };
   transition.transitionHash = sharedRuntimeTransitionHash(transition);
   receipt.transitionReceipts.push(transition);
@@ -250,11 +262,23 @@ function sharedRuntimeRecoveryReceipt({
   preservedAt = new Date().toISOString(),
   comparedAt = preservedAt,
   recordedAt = comparedAt,
+  runtimeScopeRef = "external:no-mistakes:shared-daemon:default",
   recoveryPreconditionRefs = ["external:daemon:healthy", "external:disk:capacity-ok"]
 }) {
+  const runtimeClaimEvidenceRefs = ["external:runtime-coordination:no-mistakes-default:claim"];
+  const admissionClosureEvidenceRefs = ["external:runtime-coordination:no-mistakes-default:admission-closed"];
   const receipt = {
     id,
     claimKey: "",
+    runtimeScopeRef,
+    runtimeClaimFingerprint: controlFingerprint(runtimeClaimEvidenceRefs),
+    runtimeClaimEvidenceRefs,
+    admissionClosureFingerprint: controlFingerprint(admissionClosureEvidenceRefs),
+    admissionClosureEvidenceRefs,
+    admissionClosedAt: preservedAt,
+    admissionReopenedAt: null,
+    runtimeCoordinatorGeneration: 1,
+    runtimeCoordinatorAttestationHash: "0".repeat(64),
     actionRef,
     approvedBy: "project-owner",
     preservedAt,
@@ -3023,12 +3047,18 @@ fixtureTest("schema-v5 control-loop policy blocks unchanged polling and repeated
   registry.controlLoopPolicy.maxUnchangedChecks = 101;
   registry.controlLoopPolicy.maxSameFailureRetries = 21;
   registry.controlLoopPolicy.maxControlIntervalSeconds = 604800;
+  registry.controlLoopPolicy.sharedRuntimeRecovery.requireRuntimeScopedClaim = false;
+  registry.controlLoopPolicy.sharedRuntimeRecovery.requireAdmissionClosure = false;
+  registry.controlLoopPolicy.sharedRuntimeRecovery.unmanagedStartBehavior = "allow";
   writeOrchestrationRegistry(registry);
   const unboundedPolicy = capture();
   assert.equal(await main(["orchestration", "validate"], unboundedPolicy.io), 1);
   assert.match(unboundedPolicy.out.join("\n"), /safe integer from 1 through 100/);
   assert.match(unboundedPolicy.out.join("\n"), /safe integer from 0 through 20/);
   assert.match(unboundedPolicy.out.join("\n"), /may span at most 2592000 seconds/);
+  assert.match(unboundedPolicy.out.join("\n"), /requireRuntimeScopedClaim must be true/);
+  assert.match(unboundedPolicy.out.join("\n"), /requireAdmissionClosure must be true/);
+  assert.match(unboundedPolicy.out.join("\n"), /unmanagedStartBehavior must be block-recovery/);
 });
 
 fixtureTest("control-loop retries are bound to schema-v5 failure/precondition pairs", async () => {
@@ -3209,8 +3239,38 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   writeOrchestrationRegistry(registry);
 
   const prepared = capture();
-  assert.equal(await main(["orchestration", "validate"], prepared.io), 0, prepared.out.concat(prepared.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], prepared.io), 1);
+  assert.match(
+    prepared.out.join("\n"),
+    /destructive shared-runtime recovery is unavailable until a separately implemented external coordinator/
+  );
 
+  const missingRuntimeAuthority = structuredClone(receipt);
+  missingRuntimeAuthority.runtimeClaimEvidenceRefs = [];
+  missingRuntimeAuthority.runtimeClaimFingerprint = controlFingerprint([]);
+  registry.sharedRuntimeRecoveryReceipts = [missingRuntimeAuthority];
+  writeOrchestrationRegistry(registry);
+  const missingRuntimeClaim = capture();
+  assert.equal(await main(["orchestration", "validate"], missingRuntimeClaim.io), 1);
+  assert.match(missingRuntimeClaim.out.join("\n"), /runtimeClaimEvidenceRefs must be a non-empty canonical array/);
+
+  const unboundRuntimeScope = structuredClone(receipt);
+  unboundRuntimeScope.runtimeScopeRef = "external:no-mistakes:shared-daemon:other";
+  registry.sharedRuntimeRecoveryReceipts = [unboundRuntimeScope];
+  writeOrchestrationRegistry(registry);
+  const unboundRuntimeClaim = capture();
+  assert.equal(await main(["orchestration", "validate"], unboundRuntimeClaim.io), 1);
+  assert.match(unboundRuntimeClaim.out.join("\n"), /claimKey must match the canonical runtime scope/);
+
+  const lateAdmissionClosure = structuredClone(receipt);
+  lateAdmissionClosure.admissionClosedAt = new Date(Date.parse(receipt.preservedAt) + 1_000).toISOString();
+  registry.sharedRuntimeRecoveryReceipts = [lateAdmissionClosure];
+  writeOrchestrationRegistry(registry);
+  const lateAdmission = capture();
+  assert.equal(await main(["orchestration", "validate"], lateAdmission.io), 1);
+  assert.match(lateAdmission.out.join("\n"), /admissionClosedAt must not follow preservedAt/);
+
+  registry.sharedRuntimeRecoveryReceipts = [receipt];
   registry.sharedRuntimeRecoveryReceipts.push({ ...receipt, id: "duplicate-replay-claim" });
   writeOrchestrationRegistry(registry);
   const replayedClaim = capture();
@@ -3234,6 +3294,15 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   assert.match(competing.out.join("\n"), /at most one prepared or started claim/);
   registry.sharedRuntimeRecoveryReceipts.pop();
 
+  registry.sharedRuntimeRecoveryReceipts = [competingClaim];
+  writeOrchestrationRegistry(registry);
+  const crossProjectCompeting = capture();
+  assert.equal(await main(["orchestration", "validate"], crossProjectCompeting.io), 1);
+  assert.match(
+    crossProjectCompeting.out.join("\n"),
+    /destructive shared-runtime recovery is unavailable until a separately implemented external coordinator/
+  );
+
   const changedActiveSet = [{
     runRef: "run:aeb-review",
     headRef: "git:head:changed",
@@ -3255,13 +3324,15 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   appendSharedRuntimeTransition(changedReceipt, "aborted");
   writeOrchestrationRegistry(registry);
   const aborted = capture();
-  assert.equal(await main(["orchestration", "validate"], aborted.io), 0, aborted.out.concat(aborted.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], aborted.io), 1);
+  assert.match(aborted.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   registry.sharedRuntimeRecoveryReceipts = [receipt];
   appendSharedRuntimeTransition(receipt, "started");
   writeOrchestrationRegistry(registry);
   const started = capture();
-  assert.equal(await main(["orchestration", "validate"], started.io), 0, started.out.concat(started.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], started.io), 1);
+  assert.match(started.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   const startedSnapshot = structuredClone(receipt);
   const expiredComparedAt = new Date(Date.now() - 90_000).toISOString();
@@ -3291,7 +3362,8 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   appendSharedRuntimeTransition(receipt, "completed");
   writeOrchestrationRegistry(registry);
   const completed = capture();
-  assert.equal(await main(["orchestration", "validate"], completed.io), 0, completed.out.concat(completed.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], completed.io), 1);
+  assert.match(completed.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   receipt.status = "started";
   writeOrchestrationRegistry(registry);
@@ -3332,7 +3404,8 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   registry.sharedRuntimeRecoveryReceipts = [failedReceipt];
   writeOrchestrationRegistry(registry);
   const failedAction = capture();
-  assert.equal(await main(["orchestration", "validate"], failedAction.io), 0, failedAction.out.concat(failedAction.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], failedAction.io), 1);
+  assert.match(failedAction.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   registry.sharedRuntimeRecoveryReceipts.push({
     ...structuredClone(failedReceipt),
@@ -3357,7 +3430,8 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   registry.sharedRuntimeRecoveryReceipts = [failedReceipt, changedPreconditionClaim];
   writeOrchestrationRegistry(registry);
   const changedPrecondition = capture();
-  assert.equal(await main(["orchestration", "validate"], changedPrecondition.io), 0, changedPrecondition.out.concat(changedPrecondition.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], changedPrecondition.io), 1);
+  assert.match(changedPrecondition.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   const staleComparedAt = new Date(Date.now() - 120_000).toISOString();
   const staleReceipt = sharedRuntimeRecoveryReceipt({
@@ -3376,7 +3450,8 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   appendSharedRuntimeTransition(staleReceipt, "aborted");
   writeOrchestrationRegistry(registry);
   const staleAborted = capture();
-  assert.equal(await main(["orchestration", "validate"], staleAborted.io), 0, staleAborted.out.concat(staleAborted.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], staleAborted.io), 1);
+  assert.match(staleAborted.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   const futureComparedAt = new Date(Date.now() + 30_000).toISOString();
   const futureReceipt = sharedRuntimeRecoveryReceipt({
@@ -3396,7 +3471,8 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   });
   writeOrchestrationRegistry(registry);
   const futureAborted = capture();
-  assert.equal(await main(["orchestration", "validate"], futureAborted.io), 0, futureAborted.out.concat(futureAborted.err).join("\n"));
+  assert.equal(await main(["orchestration", "validate"], futureAborted.io), 1);
+  assert.match(futureAborted.out.join("\n"), /destructive shared-runtime recovery is unavailable/);
 
   const delayedStartReceipt = sharedRuntimeRecoveryReceipt({
     id: "delayed-action-start",
@@ -3414,6 +3490,22 @@ fixtureTest("shared-runtime recovery receipts fail closed on stale or changed ac
   assert.match(staleCompletedCheck.out.join("\n"), /action began after the pre-action comparison freshness window/);
 });
 
+fixtureTest("ordinary orchestration validation does not require a runtime coordinator", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.schemaVersion = 5;
+  registry.rootControl = { materialization: "required" };
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  for (const node of registry.nodes) node.parentBindingMode = "task";
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.controlLoop = orchestrationControlLoop();
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  registry.sharedRuntimeRecoveryReceipts = [];
+  writeOrchestrationRegistry(registry, { runtimeCoordinator: false });
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.out.concat(validation.err).join("\n"));
+});
+
 fixtureTest("tracked schema-v5 example exposes anti-stagnation policy without runtime identity", async () => {
   const liveness = capture();
   assert.equal(await main(["orchestration", "liveness", "--example"], liveness.io), 0, liveness.out.concat(liveness.err).join("\n"));
@@ -3421,6 +3513,9 @@ fixtureTest("tracked schema-v5 example exposes anti-stagnation policy without ru
   assert.match(liveness.out.join("\n"), /nodes\[\d+\]/);
   assert.match(liveness.out.join("\n"), /quiet_activity_counts_as_progress: false/);
   assert.match(liveness.out.join("\n"), /max_shared_runtime_claim_lease_seconds: 900/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_scoped_claim_required: true/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_admission_closure_required: true/);
+  assert.match(liveness.out.join("\n"), /shared_runtime_unmanaged_start_behavior: "block-recovery"/);
 });
 
 fixtureTest("schema-v5 Firstmate readiness accepts an explicitly optional unmaterialized Boss", async () => {
