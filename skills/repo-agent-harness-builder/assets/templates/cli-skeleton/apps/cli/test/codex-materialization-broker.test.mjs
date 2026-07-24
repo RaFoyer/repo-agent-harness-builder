@@ -84,7 +84,8 @@ function fixtureHarness({
     createCalls: 0,
     activationCalls: 0,
     issuanceMarker: null,
-    checkpoints: []
+    checkpoints: [],
+    publicKeyBase64: keys.publicKey.export({ type: "spki", format: "der" }).toString("base64")
   };
   const exactTask = (id = "task-feature") => ({
     id,
@@ -191,11 +192,15 @@ function fixtureHarness({
     },
     async readBinding({ binding }) {
       if (!state.binding) return "absent";
-      return JSON.stringify(state.binding) === JSON.stringify(binding) ? "exact" : "conflict";
+      return JSON.stringify(canonicalize(state.binding)) === JSON.stringify(canonicalize(binding)) ? "exact" : "conflict";
     },
     async bindInert({ binding }) {
       state.binding = binding;
       state.registryState = "blocked";
+    },
+    async reconcileCompletedBinding({ binding }) {
+      state.binding = binding;
+      state.registryState = "working";
     },
     async markWorking({ binding }) {
       assert.deepEqual(state.binding, binding);
@@ -400,6 +405,33 @@ test("registry issuance marker prevents a second create after ledger and anchor 
   }
 });
 
+test("attempt artifacts without receipts and an anchor fail closed before reservation", async () => {
+  const fixture = fixtureHarness();
+  try {
+    const directory = attemptDirectory(fixture);
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.chmodSync(directory, 0o700);
+    fs.writeFileSync(path.join(directory, "attestation.request.json"), "{}\n", { mode: 0o600 });
+    await assert.rejects(fixture.run(), /artifacts without a receipt ledger/);
+    assert.equal(fixture.state.createCalls, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("symlinked private attempt ancestors cannot redirect broker state", async () => {
+  const fixture = fixtureHarness();
+  try {
+    const redirected = path.join(fixture.root, "redirected-attempts");
+    fs.mkdirSync(redirected, { mode: 0o700 });
+    fs.symlinkSync(redirected, fixture.attemptRoot);
+    await assert.rejects(fixture.run(), /real directory ancestors/);
+    assert.equal(fixture.state.createCalls, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("ambiguous create resumes only from one exact positive task and never creates twice", async () => {
   const fixture = fixtureHarness({
     createBehavior: ({ state, exactTask }) => {
@@ -528,6 +560,57 @@ test("ambiguous activation is read back and completed without a second activatio
   }
 });
 
+test("externally authorized activation recovery reconciles a pre-call crash without broker reissue", async () => {
+  const fixture = fixtureHarness({
+    activationBehavior: () => undefined
+  });
+  const run = () => materializeCodexTaskWithBroker({
+    contract: fixture.contract,
+    attemptRoot: fixture.attemptRoot,
+    native: fixture.native,
+    attestor: fixture.attestor,
+    callbacks: {
+      ...fixture.callbacks,
+      async reconcileActivation({ task }) {
+        fixture.state.task = { ...fixture.state.task, id: task.id, active: true, activationState: "active" };
+        return {
+          authorized: true,
+          decisionId: "activation-recovery-decision",
+          decidedAt: "2026-07-24T12:00:00Z",
+          evidenceHash: hash("activation-recovery-evidence")
+        };
+      }
+    },
+    publicKeyBase64: fixture.state.publicKeyBase64,
+    now: () => "2026-07-24T12:00:00Z"
+  });
+  try {
+    const result = await run();
+    assert.equal(result.state, "working");
+    assert.equal(fixture.state.activationCalls, 1);
+    const confirmed = receipts(fixture).find((receipt) => receipt.stage === "activation-confirmed");
+    assert.equal(confirmed.activationRecoveryDecisionId, "activation-recovery-decision");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("completed ledgers repair an exact missing registry binding without another native call", async () => {
+  const fixture = fixtureHarness();
+  try {
+    await fixture.run();
+    fixture.state.binding = null;
+    fixture.state.registryState = "reserved";
+    const reconciled = await fixture.run();
+    assert.equal(reconciled.reconciled, true);
+    assert.equal(fixture.state.registryState, "working");
+    assert.equal(fixture.state.createCalls, 1);
+    assert.equal(fixture.state.activationCalls, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("lock contention never deletes another materializer owner's lock", async () => {
   const fixture = fixtureHarness();
   try {
@@ -603,6 +686,57 @@ test("stale lock release requires exact compare-and-set plus external dead-owner
     assert.equal(fs.existsSync(result.archivePath), true);
     const materialized = await fixture.run();
     assert.equal(materialized.state, "working");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("only one stale reconciler can claim a lock release compare-and-set", async () => {
+  const fixture = fixtureHarness();
+  try {
+    fs.mkdirSync(fixture.attemptRoot, { recursive: true, mode: 0o700 });
+    fs.chmodSync(fixture.attemptRoot, 0o700);
+    const lockPath = path.join(fixture.attemptRoot, "materialization.lock");
+    fs.writeFileSync(lockPath, `${JSON.stringify({
+      schemaVersion: 1,
+      launchKey: fixture.contract.launchKey,
+      contractHash: fixture.contract.workContractHash,
+      ownerNonce: "stale-owner-nonce",
+      pid: 4242,
+      acquiredAt: "2026-07-24T11:00:00Z"
+    }, null, 2)}\n`, { mode: 0o600 });
+    fs.chmodSync(lockPath, 0o600);
+    const inspected = inspectCodexMaterializationLock({ attemptRoot: fixture.attemptRoot });
+    let verifierCalls = 0;
+    let releaseVerifier;
+    const verifierBarrier = new Promise((resolve) => { releaseVerifier = resolve; });
+    const verifyStaleOwner = async () => {
+      verifierCalls += 1;
+      if (verifierCalls === 2) releaseVerifier();
+      await verifierBarrier;
+      return {
+        authorized: true,
+        ownerIsLive: false,
+        decisionId: "decision-stale-owner",
+        decidedAt: "2026-07-24T12:00:00Z",
+        evidenceHash: hash("stale-owner-evidence")
+      };
+    };
+    const results = await Promise.allSettled([
+      reconcileStaleCodexMaterializationLock({
+        attemptRoot: fixture.attemptRoot,
+        expectedLockHash: inspected.lockHash,
+        verifyStaleOwner
+      }),
+      reconcileStaleCodexMaterializationLock({
+        attemptRoot: fixture.attemptRoot,
+        expectedLockHash: inspected.lockHash,
+        verifyStaleOwner
+      })
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.match(results.find((result) => result.status === "rejected").reason.message, /compare-and-set is already claimed|ENOENT/);
+    assert.equal(fs.existsSync(lockPath), false);
   } finally {
     fixture.cleanup();
   }

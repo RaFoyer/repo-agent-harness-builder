@@ -27,6 +27,10 @@ function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!isObject(value)) return value;
@@ -82,6 +86,30 @@ function ensurePrivateDirectory(fileSystem, directory) {
       throw new Error(`private materialization path must be a real directory: ${cursor}`);
     }
     fileSystem.chmodSync(cursor, 0o700);
+  }
+}
+
+function assertPrivatePathWithinRoot(fileSystem, privateRoot, target) {
+  const root = path.resolve(privateRoot);
+  const selected = path.resolve(target);
+  if (selected !== root && !selected.startsWith(`${root}${path.sep}`)) {
+    throw new Error("private materialization path escapes its trusted store root");
+  }
+  if (!fileSystem.existsSync(root)) {
+    throw new Error("private materialization store root is missing");
+  }
+  let current = root;
+  while (true) {
+    const stat = fileSystem.lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error(`private materialization path must have real directory ancestors: ${current}`);
+    }
+    if (current === selected) return;
+    const remaining = path.relative(current, selected);
+    const next = path.join(current, remaining.split(path.sep)[0]);
+    if (next === current) throw new Error("private materialization path cannot advance beneath its trusted store root");
+    current = next;
+    if (!fileSystem.existsSync(current)) return;
   }
 }
 
@@ -257,9 +285,16 @@ export function validateCodexMaterializationReceipts(receipts, { launchKey, cont
 function loadReceipts(fileSystem, attemptRoot, launchKey, contractHash) {
   const directory = receiptDirectory(attemptRoot, launchKey);
   if (!fileSystem.existsSync(directory)) {
-    const anchorPath = path.join(attemptDirectory(attemptRoot, launchKey), "receipt-anchor.json");
+    const selectedAttemptDirectory = attemptDirectory(attemptRoot, launchKey);
+    const anchorPath = path.join(selectedAttemptDirectory, "receipt-anchor.json");
     if (fileSystem.existsSync(anchorPath)) {
       throw new Error("materialization receipt ledger is missing while its durable anchor remains");
+    }
+    if (fileSystem.existsSync(selectedAttemptDirectory)) {
+      privateStat(fileSystem, selectedAttemptDirectory, "directory", 0o700);
+      if (fileSystem.readdirSync(selectedAttemptDirectory).length) {
+        throw new Error("materialization attempt contains artifacts without a receipt ledger and durable anchor");
+      }
     }
     return validateCodexMaterializationReceipts([], { launchKey, contractHash });
   }
@@ -428,6 +463,22 @@ export async function reconcileStaleCodexMaterializationLock({
   }
   const recoveryDirectory = path.join(current.directory, "lock-recoveries");
   ensurePrivateDirectory(fileSystem, recoveryDirectory);
+  const recoveryClaimPath = path.join(recoveryDirectory, `${expectedLockHash}.cas-claim.json`);
+  try {
+    atomicCreateJson(fileSystem, recoveryClaimPath, {
+      schemaVersion: 1,
+      kind: "codex-materialization-stale-lock-cas-claim",
+      lockHash: expectedLockHash,
+      ownerNonce: current.lock.ownerNonce,
+      decisionId: decision.decisionId,
+      evidenceHash: decision.evidenceHash
+    });
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      throw new Error("stale lock recovery compare-and-set is already claimed");
+    }
+    throw error;
+  }
   const archivedLockPath = path.join(recoveryDirectory, `${expectedLockHash}.lock.json`);
   if (!fileSystem.existsSync(archivedLockPath)) {
     fileSystem.linkSync(current.lockPath, archivedLockPath);
@@ -458,7 +509,15 @@ export async function reconcileStaleCodexMaterializationLock({
     || finalCheck.lock.ownerNonce !== initial.lock.ownerNonce) {
     throw new Error("materialization lock changed before stale lock release");
   }
-  fileSystem.unlinkSync(finalCheck.lockPath);
+  const releasedLockPath = path.join(recoveryDirectory, `${expectedLockHash}.released-lock.json`);
+  if (fileSystem.existsSync(releasedLockPath)) {
+    if (!sameCanonicalValue(readPrivateJson(fileSystem, releasedLockPath), finalCheck.lock)) {
+      throw new Error("stale lock release archive conflicts with the selected lock");
+    }
+  } else {
+    fileSystem.renameSync(finalCheck.lockPath, releasedLockPath);
+    fileSystem.chmodSync(releasedLockPath, 0o600);
+  }
   fsyncDirectory(fileSystem, finalCheck.directory);
   return {
     released: true,
@@ -625,7 +684,8 @@ function requiredInterfaces(options) {
     ["callbacks.attestationPayload", callbacks?.attestationPayload],
     ["callbacks.readBinding", callbacks?.readBinding],
     ["callbacks.bindInert", callbacks?.bindInert],
-    ["callbacks.markWorking", callbacks?.markWorking]
+    ["callbacks.markWorking", callbacks?.markWorking],
+    ["callbacks.reconcileCompletedBinding", callbacks?.reconcileCompletedBinding]
   ]) {
     if (typeof value !== "function") throw new Error(`materialization broker requires ${label}`);
   }
@@ -687,6 +747,7 @@ export async function materializeCodexTaskWithBroker(options) {
     || !publicKeyBase64) {
     throw new Error("materialization broker received an incomplete sealed contract");
   }
+  assertPrivatePathWithinRoot(fileSystem, options.privateRoot || path.dirname(attemptRoot), attemptRoot);
 
   return withInstanceMaterializationLock(fileSystem, attemptRoot, contract, now, async () => {
     let ledger = loadReceipts(fileSystem, attemptRoot, contract.launchKey, contract.workContractHash);
@@ -725,6 +786,38 @@ export async function materializeCodexTaskWithBroker(options) {
         if (activation?.active !== true || activation?.pinned !== pinDecision(contract.node).pinned) {
           throw new Error("completed materialization activation or pin readback drifted");
         }
+        const observedReceipt = ledger.receipts.findLast((receipt) => receipt.stage === "observed");
+        const requestReceipt = ledger.receipts.findLast((receipt) => receipt.stage === "attestation-requested");
+        const directory = attemptDirectory(attemptRoot, contract.launchKey);
+        const request = readPrivateJson(fileSystem, path.join(directory, "attestation.request.json"));
+        const response = readPrivateJson(fileSystem, path.join(directory, "attestation.response.json"));
+        const requestPayload = validateAttestorRequest({
+          request,
+          requestReceipt,
+          contract,
+          task,
+          attemptLedgerTip: observedReceipt?.receiptHash,
+          expectedTaskReadbackHash: observedReceipt?.taskReadbackHash
+        });
+        verifyAttestorResponse({ request, response, publicKeyBase64 });
+        const binding = {
+          ...requestPayload.binding,
+          attestation: {
+            algorithm: response.algorithm,
+            keyId: response.keyId,
+            signature: response.signature
+          }
+        };
+        const bindingState = await callbacks.readBinding({ contract, task, binding });
+        if (bindingState === "absent") {
+          await callbacks.reconcileCompletedBinding({ contract, task, binding, activationReceiptHash: ledger.tip });
+        } else if (bindingState !== "exact") {
+          throw new Error("completed materialization registry binding conflicts with the attested task");
+        }
+        if (await callbacks.readBinding({ contract, task, binding }) !== "exact") {
+          throw new Error("completed materialization registry binding could not be reconciled");
+        }
+        await callbacks.markWorking({ contract, task, binding, activationReceiptHash: ledger.tip });
         return { launchKey: contract.launchKey, taskId, state: "working", reconciled: true };
       }
 
@@ -979,16 +1072,44 @@ export async function materializeCodexTaskWithBroker(options) {
       if (ledger.stage === "activation-issued") {
         const activation = await native.readActivation(task.id);
         if (activation?.active !== true || activation?.pinned !== pinDecision(contract.node).pinned) {
-          quarantine(fileSystem, attemptRoot, contract, now, "activation-readback-unconfirmed");
-          throw new Error("native activation and pin state are not positively confirmed; activation will not be reissued");
+          if (typeof callbacks.reconcileActivation !== "function") {
+            quarantine(fileSystem, attemptRoot, contract, now, "activation-readback-unconfirmed");
+            throw new Error("native activation and pin state are not positively confirmed; explicit externally authorized recovery is required");
+          }
+          const recovery = await callbacks.reconcileActivation({ contract, task, activation, activationReceiptHash: ledger.tip });
+          if (!isObject(recovery)
+            || recovery.authorized !== true
+            || !isNonEmptyString(recovery.decisionId)
+            || !isNonEmptyString(recovery.decidedAt)
+            || !SHA256_RE.test(recovery.evidenceHash || "")) {
+            throw new Error("activation recovery did not provide an externally authorized outcome");
+          }
+          const recoveredActivation = await native.readActivation(task.id);
+          if (recoveredActivation?.active !== true || recoveredActivation?.pinned !== pinDecision(contract.node).pinned) {
+            quarantine(fileSystem, attemptRoot, contract, now, "activation-recovery-unconfirmed");
+            throw new Error("externally authorized activation recovery did not produce a positive native readback");
+          }
+          appendReceipt(fileSystem, attemptRoot, contract, {
+            stage: "activation-confirmed",
+            at: now(),
+            details: {
+              taskId: task.id,
+              activationReadbackHash: sha256(recoveredActivation),
+              activationRecoveryDecisionId: recovery.decisionId,
+              activationRecoveryEvidenceHash: recovery.evidenceHash
+            }
+          });
+          await checkpoint("activation-confirmed", { launchKey: contract.launchKey, taskId: task.id });
+          ledger = loadReceipts(fileSystem, attemptRoot, contract.launchKey, contract.workContractHash);
+        } else {
+          appendReceipt(fileSystem, attemptRoot, contract, {
+            stage: "activation-confirmed",
+            at: now(),
+            details: { taskId: task.id, activationReadbackHash: sha256(activation) }
+          });
+          await checkpoint("activation-confirmed", { launchKey: contract.launchKey, taskId: task.id });
+          ledger = loadReceipts(fileSystem, attemptRoot, contract.launchKey, contract.workContractHash);
         }
-        appendReceipt(fileSystem, attemptRoot, contract, {
-          stage: "activation-confirmed",
-          at: now(),
-          details: { taskId: task.id, activationReadbackHash: sha256(activation) }
-        });
-        await checkpoint("activation-confirmed", { launchKey: contract.launchKey, taskId: task.id });
-        ledger = loadReceipts(fileSystem, attemptRoot, contract.launchKey, contract.workContractHash);
       }
       if (ledger.stage === "activation-confirmed") {
         await callbacks.markWorking({ contract, task, binding, activationReceiptHash: ledger.tip });

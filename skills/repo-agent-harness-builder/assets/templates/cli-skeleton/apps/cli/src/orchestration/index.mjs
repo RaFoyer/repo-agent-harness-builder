@@ -3247,7 +3247,7 @@ function firstmateTaskPinLifecycle(registry, node) {
   };
 }
 
-function firstmateActivationBlockers(registry, adapter) {
+function firstmateActivationBlockers(registry, adapter, { materializingNodeId = null } = {}) {
   const blockers = [];
   if (!isObject(registry) || registry.status !== "active") {
     blockers.push("orchestration must be active");
@@ -3266,12 +3266,15 @@ function firstmateActivationBlockers(registry, adapter) {
   const optionalUnmaterializedBoss = bosses.length === 1
     && rootMaterializationFor(registry) === "optional"
     && !isTaskBackedNode(bosses[0]);
-  if (bosses.length !== 1 || (!optionalUnmaterializedBoss && !isTaskBackedNode(bosses[0]))) {
+  const bossBeingMaterialized = bosses.length === 1
+    && bosses[0].id === materializingNodeId
+    && !isTaskBackedNode(bosses[0]);
+  if (bosses.length !== 1 || (!optionalUnmaterializedBoss && !bossBeingMaterialized && !isTaskBackedNode(bosses[0]))) {
     blockers.push("one task-backed Firstmate Boss is required");
-  } else if (optionalUnmaterializedBoss && adapter.bossTaskId !== null) {
-    blockers.push("clientAdapter.bossTaskId must remain null until the optional Boss task is materialized");
+  } else if ((optionalUnmaterializedBoss || bossBeingMaterialized) && adapter.bossTaskId !== null) {
+    blockers.push("clientAdapter.bossTaskId must remain null until the pending Boss task is materialized");
   } else if (!isNonEmptyString(adapter.bossTaskId) || adapter.bossTaskId !== bosses[0].taskId) {
-    if (!optionalUnmaterializedBoss) blockers.push("clientAdapter.bossTaskId must match the task-backed Firstmate Boss");
+    if (!optionalUnmaterializedBoss && !bossBeingMaterialized) blockers.push("clientAdapter.bossTaskId must match the task-backed Firstmate Boss");
   }
 
   if (typeof adapter.standingTaskCreationGrant !== "boolean") {
@@ -4133,6 +4136,16 @@ export async function materializeCodexTask(options = {}) {
   }
   const adapterPinBlocker = firstmatePinPolicyBlockers(initial.loaded.registry.clientAdapter)[0];
   if (adapterPinBlocker) throw new Error(adapterPinBlocker);
+  const activatesRegistry = activatesRegistryOnLaunch(initial.loaded.registry, node, parent);
+  const activationRegistry = activatesRegistry
+    ? { ...initial.loaded.registry, status: "active" }
+    : initial.loaded.registry;
+  const activationBlocker = firstmateActivationBlockers(
+    activationRegistry,
+    initial.loaded.registry.clientAdapter,
+    { materializingNodeId: activatesRegistry ? node.id : null }
+  )[0];
+  if (activationBlocker) throw new Error(`Codex materialization is not activation-ready: ${activationBlocker}`);
   const existingBrokerBinding = ["blocked", "working"].includes(node.state)
     && isNonEmptyString(node.taskId)
     && node.taskBinding?.materializationAttempt?.broker === "codex-native-firstmate-at-most-once-v1";
@@ -4425,9 +4438,37 @@ export async function materializeCodexTask(options = {}) {
     replacePrivateRegistryCas(location, current.loaded.registry.revision, next);
   };
 
+  const reconcileCompletedBinding = async ({ task, binding }) => {
+    const current = brokerSelectedNode(location, node.id);
+    if (current.node.taskBinding
+      || !hasLaunchReservation(current.node)
+      || current.node.launchReservation.key !== launchKey
+      || !brokerReservationMatches(current.loaded.registry, current.node, current.parent, current.findings.nodes)) {
+      throw new Error("completed binding reconciliation requires the exact pending launch reservation");
+    }
+    const nextNode = {
+      ...current.node,
+      taskId: task.id,
+      parentTaskId: binding.parentTaskId,
+      taskBinding: binding,
+      launchReservation: null,
+      state: "working",
+      nextAction: options.nextAction
+    };
+    delete nextNode.blocker;
+    delete nextNode.unblockAction;
+    const next = {
+      ...current.loaded.registry,
+      revision: current.loaded.registry.revision + 1,
+      nodes: current.findings.nodes.map((candidate) => candidate.id === node.id ? nextNode : candidate)
+    };
+    replacePrivateRegistryCas(location, current.loaded.registry.revision, next);
+  };
+
   return materializeCodexTaskWithBroker({
     contract,
     attemptRoot: brokerPrivateAttemptRoot(location),
+    privateRoot: location.storePath,
     native: options.native,
     attestor: options.attestor,
     publicKeyBase64: process.env[BINDING_PUBLIC_KEY_ENV],
@@ -4439,7 +4480,9 @@ export async function materializeCodexTask(options = {}) {
       attestationPayload: (binding) => taskBindingAttestationPayload(initial.loaded.registry, binding),
       readBinding,
       bindInert,
-      markWorking
+      markWorking,
+      reconcileCompletedBinding,
+      reconcileActivation: options.reconcileActivation
     }
   });
 }
