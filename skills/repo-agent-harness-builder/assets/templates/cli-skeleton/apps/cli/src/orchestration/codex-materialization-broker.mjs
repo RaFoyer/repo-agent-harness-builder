@@ -808,13 +808,13 @@ export async function materializeCodexTaskWithBroker(options) {
             signature: response.signature
           }
         };
-        const bindingState = await callbacks.readBinding({ contract, task, binding });
+        const bindingState = await callbacks.readBinding({ contract, task, binding, expectedState: "working" });
         if (bindingState === "absent") {
           await callbacks.reconcileCompletedBinding({ contract, task, binding, activationReceiptHash: ledger.tip });
         } else if (bindingState !== "exact") {
           throw new Error("completed materialization registry binding conflicts with the attested task");
         }
-        if (await callbacks.readBinding({ contract, task, binding }) !== "exact") {
+        if (await callbacks.readBinding({ contract, task, binding, expectedState: "working" }) !== "exact") {
           throw new Error("completed materialization registry binding could not be reconciled");
         }
         await callbacks.markWorking({ contract, task, binding, activationReceiptHash: ledger.tip });
@@ -1037,12 +1037,12 @@ export async function materializeCodexTaskWithBroker(options) {
         ledger = loadReceipts(fileSystem, attemptRoot, contract.launchKey, contract.workContractHash);
       }
       if (ledger.stage === "bind-issued") {
-        const bindingState = await callbacks.readBinding({ contract, task, binding });
+        const bindingState = await callbacks.readBinding({ contract, task, binding, expectedState: "blocked" });
         if (bindingState !== "exact") {
           if (bindingState !== "absent") throw new Error("registry contains a conflicting task binding");
           await callbacks.bindInert({ contract, task, binding });
         }
-        if (await callbacks.readBinding({ contract, task, binding }) !== "exact") {
+        if (await callbacks.readBinding({ contract, task, binding, expectedState: "blocked" }) !== "exact") {
           throw new Error("registry did not preserve the exact inert task binding");
         }
         appendReceipt(fileSystem, attemptRoot, contract, {

@@ -4374,11 +4374,11 @@ export async function materializeCodexTask(options = {}) {
     };
   };
 
-  const readBinding = async ({ binding }) => {
+  const readBinding = async ({ binding, expectedState }) => {
     const current = brokerSelectedNode(location, node.id);
     if (!current.node.taskBinding && hasLaunchReservation(current.node)) return "absent";
     return current.node.taskId === binding.taskId
-      && current.node.state === "blocked"
+      && current.node.state === expectedState
       && isDeepStrictEqual(current.node.taskBinding, binding)
       ? "exact"
       : "conflict";
