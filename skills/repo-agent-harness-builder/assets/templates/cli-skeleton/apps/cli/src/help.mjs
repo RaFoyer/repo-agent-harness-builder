@@ -117,7 +117,7 @@ Safety posture:
   - orchestration init/migrate only create private 0600 instance files; other orchestration commands inspect policy/state and emit launch material; client adapters create tasks
   - GitHub execution refuses ambient global auth, cross-repository targets, unclassified commands, and authority outside the selected profile or node
   - adapter-status performs local read-only feature and asset inspection; it never configures Codex or activates orchestration
-  - Codex task pins are navigation only: pin the resident Boss and nonterminal Managers, never Workers or helpers, and unpin Managers after terminal reconciliation
+  - Codex task pins are navigation only: pin the resident Boss and nonterminal Managers, never Workers or helpers, and unpin Managers only after terminal evidence and parent reconciliation
   - write-capable operations should support dry-run first
   - command help, protocol docs, and tests must stay in sync
 `;

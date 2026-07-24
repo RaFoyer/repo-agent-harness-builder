@@ -383,6 +383,27 @@ if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name har
   exit 1
 fi
 
+for malformed_adapter_case in non-object invalid-utf8; do
+  damaged="$TMP/generated-repo-malformed-firstmate-adapter-$malformed_adapter_case"
+  cp -R "$TMP/generated-repo" "$damaged"
+  if [ "$malformed_adapter_case" = "non-object" ]; then
+    printf '[]\n' > "$damaged/docs/templates/orchestration/codex-native-firstmate-adapter.example.json"
+  else
+    printf '\377' > "$damaged/docs/templates/orchestration/codex-native-firstmate-adapter.example.json"
+  fi
+  if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness \
+    >"$TMP/malformed-firstmate-adapter-$malformed_adapter_case.out" \
+    2>"$TMP/malformed-firstmate-adapter-$malformed_adapter_case.err"; then
+    echo "expected verifier to reject malformed Firstmate adapter JSON ($malformed_adapter_case)" >&2
+    exit 1
+  fi
+  if grep -q "Traceback" "$TMP/malformed-firstmate-adapter-$malformed_adapter_case.err"; then
+    cat "$TMP/malformed-firstmate-adapter-$malformed_adapter_case.err" >&2
+    echo "expected verifier to contain malformed Firstmate adapter JSON without a traceback" >&2
+    exit 1
+  fi
+done
+
 echo "== downstream fleet skill ownership boundary =="
 downstream_without_fleet_skills="$TMP/generated-repo-without-fleet-skill-copies"
 cp -R "$TMP/generated-repo" "$downstream_without_fleet_skills"

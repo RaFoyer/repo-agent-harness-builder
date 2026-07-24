@@ -598,9 +598,16 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
     adapter_example = target / "docs" / "templates" / "orchestration" / "codex-native-firstmate-adapter.example.json"
     if adapter_example.is_file():
         try:
-            retention = json.loads(adapter_example.read_text(encoding="utf-8")).get("retention")
-        except (json.JSONDecodeError, OSError):
-            retention = None
+            adapter_policy = json.loads(adapter_example.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, OSError) as error:
+            errors.append(f"invalid Codex-native Firstmate adapter JSON: {display_path(adapter_example, target)} ({error})")
+            return
+        if not isinstance(adapter_policy, dict):
+            errors.append(
+                f"Codex-native Firstmate adapter example must be a JSON object: {display_path(adapter_example, target)}"
+            )
+            return
+        retention = adapter_policy.get("retention")
         expected_pin_policy = {
             "pinBoss": True,
             "pinNonterminalManagers": True,

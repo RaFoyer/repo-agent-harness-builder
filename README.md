@@ -56,7 +56,7 @@ add that Boss later. Managers own bounded workstreams, and Workers own bounded
 execution loops. Codex pinning is a navigation lifecycle, not authority:
 keep the materialized resident Boss and materialized nonterminal Managers
 pinned, never pin Workers or transient helpers, and unpin a Manager after its
-terminal evidence is reconciled.
+terminal evidence and parent reconciliation are recorded.
 The capability is installed per repository but remains inactive until a human
 configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository

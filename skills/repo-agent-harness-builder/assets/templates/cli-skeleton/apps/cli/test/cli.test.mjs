@@ -928,6 +928,7 @@ test("help lists core commands", () => {
   assert.match(help, /orchestration prompt/);
   assert.match(help, /orchestration launch-spec/);
   assert.match(help, /pin the resident Boss and nonterminal Managers, never Workers or helpers/);
+  assert.match(help, /unpin Managers only after terminal evidence and parent reconciliation/);
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
@@ -1093,6 +1094,52 @@ fixtureTest("Firstmate launch materialization blocks legacy task pin policy", as
   const launch = capture();
   assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 1);
   assert.match(launch.err.join("\n"), /registry has blockers/i);
+});
+
+fixtureTest("Firstmate launch materialization binds native task pin lifecycle", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  writeOrchestrationRegistry(registry);
+
+  const managerLaunch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], managerLaunch.io), 0, managerLaunch.err.join("\n"));
+  const managerSpec = JSON.parse(managerLaunch.out.join("\n"));
+  assert.deepEqual(managerSpec.pinLifecycle, {
+    initialState: "pinned",
+    requiredWhile: "materialized-nonterminal",
+    terminalManagerUnpin: {
+      allowedOnlyAfter: [
+        "terminal completion evidence satisfies the completion profile",
+        "immediate-parent reconciliation is recorded"
+      ]
+    },
+    driftReconciliation: {
+      inspectDuring: "each bounded parent control check",
+      correctTo: "pinned",
+      countsAsProgress: false
+    }
+  });
+  assert.deepEqual(managerSpec.externalTask.pinLifecycle, managerSpec.pinLifecycle);
+  assert.ok(managerSpec.callback.bind.requiredUpdates.includes("verified native task pin state=pinned and lifecycle reconciliation contract"));
+  assert.ok(managerSpec.callback.reconcile.requiredUpdates.includes("verified native task pin state=pinned and lifecycle reconciliation contract"));
+
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.taskId = "task-manager-docs";
+  manager.state = "working";
+  manager.nextAction = "Prepare the bounded documentation artifact.";
+  manager.parentTaskId = "task-boss";
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.dependencies = [];
+  writeOrchestrationRegistry(registry);
+
+  const workerLaunch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "worker-research"], workerLaunch.io), 0, workerLaunch.err.join("\n"));
+  const workerSpec = JSON.parse(workerLaunch.out.join("\n"));
+  assert.equal(workerSpec.pinLifecycle.initialState, "unpinned");
+  assert.equal(workerSpec.pinLifecycle.requiredWhile, "never");
+  assert.deepEqual(workerSpec.pinLifecycle.terminalManagerUnpin, { allowed: false });
+  assert.equal(workerSpec.pinLifecycle.driftReconciliation.countsAsProgress, false);
 });
 
 fixtureTest("Codex-native Firstmate taxonomy preserves canonical roles and exact titles", async () => {

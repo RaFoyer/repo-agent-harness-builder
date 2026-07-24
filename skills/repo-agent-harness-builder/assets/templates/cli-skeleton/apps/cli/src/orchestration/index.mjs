@@ -1150,6 +1150,7 @@ function taskBindingAttestationBlockers(registry, node, binding) {
 
 function materializedWorkContract(registry, node, parent) {
   const logicalParent = logicalParentBinding(registry, node, parent);
+  const pinLifecycle = firstmateTaskPinLifecycle(registry, node);
   const nodeContract = {
     id: node.id,
     role: node.role,
@@ -1175,6 +1176,7 @@ function materializedWorkContract(registry, node, parent) {
     ...(registry.schemaVersion >= 5 && registry.controlLoopPolicy
       ? { controlLoopPolicy: registry.controlLoopPolicy }
       : {}),
+    ...(pinLifecycle ? { pinLifecycle } : {}),
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
     node: nodeContract,
@@ -3170,6 +3172,30 @@ function firstmatePinPolicyBlockers(adapter) {
   return ["clientAdapter.retention must pin the resident Boss and nonterminal Managers, never pin Workers, unpin terminal Managers only after evidence and parent reconciliation, and reconcile pin drift"];
 }
 
+function firstmateTaskPinLifecycle(registry, node) {
+  if (!isCodexNativeFirstmateAdapter(registry.clientAdapter)) return null;
+  const initialState = node.role === "boss" || node.role === "manager" ? "pinned" : "unpinned";
+  return {
+    initialState,
+    requiredWhile: node.role === "boss"
+      ? "materialized-resident"
+      : node.role === "manager"
+        ? "materialized-nonterminal"
+        : "never",
+    terminalManagerUnpin: node.role === "manager" ? {
+      allowedOnlyAfter: [
+        "terminal completion evidence satisfies the completion profile",
+        "immediate-parent reconciliation is recorded"
+      ]
+    } : { allowed: false },
+    driftReconciliation: {
+      inspectDuring: "each bounded parent control check",
+      correctTo: initialState,
+      countsAsProgress: false
+    }
+  };
+}
+
 function firstmateActivationBlockers(registry, adapter) {
   const blockers = [];
   if (!isObject(registry) || registry.status !== "active") {
@@ -3670,6 +3696,7 @@ function runLaunchSpec(nodeId, io) {
   const workContract = materializedWorkContract(loaded.registry, node, parent);
   const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
   const launchKey = launchKeyFor(loaded.registry, node, parent);
+  const pinLifecycle = firstmateTaskPinLifecycle(loaded.registry, node);
   const reservation = {
     launchKey,
     workContract: { algorithm: "sha256", hash: workContractHash, payload: workContract },
@@ -3729,6 +3756,7 @@ function runLaunchSpec(nodeId, io) {
     ...(loaded.registry.schemaVersion >= 3 ? { requiredSkills: requiredSkillsFor(loaded.registry, node) } : {}),
     trustLevel: node.trustLevel,
     authority: canonicalAuthority(node.authority),
+    ...(pinLifecycle ? { pinLifecycle } : {}),
     workContract: { algorithm: "sha256", hash: workContractHash },
     taskBinding: taskBindingUpdate({
       registry: loaded.registry,
@@ -3744,7 +3772,8 @@ function runLaunchSpec(nodeId, io) {
       ...(firstmate ? {
         requiredTitle: node.title,
         requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
-        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title."
+        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title.",
+        pinLifecycle
       } : {}),
       indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
@@ -3780,6 +3809,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
+          ...(pinLifecycle ? [`verified native task pin state=${pinLifecycle.initialState} and lifecycle reconciliation contract`] : []),
           ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
@@ -3808,7 +3838,8 @@ function runLaunchSpec(nodeId, io) {
           createAllowed: false,
           ...(firstmate ? {
             requiredTitle: node.title,
-            renameAndVerifyBeforeBind: true
+            renameAndVerifyBeforeBind: true,
+            pinLifecycle
           } : {})
         },
         requiredReservation: {
@@ -3853,6 +3884,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId from reconciled external task",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
+          ...(pinLifecycle ? [`verified native task pin state=${pinLifecycle.initialState} and lifecycle reconciliation contract`] : []),
           ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",
