@@ -96,8 +96,8 @@ state during create/title/bind reconciliation:
 
 The project owner owns a logical Manager's pin until a materialized Boss
 assumes its lifecycle. The current lifecycle owner unpins a Manager only after
-terminal evidence and parent reconciliation are recorded, then applies the
-configured archive policy. Keep an ambiguously bound or quarantined Manager
+terminal completion and landed-work evidence plus parent reconciliation are
+recorded, then applies the configured archive policy. Keep an ambiguously bound or quarantined Manager
 pinned until reconciliation proves whether it is retained, cancelled, or
 superseded; do not hide it and create a duplicate. Direct owner conversation
 does not alter pin state.

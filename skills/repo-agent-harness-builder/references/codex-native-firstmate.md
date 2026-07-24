@@ -123,8 +123,8 @@ authority, prove liveness, change parentage, or make a task nonterminal.
 - Never pin Workers or transient helpers. Their immediate parent owns their
   lifecycle and evidence without promoting them into the repository's
   top-level navigation surface.
-- After terminal evidence and parent reconciliation are recorded, unpin the
-  Manager and apply the configured archive policy. A quarantined or
+- After terminal completion and landed-work evidence plus parent reconciliation
+  are recorded, unpin the Manager and apply the configured archive policy. A quarantined or
   ambiguously bound Manager stays pinned until reconciliation so it cannot be
   lost and duplicated.
 

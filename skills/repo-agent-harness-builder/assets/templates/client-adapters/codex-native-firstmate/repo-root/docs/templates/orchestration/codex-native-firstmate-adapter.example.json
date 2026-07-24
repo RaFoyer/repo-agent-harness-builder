@@ -38,7 +38,7 @@
     "pinBoss": true,
     "pinNonterminalManagers": true,
     "pinWorkers": false,
-    "managerUnpinPolicy": "after-terminal-evidence-and-parent-reconciliation",
+    "managerUnpinPolicy": "after-terminal-landed-work-evidence-and-parent-reconciliation",
     "reconcilePinDrift": true,
     "archivePolicy": "manual-after-landed-proof",
     "handoffPolicy": null

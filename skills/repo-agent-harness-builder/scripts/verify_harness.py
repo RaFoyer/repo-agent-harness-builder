@@ -612,7 +612,7 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
             "pinBoss": True,
             "pinNonterminalManagers": True,
             "pinWorkers": False,
-            "managerUnpinPolicy": "after-terminal-evidence-and-parent-reconciliation",
+            "managerUnpinPolicy": "after-terminal-landed-work-evidence-and-parent-reconciliation",
             "reconcilePinDrift": True,
         }
         actual_pin_policy = (

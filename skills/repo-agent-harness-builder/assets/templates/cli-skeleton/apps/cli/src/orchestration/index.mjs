@@ -3163,7 +3163,7 @@ function firstmatePinPolicyBlockers(adapter) {
     && retention.pinBoss === true
     && retention.pinNonterminalManagers === true
     && retention.pinWorkers === false
-    && retention.managerUnpinPolicy === "after-terminal-evidence-and-parent-reconciliation"
+    && retention.managerUnpinPolicy === "after-terminal-landed-work-evidence-and-parent-reconciliation"
     && retention.reconcilePinDrift === true) {
     return [];
   }
@@ -3175,6 +3175,7 @@ function firstmateTaskPinLifecycle(registry, node) {
   const initialState = node.role === "boss" || node.role === "manager" ? "pinned" : "unpinned";
   const terminalManagerRequirements = [
     "terminal completion evidence satisfies the completion profile",
+    "completion profile's landed-work evidence is recorded",
     "immediate-parent reconciliation is recorded"
   ];
   const requiredStateTransitions = node.role === "boss"

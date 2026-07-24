@@ -717,7 +717,7 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
       pinBoss: true,
       pinNonterminalManagers: true,
       pinWorkers: false,
-      managerUnpinPolicy: "after-terminal-evidence-and-parent-reconciliation",
+      managerUnpinPolicy: "after-terminal-landed-work-evidence-and-parent-reconciliation",
       reconcilePinDrift: true,
       archivePolicy: "manual-after-landed-proof",
       handoffPolicy: "parent-review-before-archive"
@@ -928,7 +928,7 @@ test("help lists core commands", () => {
   assert.match(help, /orchestration prompt/);
   assert.match(help, /orchestration launch-spec/);
   assert.match(help, /pin the resident Boss and nonterminal Managers, never Workers or helpers/);
-  assert.match(help, /unpin Managers only after terminal evidence and parent reconciliation/);
+  assert.match(help, /unpin Managers only after terminal completion and landed-work evidence plus parent reconciliation/);
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
@@ -1021,7 +1021,7 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["Boss pin policy", (registry) => { registry.clientAdapter.retention.pinBoss = false; }, /retention must pin the resident Boss and nonterminal Managers/],
     ["Manager pin policy", (registry) => { registry.clientAdapter.retention.pinNonterminalManagers = false; }, /retention must pin the resident Boss and nonterminal Managers/],
     ["Worker pin policy", (registry) => { registry.clientAdapter.retention.pinWorkers = true; }, /never pin Workers/],
-    ["Manager terminal-unpin policy", (registry) => { registry.clientAdapter.retention.managerUnpinPolicy = "on-terminal"; }, /unpin terminal Managers/],
+    ["Manager terminal-unpin policy", (registry) => { registry.clientAdapter.retention.managerUnpinPolicy = "after-terminal-evidence-and-parent-reconciliation"; }, /unpin terminal Managers/],
     ["pin drift reconciliation", (registry) => { registry.clientAdapter.retention.reconcilePinDrift = false; }, /reconcile pin drift/],
     ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /configure handoff\/archive policy/],
     ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
@@ -1116,7 +1116,7 @@ fixtureTest("Firstmate launch materialization binds native task pin lifecycle", 
     ...legacyRetention,
     pinNonterminalManagers: true,
     pinWorkers: false,
-    managerUnpinPolicy: "after-terminal-evidence-and-parent-reconciliation",
+    managerUnpinPolicy: "after-terminal-landed-work-evidence-and-parent-reconciliation",
     reconcilePinDrift: true
   };
   writeOrchestrationRegistry(registry);
@@ -1130,6 +1130,7 @@ fixtureTest("Firstmate launch materialization binds native task pin lifecycle", 
     terminalManagerUnpin: {
       allowedOnlyAfter: [
         "terminal completion evidence satisfies the completion profile",
+        "completion profile's landed-work evidence is recorded",
         "immediate-parent reconciliation is recorded"
       ]
     },
@@ -1142,6 +1143,7 @@ fixtureTest("Firstmate launch materialization binds native task pin lifecycle", 
         requiredState: "unpinned",
         afterAll: [
           "terminal completion evidence satisfies the completion profile",
+          "completion profile's landed-work evidence is recorded",
           "immediate-parent reconciliation is recorded"
         ]
       }

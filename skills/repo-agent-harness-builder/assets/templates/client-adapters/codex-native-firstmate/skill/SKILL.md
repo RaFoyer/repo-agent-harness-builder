@@ -55,7 +55,8 @@ independent repository Firstmates.
 - **Apply the pin lifecycle:** treat pinning as navigation, never authority or
   liveness. Keep the materialized resident Boss and every materialized
   nonterminal Manager pinned. Never pin Workers or transient helpers. After
-  terminal evidence and parent reconciliation, unpin the Manager and apply the
+  terminal completion and landed-work evidence plus parent reconciliation,
+  unpin the Manager and apply the
   configured archive policy. Keep an ambiguous or quarantined Manager pinned
   until reconciliation prevents a duplicate.
 - **Reconcile drift:** during each bounded parent control check, compare native
