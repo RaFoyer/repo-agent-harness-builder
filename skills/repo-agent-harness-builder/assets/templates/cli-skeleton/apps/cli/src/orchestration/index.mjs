@@ -6,6 +6,10 @@ import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
+import {
+  codexMaterializationPinDecision,
+  materializeCodexTaskWithBroker
+} from "./codex-materialization-broker.mjs";
 
 const EXAMPLE_REGISTRY_REL_PATH = "ops/orchestration.example.json";
 const LEGACY_REGISTRY_REL_PATH = "ops/orchestration.json";
@@ -188,6 +192,7 @@ const CODEX_FIRSTMATE_ASSETS = [
   ".codex/agents/firstmate-boss.toml",
   ".codex/agents/firstmate-manager.toml",
   ".codex/agents/firstmate-worker.toml",
+  "apps/cli/src/orchestration/codex-materialization-broker.mjs",
   "docs/templates/orchestration/codex-native-firstmate-prompt.txt",
   "docs/templates/orchestration/codex-native-firstmate-adapter.example.json",
   "ops/protocols/CODEX-NATIVE-FIRSTMATE.md"
@@ -1049,6 +1054,9 @@ function bindingAttestationPayload(registry, binding) {
       parentTaskId: binding.parentTaskId ?? null,
       boundRevision: binding.boundRevision,
       boundAt: binding.boundAt,
+      ...(binding.materializationAttempt ? {
+        materializationAttempt: binding.materializationAttempt
+      } : {}),
       attestation: {
         algorithm: binding.attestation?.algorithm,
         keyId: binding.attestation?.keyId
@@ -2412,6 +2420,19 @@ function taskBindingBlockers(registry, node, parent) {
     blockers.push(`${label}: taskBinding.boundRevision must be a registry revision at or before the current revision`);
   }
   if (!isUtcRfc3339Timestamp(binding.boundAt)) blockers.push(`${label}: taskBinding.boundAt must be a UTC RFC3339 timestamp`);
+  if (binding.materializationAttempt !== undefined) {
+    const attempt = binding.materializationAttempt;
+    if (!isObject(attempt)
+      || attempt.broker !== "codex-native-firstmate-at-most-once-v1"
+      || typeof attempt.attemptLedgerTip !== "string"
+      || !SHA256_RE.test(attempt.attemptLedgerTip)
+      || typeof attempt.sourceContractHash !== "string"
+      || !SHA256_RE.test(attempt.sourceContractHash)
+      || typeof attempt.taskReadbackHash !== "string"
+      || !SHA256_RE.test(attempt.taskReadbackHash)) {
+      blockers.push(`${label}: taskBinding.materializationAttempt must seal the at-most-once broker, ledger tip, source contract, and task readback hashes`);
+    }
+  }
   blockers.push(...taskBindingAttestationBlockers(registry, node, binding));
   return blockers;
 }
@@ -2799,6 +2820,27 @@ function validateRegistry(registry) {
           const expectedValidity = reservationValidityFor(registry, node, parent, nodes, maxActiveNodes, reservation);
           if (!reservationValidityMatchesCurrent(reservation, expectedValidity)) {
             blockers.push(`${label}: launchReservation validity no longer matches registry status, work contract, authority, capacity, or task identity`);
+          }
+        }
+        if (reservation.materializationAttempt !== undefined) {
+          const attempt = reservation.materializationAttempt;
+          const { markerHash: _markerHash, ...markerPayload } = isObject(attempt) ? attempt : {};
+          if (!isObject(attempt)
+            || attempt.schemaVersion !== 1
+            || attempt.broker !== "codex-native-firstmate-at-most-once-v1"
+            || attempt.state !== "create-issued"
+            || attempt.launchKey !== reservation.key
+            || attempt.workContractHash !== reservation.workContractHash
+            || typeof attempt.sourceContractHash !== "string"
+            || !SHA256_RE.test(attempt.sourceContractHash)
+            || typeof attempt.attemptLedgerTip !== "string"
+            || !SHA256_RE.test(attempt.attemptLedgerTip)
+            || typeof attempt.nativeCallIssued !== "boolean"
+            || !isUtcRfc3339Timestamp(attempt.issuedAt)
+            || typeof attempt.markerHash !== "string"
+            || !SHA256_RE.test(attempt.markerHash)
+            || brokerHash(markerPayload) !== attempt.markerHash) {
+            blockers.push(`${label}: launchReservation.materializationAttempt must seal the durable at-most-once issuance marker`);
           }
         }
         blockers.push(...launchEligibilityBlockers({
@@ -3343,10 +3385,11 @@ function runAdapterStatus(io) {
   io.stdout(`assets_expected: ${assets.length}`);
   io.stdout(`assets[${assets.length}]{path,present}:`);
   for (const asset of assets) io.stdout(`  ${toonString(asset.path)},${asset.present}`);
-  io.stdout("native_capabilities[9]{capability,detection,status}:");
+  io.stdout("native_capabilities[10]{capability,detection,status}:");
   io.stdout('  "persistent tasks","Codex client runtime","verify before activation"');
   io.stdout('  "managed worktrees","Codex client runtime","verify before activation"');
   io.stdout('  "task title/pin/archive/handoff","Codex client runtime","resident Boss and nonterminal Managers pinned; Workers never pinned"');
+  io.stdout('  "at-most-once task materialization broker","repository-private Codex adapter","required; native create has no idempotency key and ambiguous issuance never retries"');
   io.stdout('  "Goal mode","Codex client runtime","optional"');
   io.stdout('  "subagents","Codex client runtime","read-heavy helpers only"');
   io.stdout('  "automations/heartbeats","Codex client runtime","disabled until configured"');
@@ -3749,6 +3792,8 @@ function runLaunchSpec(nodeId, io) {
     ...reservedNode.launchReservation,
     validity: reservationValidity
   };
+  const issuanceRegistryRevision = reservationValidity.expectedRegistryRevision + (firstmate ? 1 : 0);
+  const expectedBindRevision = issuanceRegistryRevision + 1;
   io.stdout(JSON.stringify({
     schemaVersion: loaded.registry.schemaVersion,
     ...(loaded.registry.schemaVersion >= 4 ? { coordinationMode: loaded.registry.coordinationMode } : {}),
@@ -3773,18 +3818,32 @@ function runLaunchSpec(nodeId, io) {
       workContractHash,
       node,
       parent,
-      boundRevision: reservationValidity.expectedRegistryRevision + 1
+      boundRevision: expectedBindRevision
     }),
     externalTask: {
       idempotencyKey: launchKey,
       reconciliationKey: launchKey,
       ...(firstmate ? {
         requiredTitle: node.title,
-        requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
-        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title.",
-        pinLifecycle
+        requiredCreateBehavior: "Use the repository-private at-most-once broker. Seal issuance in the live reservation and persist the matching create-issued receipt after the immediate registry CAS and before the sole inert native create call; Codex does not accept launchKey as a native idempotency key.",
+        requiredAdoptBehavior: "Adopt only one exact self-authenticating launch-envelope match, then verify title, repository, source base, parent contract, inert state, and pin posture before attestation and bind.",
+        pinLifecycle,
+        materializationBroker: {
+          protocol: "codex-native-firstmate-at-most-once-v1",
+          required: true,
+          nativeCreateAcceptsIdempotencyKey: false,
+          durableState: "git-common-private-0600-hash-linked-ledger",
+          preCreateOrder: ["registry-reservation-CAS", "immediate-contract-CAS", "persist-registry-issuance-marker", "persist-create-issued-receipt", "one-inert-native-create-call"],
+          positiveReconciliation: "one-exact-self-authenticating-launch-envelope-match",
+          zeroMatchBehavior: "quarantine-without-create-retry",
+          ambiguousMatchBehavior: "quarantine-for-manual-reconciliation",
+          rawCreateAllowed: false,
+          activationOrder: ["exact-readback", "durable-external-attestation", "bind-inert", "issue-activation-once", "positive-activation-and-pin-readback", "mark-working"]
+        }
       } : {}),
-      indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
+      indeterminateCreateBehavior: firstmate
+        ? "Keep the reservation and create-issued ledger state. Resume only from one exact positive task readback; zero or ambiguous matches never authorize another native create."
+        : "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
     prompt: buildPromptLines(node, parent, loaded.registry).join("\n"),
     reservation,
@@ -3815,6 +3874,18 @@ function runLaunchSpec(nodeId, io) {
         operation: "compare-and-set-bind",
         requiredReservationKey: launchKey,
         ...reservationValidity,
+        expectedRegistryRevision: issuanceRegistryRevision,
+        ...(firstmate ? {
+          requiredMaterializationAttempt: {
+            broker: "codex-native-firstmate-at-most-once-v1",
+            state: "create-issued",
+            launchKey,
+            workContractHash,
+            sourceContractHash: "exact source contract hash from the broker",
+            attemptLedgerTip: "reserved receipt hash",
+            markerHash: "SHA-256 of the issuance marker"
+          }
+        } : {}),
         requiredUpdates: [
           "taskId",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
@@ -3833,7 +3904,7 @@ function runLaunchSpec(nodeId, io) {
           workContractHash,
           node,
           parent,
-          boundRevision: reservationValidity.expectedRegistryRevision + 1
+          boundRevision: expectedBindRevision
         }),
         mustAdvanceRegistryRevision: true,
         onFailure: "Keep the reservation quarantined and reconcile the external task by launchKey; do not create another task after a title or bind failure."
@@ -3848,7 +3919,13 @@ function runLaunchSpec(nodeId, io) {
           ...(firstmate ? {
             requiredTitle: node.title,
             renameAndVerifyBeforeBind: true,
-            pinLifecycle
+            pinLifecycle,
+            materializationBroker: {
+              protocol: "codex-native-firstmate-at-most-once-v1",
+              requireExistingPositiveMatch: true,
+              createAllowed: false,
+              zeroMatchBehavior: "quarantine-without-create-retry"
+            }
           } : {})
         },
         requiredReservation: {
@@ -3933,6 +4010,438 @@ function runLaunchSpec(nodeId, io) {
     }
   }, null, 2));
   return 0;
+}
+
+function brokerHash(value) {
+  return createHash("sha256").update(portableCanonicalJson(value)).digest("hex");
+}
+
+function brokerGitCommit(repoRoot, ref) {
+  if (!isNonEmptyString(ref)) throw new Error("Codex materialization requires a configured clientAdapter.baseRef");
+  const result = spawnSync("git", ["-C", repoRoot, "rev-parse", "--verify", `${ref}^{commit}`], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: gitTopologyEnvironment()
+  });
+  if (result.status !== 0 || !/^[a-f0-9]{40,64}$/.test(result.stdout.trim())) {
+    throw new Error(`cannot resolve the exact Codex materialization base ref: ${ref}`);
+  }
+  return result.stdout.trim();
+}
+
+function brokerSourceContract(registry, repoRoot) {
+  const adapter = registry.clientAdapter;
+  const source = {
+    repositoryIdentity: adapter.presentationTaxonomy?.repositoryIdentity,
+    repositoryRoot: repoRoot,
+    scopeRootRef: registry.scope?.rootRef,
+    baseRef: adapter.baseRef,
+    baseCommit: brokerGitCommit(repoRoot, adapter.baseRef),
+    worktreePolicy: adapter.worktreePolicy
+  };
+  if (!isNonEmptyString(source.repositoryIdentity)
+    || !isNonEmptyString(source.scopeRootRef)
+    || !isObject(source.worktreePolicy)) {
+    throw new Error("Codex materialization requires sealed repository identity, scope root, and worktree policy");
+  }
+  return source;
+}
+
+function brokerPrivateAttemptRoot(location) {
+  return path.join(
+    location.storePath,
+    "operators",
+    location.operator,
+    "materialization-attempts",
+    location.instance
+  );
+}
+
+function replacePrivateRegistryCas(location, expectedRevision, nextRegistry) {
+  const loaded = loadPrivateRegistry(location);
+  if (!loaded.exists || loaded.error) {
+    throw new Error(loaded.error || "private orchestration instance disappeared during materialization");
+  }
+  if (loaded.registry.revision !== expectedRevision) {
+    throw new Error("private orchestration revision changed during materialization CAS");
+  }
+  const findings = validateRegistry(nextRegistry);
+  if (findings.blockers.length) {
+    throw new Error(`materialization CAS would install an invalid registry: ${findings.blockers[0]}`);
+  }
+  const temporary = `${location.path}.materialization-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  let fd;
+  try {
+    fd = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(fd, `${JSON.stringify(nextRegistry, null, 2)}\n`, "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(temporary, location.path);
+    fs.chmodSync(location.path, 0o600);
+    const directoryFd = fs.openSync(path.dirname(location.path), "r");
+    try {
+      fs.fsyncSync(directoryFd);
+    } finally {
+      fs.closeSync(directoryFd);
+    }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
+}
+
+function brokerSelectedNode(location, nodeId) {
+  const loaded = loadPrivateRegistry(location);
+  if (!loaded.exists || loaded.error) {
+    throw new Error(loaded.error || "private orchestration instance is unavailable");
+  }
+  const findings = validateRegistry(loaded.registry);
+  if (findings.blockers.length) throw new Error(`registry is invalid: ${findings.blockers[0]}`);
+  const node = findings.nodesById.get(nodeId);
+  if (!node) throw new Error(`configured orchestration node not found: ${nodeId}`);
+  const parent = node.parentId ? findings.nodesById.get(node.parentId) : null;
+  return { loaded, findings, node, parent };
+}
+
+function brokerReservationMatches(registry, node, parent, nodes) {
+  const reservation = node.launchReservation;
+  if (!isObject(reservation)) return false;
+  const expected = reservationValidityFor(
+    registry,
+    node,
+    parent,
+    nodes,
+    registry.trustPolicy.limits.maxActiveNodes,
+    reservation
+  );
+  return reservationValidityMatchesCurrent(reservation, expected);
+}
+
+// This private adapter entrypoint is imported by the registered Codex
+// controller. It is deliberately not routed through the public repository CLI:
+// inspection remains public, while native task mutation requires injected
+// controller, attestor, and exact readback capabilities.
+export async function materializeCodexTask(options = {}) {
+  const repoRoot = resolvedRepoRoot();
+  const selection = options.selection || environmentLocalSelection();
+  const location = instanceLocation(selection);
+  const initial = brokerSelectedNode(location, options.nodeId);
+  const { node, parent } = initial;
+  if (!isCodexNativeFirstmateAdapter(initial.loaded.registry.clientAdapter)) {
+    throw new Error("selected private instance does not use the Codex-native Firstmate adapter");
+  }
+  const adapterPinBlocker = firstmatePinPolicyBlockers(initial.loaded.registry.clientAdapter)[0];
+  if (adapterPinBlocker) throw new Error(adapterPinBlocker);
+  const existingBrokerBinding = ["blocked", "working"].includes(node.state)
+    && isNonEmptyString(node.taskId)
+    && node.taskBinding?.materializationAttempt?.broker === "codex-native-firstmate-at-most-once-v1";
+  if (!existingBrokerBinding) {
+    const launchMode = hasLaunchReservation(node) ? "reservation" : "launch";
+    const launchBlocker = launchEligibilityBlockers({
+      registry: initial.loaded.registry,
+      node,
+      parent,
+      nodes: initial.findings.nodes,
+      nodesById: initial.findings.nodesById,
+      maxActiveNodes: initial.loaded.registry.trustPolicy.limits.maxActiveNodes,
+      mode: launchMode
+    })[0];
+    if (launchBlocker) throw new Error(launchBlocker.message);
+  }
+  const missingSkills = missingProjectLocalSkills(initial.loaded.registry, node);
+  if (missingSkills.length) {
+    throw new Error(`node ${node.id} is missing required project-local skills: ${missingSkills.join(", ")}`);
+  }
+  if (initial.loaded.registry.controlLoopPolicy
+    && !existingBrokerBinding
+    && !isObject(options.initialControlLoop)) {
+    throw new Error("Codex materialization requires parent-owned initialControlLoop state when controlLoopPolicy is configured");
+  }
+  if (!isNonEmptyString(options.nextAction)) {
+    throw new Error("Codex materialization requires a concrete nextAction for post-activation state");
+  }
+
+  const source = brokerSourceContract(initial.loaded.registry, repoRoot);
+  const workContractHash = materializedWorkContractHash(initial.loaded.registry, node, parent);
+  const launchKey = launchKeyFor(initial.loaded.registry, node, parent);
+  const contract = {
+    schemaVersion: 1,
+    scopeId: initial.loaded.registry.scope.id,
+    operator: location.operator,
+    instance: location.instance,
+    launchKey,
+    workContractHash,
+    node: {
+      id: node.id,
+      role: node.role,
+      title: node.title,
+      state: node.state,
+      ...(initial.loaded.registry.schemaVersion >= 5 ? { parentBindingMode: node.parentBindingMode } : {})
+    },
+    parent: parent ? {
+      id: parent.id,
+      role: parent.role,
+      taskId: logicalParentBinding(initial.loaded.registry, node, parent) ? null : parent.taskId
+    } : null,
+    source,
+    sourceContractHash: brokerHash(source),
+    attestationKeyId: initial.loaded.registry.bindingAttestation.keyId,
+    pinLifecycle: firstmateTaskPinLifecycle(initial.loaded.registry, node)
+  };
+
+  const reserve = async (_contract, { reconcile = false } = {}) => {
+    const current = brokerSelectedNode(location, node.id);
+    const currentHash = materializedWorkContractHash(current.loaded.registry, current.node, current.parent);
+    const currentKey = launchKeyFor(current.loaded.registry, current.node, current.parent);
+    if (currentHash !== workContractHash || currentKey !== launchKey) {
+      throw new Error("materialized work contract changed before reservation");
+    }
+    if (!isDeepStrictEqual(brokerSourceContract(current.loaded.registry, repoRoot), source)) {
+      throw new Error("repository source contract changed before reservation");
+    }
+    if (hasLaunchReservation(current.node)) {
+      if (current.node.launchReservation.key !== launchKey
+        || current.node.launchReservation.workContractHash !== workContractHash
+        || !brokerReservationMatches(current.loaded.registry, current.node, current.parent, current.findings.nodes)) {
+        throw new Error("existing launch reservation does not match the sealed materialization contract");
+      }
+      return {
+        registryRevision: current.loaded.registry.revision,
+        created: false,
+        reconcile,
+        createIssued: current.node.launchReservation.materializationAttempt || null
+      };
+    }
+    if (reconcile
+      && ["blocked", "working"].includes(current.node.state)
+      && current.node.taskId
+      && current.node.taskBinding?.launchKey === launchKey
+      && current.node.taskBinding?.workContractHash === workContractHash) {
+      return {
+        registryRevision: current.loaded.registry.revision,
+        created: false,
+        reconcile,
+        bound: true
+      };
+    }
+    if (reconcile) throw new Error("materialization receipt ledger exists but its registry reservation is missing");
+    const blocker = launchEligibilityBlockers({
+      registry: current.loaded.registry,
+      node: current.node,
+      parent: current.parent,
+      nodes: current.findings.nodes,
+      nodesById: current.findings.nodesById,
+      maxActiveNodes: current.loaded.registry.trustPolicy.limits.maxActiveNodes,
+      mode: "launch"
+    })[0];
+    if (blocker) throw new Error(blocker.message);
+    const activatesRegistry = activatesRegistryOnLaunch(current.loaded.registry, current.node, current.parent);
+    const reservedRegistry = {
+      ...current.loaded.registry,
+      revision: current.loaded.registry.revision + 1,
+      ...(activatesRegistry ? { status: "active" } : {})
+    };
+    const reservedNode = {
+      ...current.node,
+      launchReservation: {
+        key: launchKey,
+        baseRevision: current.loaded.registry.revision,
+        workContractHash
+      }
+    };
+    const reservedNodes = current.findings.nodes.map((candidate) => candidate.id === node.id ? reservedNode : candidate);
+    const reservedParent = current.parent
+      ? reservedNodes.find((candidate) => candidate.id === current.parent.id)
+      : null;
+    reservedNode.launchReservation.validity = reservationValidityFor(
+      reservedRegistry,
+      reservedNode,
+      reservedParent,
+      reservedNodes,
+      reservedRegistry.trustPolicy.limits.maxActiveNodes,
+      reservedNode.launchReservation
+    );
+    reservedRegistry.nodes = reservedNodes.map((candidate) => candidate.id === node.id ? reservedNode : candidate);
+    replacePrivateRegistryCas(location, current.loaded.registry.revision, reservedRegistry);
+    return {
+      registryRevision: reservedRegistry.revision,
+      created: true,
+      createIssued: null
+    };
+  };
+
+  const preCreate = async (_contract, { attemptLedgerTip, nativeCallIssued }) => {
+    const current = brokerSelectedNode(location, node.id);
+    if (!brokerReservationMatches(current.loaded.registry, current.node, current.parent, current.findings.nodes)) {
+      throw new Error("immediate pre-create registry CAS no longer matches the reserved contract");
+    }
+    if (launchKeyFor(current.loaded.registry, current.node, current.parent) !== launchKey
+      || materializedWorkContractHash(current.loaded.registry, current.node, current.parent) !== workContractHash
+      || !isDeepStrictEqual(brokerSourceContract(current.loaded.registry, repoRoot), source)) {
+      throw new Error("immediate pre-create task, authority, capacity, or source contract changed");
+    }
+    if (current.node.launchReservation.materializationAttempt) {
+      return current.node.launchReservation.materializationAttempt;
+    }
+    const markerPayload = {
+      schemaVersion: 1,
+      broker: "codex-native-firstmate-at-most-once-v1",
+      state: "create-issued",
+      launchKey,
+      workContractHash,
+      sourceContractHash: contract.sourceContractHash,
+      attemptLedgerTip,
+      nativeCallIssued,
+      issuedAt: new Date().toISOString()
+    };
+    const marker = {
+      ...markerPayload,
+      markerHash: brokerHash(markerPayload)
+    };
+    const nextRegistry = {
+      ...current.loaded.registry,
+      revision: current.loaded.registry.revision + 1
+    };
+    const nextNode = {
+      ...current.node,
+      launchReservation: {
+        ...current.node.launchReservation,
+        materializationAttempt: marker
+      }
+    };
+    const nextNodes = current.findings.nodes.map((candidate) => candidate.id === node.id ? nextNode : candidate);
+    nextRegistry.nodes = nextNodes;
+    replacePrivateRegistryCas(location, current.loaded.registry.revision, nextRegistry);
+    return marker;
+  };
+
+  const prepareBinding = async ({ task, attemptLedgerTip, boundAt }) => {
+    const current = brokerSelectedNode(location, node.id);
+    if (isObject(current.node.taskBinding)
+      && current.node.taskId === task.id
+      && current.node.taskBinding.launchKey === launchKey
+      && current.node.taskBinding.materializationAttempt?.attemptLedgerTip === attemptLedgerTip) {
+      return {
+        ...current.node.taskBinding,
+        attestation: {
+          algorithm: BINDING_ATTESTATION_ALGORITHM,
+          keyId: current.loaded.registry.bindingAttestation.keyId,
+          signature: ""
+        }
+      };
+    }
+    if (!hasLaunchReservation(current.node) || current.node.launchReservation.key !== launchKey) {
+      throw new Error("binding preparation requires the exact pending launch reservation");
+    }
+    return {
+      launchKey,
+      workContractHash,
+      nodeId: node.id,
+      taskId: task.id,
+      externalTitle: task.title,
+      titleVerification: { method: "rename-and-readback", verified: true },
+      parentNodeId: node.parentId ?? null,
+      parentTaskId: logicalParentBinding(current.loaded.registry, current.node, current.parent)
+        ? null
+        : current.parent?.taskId ?? null,
+      boundRevision: current.loaded.registry.revision + 1,
+      boundAt,
+      materializationAttempt: {
+        broker: "codex-native-firstmate-at-most-once-v1",
+        attemptLedgerTip,
+        sourceContractHash: contract.sourceContractHash,
+        taskReadbackHash: brokerHash(task)
+      },
+      attestation: {
+        algorithm: BINDING_ATTESTATION_ALGORITHM,
+        keyId: current.loaded.registry.bindingAttestation.keyId,
+        signature: ""
+      }
+    };
+  };
+
+  const readBinding = async ({ binding }) => {
+    const current = brokerSelectedNode(location, node.id);
+    if (!current.node.taskBinding && hasLaunchReservation(current.node)) return "absent";
+    return current.node.taskId === binding.taskId
+      && current.node.state === "blocked"
+      && isDeepStrictEqual(current.node.taskBinding, binding)
+      ? "exact"
+      : "conflict";
+  };
+
+  const bindInert = async ({ task, binding }) => {
+    const current = brokerSelectedNode(location, node.id);
+    if (!brokerReservationMatches(current.loaded.registry, current.node, current.parent, current.findings.nodes)) {
+      throw new Error("attested bind CAS no longer matches the reserved registry");
+    }
+    if (binding.boundRevision !== current.loaded.registry.revision + 1) {
+      throw new Error("attested binding revision does not match the next registry revision");
+    }
+    const nextNode = {
+      ...current.node,
+      taskId: task.id,
+      parentTaskId: binding.parentTaskId,
+      taskBinding: binding,
+      launchReservation: null,
+      state: "blocked",
+      blocker: "Native task is inert until activation readback is confirmed.",
+      unblockAction: "Confirm the exact attested task activation and required pin state.",
+      ...(initial.loaded.registry.controlLoopPolicy ? { controlLoop: options.initialControlLoop } : {})
+    };
+    const next = {
+      ...current.loaded.registry,
+      revision: current.loaded.registry.revision + 1,
+      nodes: current.findings.nodes.map((candidate) => candidate.id === node.id ? nextNode : candidate)
+    };
+    replacePrivateRegistryCas(location, current.loaded.registry.revision, next);
+  };
+
+  const markWorking = async ({ task, binding }) => {
+    const current = brokerSelectedNode(location, node.id);
+    if (current.node.state === "working"
+      && current.node.taskId === task.id
+      && isDeepStrictEqual(current.node.taskBinding, binding)) {
+      return;
+    }
+    if (current.node.state !== "blocked"
+      || current.node.taskId !== task.id
+      || !isDeepStrictEqual(current.node.taskBinding, binding)) {
+      throw new Error("post-activation registry state does not match the exact inert binding");
+    }
+    const nextNode = {
+      ...current.node,
+      state: "working",
+      nextAction: options.nextAction
+    };
+    delete nextNode.blocker;
+    delete nextNode.unblockAction;
+    const next = {
+      ...current.loaded.registry,
+      revision: current.loaded.registry.revision + 1,
+      nodes: current.findings.nodes.map((candidate) => candidate.id === node.id ? nextNode : candidate)
+    };
+    replacePrivateRegistryCas(location, current.loaded.registry.revision, next);
+  };
+
+  return materializeCodexTaskWithBroker({
+    contract,
+    attemptRoot: brokerPrivateAttemptRoot(location),
+    native: options.native,
+    attestor: options.attestor,
+    publicKeyBase64: process.env[BINDING_PUBLIC_KEY_ENV],
+    checkpoint: options.checkpoint,
+    callbacks: {
+      reserve,
+      preCreate,
+      prepareBinding,
+      attestationPayload: (binding) => taskBindingAttestationPayload(initial.loaded.registry, binding),
+      readBinding,
+      bindInert,
+      markWorking
+    }
+  });
 }
 
 export async function runOrchestration(argv, io) {

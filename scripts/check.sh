@@ -356,7 +356,9 @@ for required_path in \
   ".codex/agents/firstmate-boss.toml" \
   ".codex/agents/firstmate-manager.toml" \
   ".codex/agents/firstmate-worker.toml" \
-  "apps/cli/src/orchestration/index.mjs"; do
+  "apps/cli/src/orchestration/index.mjs" \
+  "apps/cli/src/orchestration/codex-materialization-broker.mjs" \
+  "apps/cli/test/codex-materialization-broker.test.mjs"; do
   damaged="$TMP/generated-repo-missing-${required_path//\//__}"
   cp -R "$TMP/generated-repo" "$damaged"
   rm "$damaged/$required_path"

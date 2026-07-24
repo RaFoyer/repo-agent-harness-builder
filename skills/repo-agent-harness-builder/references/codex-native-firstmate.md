@@ -171,8 +171,9 @@ requirement for an app-first installation.
 
 Codex does not natively provide the portable portfolio dependency graph,
 authority ledger, atomic idempotent task-create key, immutable `parentTaskId`,
-or landed-work proof. Native task creation may also assign the title in a
-separate operation. Therefore:
+or landed-work proof. Its native task-create surface does not accept the
+portable launch key and may assign the title in a separate operation.
+Therefore:
 
 1. Keep the selected named private orchestration instance and its launch contract authoritative; keep `ops/orchestration.example.json` inactive and identity-free.
 2. Reserve before create and preserve the contract-derived `launchKey`.
@@ -180,12 +181,33 @@ separate operation. Therefore:
    identity through the approved adapter callback. A schema-v5 logical Manager
    records the Boss node identity and a null parent task ID; task-bound children
    record the immutable immediate-parent task ID.
-4. Treat task creation plus title assignment as one logical materialization
-   transaction. A failed title step does not make an unbound task usable.
-5. On a timeout, crash, ambiguous create, title failure, or failed bind, retain
-   the reservation and quarantine the result. Reconcile by launch key and
-   observed task identity before any retry.
-6. Have the current project-owner or active immediate-parent liveness owner
+4. Route every native task through the private
+   `codex-native-firstmate-at-most-once-v1` broker. After an immediate CAS of
+   registry revision, dependencies, capacity, trust, authority, required
+   skills, parent contract, work-contract hash, and exact repository/base
+   source, seal issuance in the live registry reservation and persist the
+   matching `create-issued` receipt in the 0600 Git-common hash-linked ledger
+   before the one inert native create call.
+5. Treat task creation, title/source/parent/pin readback, durable external
+   Ed25519 attestation, inert bind, one-time activation, and activation readback
+   as one crash-reconcilable logical materialization. A failed title step or
+   inert unbound task has no execution authority.
+6. On a timeout, crash, ambiguous create, title failure, or failed bind, retain
+   the reservation and ledger. Zero matches never prove absence and never
+   permit another native create. One exact self-authenticating launch-envelope
+   match may resume readback, attestation, and bind. Multiple, mixed, or
+   mismatched candidates remain quarantined for explicit reconciliation.
+   Persist activation issuance before the one activation call and never
+   reissue it blindly.
+7. Validate the complete receipt sequence, hash links, durable tip anchor,
+   0600/0700 posture, and unique-token lock before mutation. Never remove a
+   lock not acquired by the current invocation. Ledger loss, truncation,
+   rollback, corruption, or bypass fails closed. Reconcile a stale instance
+   lock only with its exact hash, external dead-owner proof, a final
+   compare-and-set, and a preserved recovery archive/receipt. The public
+   repository CLI remains inspection-only; only the registered controller
+   injects native and attestor capabilities.
+8. Have the current project-owner or active immediate-parent liveness owner
    append a canonical, hash-linked evidence observation on each bounded control
    check through a registry-revision and prior-receipt-hash CAS. Do not count a
    heartbeat, attached task, or repeated status as progress, and do not repeat
@@ -216,16 +238,17 @@ separate operation. Therefore:
    ID. Only the claimant may record `completed` or evidence-backed `failed`,
    and terminal reconciliation reopens admission through the same runtime
    authority. The project registry is never treated as the machine-wide lock.
-7. Never archive a task or remove its worktree until the completion profile's
+9. Never archive a task or remove its worktree until the completion profile's
    landed-work evidence is recorded; for a Manager, also require its
    immediate-parent reconciliation before terminal unpin, archive, or worktree
    removal. A restorable app snapshot is useful but is not proof that repository
    work landed.
 
-If the native task API cannot accept an idempotency key or search by launch key,
-the adapter must use the strongest available correlation metadata, keep the
-reservation quarantined on ambiguity, and require explicit human reconciliation
-instead of guessing or creating a duplicate.
+Because the Codex task API cannot accept an idempotency key or search by the
+portable launch key, the launch envelope must carry the sealed launch key,
+work-contract hash, node and signed parent identities, and source-contract
+hash. That metadata supports positive correlation only. It does not turn a
+zero-result search into proof of absence or native exactly-once creation.
 
 ## Optional Capability Adapters
 

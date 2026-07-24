@@ -577,13 +577,32 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
             "$project-orchestration",
             "nonterminal Manager pinned",
             "Never pin Workers",
+            "codex-native-firstmate-at-most-once-v1",
+            "Zero discovery matches never prove",
         ],
         "ops/protocols/CODEX-NATIVE-FIRSTMATE.md": [
             "## Task Pin Lifecycle",
             "never pin Workers or transient helpers",
             "unpins a Manager only after",
+            "durable **at-most-one issuance**",
+            "issuance marker in the live registry reservation",
+            "`create-issued` receipt before the sole native create call",
         ],
-        "apps/cli/src/orchestration/index.mjs": ["requiredSkills", "missing required project-local skills"],
+        "apps/cli/src/orchestration/index.mjs": [
+            "requiredSkills",
+            "missing required project-local skills",
+            "codex-native-firstmate-at-most-once-v1",
+            "materializeCodexTaskWithBroker",
+        ],
+        "apps/cli/src/orchestration/codex-materialization-broker.mjs": [
+            "materializeCodexTaskWithBroker",
+            "create-issued",
+            "zero-positive-reconciliation-matches",
+            "activation-issued",
+            "receipt-anchor.json",
+            "reconcileStaleCodexMaterializationLock",
+            "registry materialization issuance marker",
+        ],
         "apps/cli/src/github/index.mjs": ["GH_CONFIG_DIR", "GH_REPO", "github.profile.", "ambient_global_login_used: false"],
     }
     for rel_path, required_fragments in contracts.items():
@@ -624,6 +643,23 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
             errors.append(
                 "Codex task pin policy must pin the resident Boss and nonterminal Managers, "
                 "never pin Workers, unpin terminal Managers after reconciliation, and reconcile drift"
+            )
+        broker = adapter_policy.get("materializationBroker")
+        expected_broker_policy = {
+            "protocol": "codex-native-firstmate-at-most-once-v1",
+            "stateStore": "git-common-private-0600",
+            "nativeCreateAcceptsIdempotencyKey": False,
+            "registryIssuanceMarkerRequired": True,
+            "persistCreateIssuedBeforeNativeCall": True,
+            "staleLockRecovery": "exact-lock-hash-plus-external-dead-owner-proof-and-cas",
+            "zeroMatchBehavior": "quarantine-without-create-retry",
+            "positiveMatchBehavior": "resume-exact-readback-attestation-and-bind",
+            "rawCreateAllowed": False,
+        }
+        if broker != expected_broker_policy:
+            errors.append(
+                "Codex materialization broker policy must require private at-most-once issuance, "
+                "positive-only reconciliation, and no raw native task creation"
             )
 
 
@@ -733,6 +769,7 @@ def main() -> int:
         "apps/cli/src/ergonomics/index.mjs",
         "apps/cli/src/goals/index.mjs",
         "apps/cli/src/orchestration/index.mjs",
+        "apps/cli/src/orchestration/codex-materialization-broker.mjs",
         "apps/cli/src/lavish/index.mjs",
         "apps/cli/src/no-mistakes/index.mjs",
         "apps/cli/src/qa/index.mjs",
@@ -741,6 +778,7 @@ def main() -> int:
         "apps/cli/src/precommit/checklist.mjs",
         "apps/cli/src/util/secrets.mjs",
         "apps/cli/test/cli.test.mjs",
+        "apps/cli/test/codex-materialization-broker.test.mjs",
     ]:
         check_file(target / rel, errors, target)
 

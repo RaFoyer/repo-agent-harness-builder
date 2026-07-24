@@ -58,6 +58,14 @@ keep the materialized resident Boss and materialized nonterminal Managers
 pinned, never pin Workers or transient helpers, and unpin a Manager after its
 terminal completion and landed-work evidence plus parent reconciliation are
 recorded.
+Codex native task creation does not accept the portable launch key, so the
+adapter routes every Boss, Manager, and Worker through a repository-private
+at-most-once broker. It seals issuance in both the live registry reservation
+and a hash-linked `create-issued` receipt after an immediate
+registry/source/authority CAS and before the sole inert create call;
+ledger rollback and zero-result discovery never authorize a retry. Only one exact
+self-authenticating task readback may resume durable external attestation,
+binding, one-time activation, and positive activation/pin confirmation.
 The capability is installed per repository but remains inactive until a human
 configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository

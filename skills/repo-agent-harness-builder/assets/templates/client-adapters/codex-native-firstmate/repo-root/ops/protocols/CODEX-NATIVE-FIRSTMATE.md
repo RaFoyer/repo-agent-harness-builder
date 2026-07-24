@@ -134,15 +134,59 @@ the configured need.
 ## Materialization And Reconciliation
 
 Codex does not supply the portable portfolio DAG, authority ledger, idempotent
-task-create key, binding-mode-aware parent identity, or landed-work proof. The adapter
-must preserve the registry's reservation, canonical work-contract hash, launch
-key, immediate-parent binding, and completion evidence.
+task-create key, binding-mode-aware parent identity, or landed-work proof. Its
+native task-create surface does not accept the contract-derived `launchKey`.
+The adapter must preserve the registry reservation, canonical work-contract
+hash, launch key, immediate-parent binding, and completion evidence through the
+repository-private materialization broker.
 
-Treat create, exact-title assignment, and registry bind as one logical task
-materialization. A timeout, crash, ambiguous create, title failure, or failed
-bind keeps the reservation quarantined. Reconcile the observed task identity
-against the launch key before retry. If absence cannot be proven, require human
-reconciliation rather than creating a duplicate.
+Treat create, exact-title assignment, binding, inert activation, and pin
+readback as one crash-reconcilable logical materialization. The broker provides
+durable **at-most-one issuance**, not native exactly-once creation:
+
+1. Keep its operator/instance attempt ledger under the selected repository's
+   Git-common private state, with 0700 directories and 0600 regular files.
+   Validate contiguous sequence numbers, the full hash-linked receipt chain,
+   and its durable tip anchor before every mutation. Ledger loss, truncation,
+   rollback, corruption, unexpected files, or a conflicting live lock fails
+   closed.
+2. Acquire the instance-wide broker lock with a unique owner token. A contender
+   never removes another owner's lock. Stale ownership requires an exact lock
+   hash, an external dead-owner decision, and a final compare-and-set; preserve
+   the released lock and recovery receipt. Age or PID absence alone does not
+   authorize deletion.
+3. Reserve the configured node, revalidate dependencies, capacity, trust,
+   authority, required skills, parent identity, work-contract hash, repository,
+   exact base commit, and worktree policy immediately before create. Seal the
+   issuance marker in the live registry reservation, then persist the matching
+   `create-issued` receipt before the sole native create call. Registry and
+   ledger state must agree; rollback of either side never restores eligibility.
+4. Create an inert task with no execution authority. New work may start only
+   after exact task ID, title, repository, repository root, worktree base,
+   signed parent contract, launch envelope, and role-derived pin state read
+   back successfully.
+5. A timeout, crash, or ambiguous create never becomes create-eligible again.
+   Zero discovery matches do not prove absence and never authorize another
+   create. One exact self-authenticating launch-envelope match may resume
+   readback, attestation, and bind. Multiple, mixed, title-derived, or otherwise
+   mismatched candidates remain quarantined for explicit reconciliation.
+6. Persist the external Ed25519 attestation request before invoking the
+   controller. Accept only a 0600 response matching the request ID, payload
+   digest, configured key ID, and public trust anchor. Seal the attempt-ledger
+   tip and exact source/task readback hashes into the signed binding; private
+   signing material never enters the task, registry, request, receipt, or log.
+7. Bind the task while it remains inert and represent that state honestly as
+   blocked. Persist `activation-issued` before the one activation call. Require
+   positive active-state and pin readback before marking the node working.
+   Ambiguous activation is reconciled by readback and is never blindly
+   reissued.
+
+The public repository CLI remains inspection-only; it must not expose a raw
+task-create command. The registered Codex controller imports the broker and
+injects native create/read/activate plus external-attestor capabilities.
+Creating an unregistered node still requires a prior governed private replan;
+the broker never invents work or authority. Direct native `create_thread`
+bypasses are prohibited for an active Firstmate instance.
 
 Codex task activity is not portable progress evidence. The current liveness
 owner records a canonical evidence-reference fingerprint and observation
