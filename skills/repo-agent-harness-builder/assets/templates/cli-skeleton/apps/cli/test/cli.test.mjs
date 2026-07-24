@@ -12,6 +12,7 @@ import { createGithubChildEnvironment, validateProfileRoot, validateRepositoryTa
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
 import {
+  materializeCodexTask,
   materializedWorkContractHash,
   taskBindingAttestationPayload,
   taskBindingLegacyAttestationDigest
@@ -966,7 +967,7 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.match(text, /registry_valid: true/);
   assert.match(text, /adapter_state: "unconfigured"/);
   assert.match(text, /repo_local_scope: true/);
-  assert.match(text, /assets_present: 7/);
+  assert.match(text, /assets_present: 8/);
   assert.match(text, /resident Boss and nonterminal Managers pinned; Workers never pinned/);
   for (const profile of ["firstmate-boss", "firstmate-manager", "firstmate-worker"]) {
     const profilePath = path.join(repoRoot, ".codex", "agents", `${profile}.toml`);
@@ -1155,6 +1156,33 @@ fixtureTest("Firstmate launch materialization binds native task pin lifecycle", 
     }
   });
   assert.deepEqual(managerSpec.externalTask.pinLifecycle, managerSpec.pinLifecycle);
+  assert.equal(managerSpec.externalTask.materializationBroker.protocol, "codex-native-firstmate-at-most-once-v1");
+  assert.equal(managerSpec.externalTask.materializationBroker.nativeCreateAcceptsIdempotencyKey, false);
+  assert.equal(managerSpec.externalTask.materializationBroker.rawCreateAllowed, false);
+  assert.equal(managerSpec.externalTask.materializationBroker.zeroMatchBehavior, "quarantine-without-create-retry");
+  assert.match(managerSpec.externalTask.requiredCreateBehavior, /Seal issuance in the live reservation/);
+  assert.deepEqual(managerSpec.externalTask.materializationBroker.preCreateOrder, [
+    "registry-reservation-CAS",
+    "immediate-contract-CAS",
+    "persist-registry-issuance-marker",
+    "persist-create-issued-receipt",
+    "one-inert-native-create-call"
+  ]);
+  assert.equal(
+    managerSpec.callback.bind.expectedRegistryRevision,
+    managerSpec.callback.reserve.onSuccess.registryRevision + 1
+  );
+  assert.equal(
+    managerSpec.taskBinding.boundRevision,
+    managerSpec.callback.bind.expectedRegistryRevision + 1
+  );
+  assert.equal(
+    managerSpec.callback.bind.requiredMaterializationAttempt.broker,
+    "codex-native-firstmate-at-most-once-v1"
+  );
+  assert.match(managerSpec.externalTask.indeterminateCreateBehavior, /never authorize another native create/);
+  assert.equal(managerSpec.callback.reconcile.externalTask.materializationBroker.createAllowed, false);
+  assert.equal(managerSpec.callback.reconcile.externalTask.materializationBroker.requireExistingPositiveMatch, true);
   assert.ok(managerSpec.callback.bind.requiredUpdates.includes("verified native task pin state=pinned and lifecycle reconciliation contract"));
   assert.ok(managerSpec.callback.reconcile.requiredUpdates.includes("verified native task pin state=pinned and lifecycle reconciliation contract"));
 
@@ -1208,6 +1236,112 @@ fixtureTest("Firstmate optional Boss launch stays pinned without entering the im
   ]);
   assert.equal(spec.reservation.workContract.payload.pinLifecycle, undefined);
   assert.equal(spec.externalTask.pinLifecycle.driftReconciliation.correctTo, "current-required-state");
+});
+
+fixtureTest("private Codex broker seals registry issuance, binds inertly, and reconciles completed materialization", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  writeOrchestrationRegistry(registry);
+  createFixtureCommit("materialization broker fixture");
+  const baseCommit = runCommand("git", ["rev-parse", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot }).stdout.trim();
+  const state = {
+    task: null,
+    createCalls: 0,
+    activationCalls: 0
+  };
+  const native = {
+    async discover() {
+      return state.task ? [{ id: state.task.id }] : [];
+    },
+    async createInert(contract) {
+      state.createCalls += 1;
+      state.task = {
+        id: "task-manager-docs",
+        title: contract.node.title,
+        repositoryIdentity: contract.source.repositoryIdentity,
+        repositoryRoot: contract.source.repositoryRoot,
+        worktreeBase: contract.source.baseCommit,
+        pinned: contract.pin,
+        active: false,
+        activationState: "inert",
+        launchEnvelope: {
+          launchKey: contract.launchKey,
+          workContractHash: contract.workContractHash,
+          nodeId: contract.node.id,
+          parentNodeId: contract.parent.id,
+          parentTaskId: contract.parent.taskId,
+          sourceContractHash: contract.sourceContractHash
+        }
+      };
+      return { id: state.task.id };
+    },
+    async read(id) {
+      assert.equal(id, state.task.id);
+      return structuredClone(state.task);
+    },
+    async activate(id) {
+      assert.equal(id, state.task.id);
+      state.activationCalls += 1;
+      state.task.active = true;
+      state.task.activationState = "active";
+    },
+    async readActivation(id) {
+      assert.equal(id, state.task.id);
+      return { active: state.task.active, pinned: state.task.pinned };
+    }
+  };
+  const attestor = {
+    async request({ requestPath, responsePath }) {
+      const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
+      const response = {
+        schemaVersion: 1,
+        requestId: request.requestId,
+        payloadSha256: request.payloadSha256,
+        algorithm: "ed25519",
+        keyId: request.keyId,
+        signature: signPayload(null, Buffer.from(request.payload), bindingAttestor.privateKey).toString("base64")
+      };
+      fs.writeFileSync(responsePath, `${JSON.stringify(response, null, 2)}\n`, { mode: 0o600 });
+      fs.chmodSync(responsePath, 0o600);
+    }
+  };
+  const result = await materializeCodexTask({
+    nodeId: "manager-docs",
+    nextAction: "Deliver the approved documentation artifact.",
+    native,
+    attestor
+  });
+  assert.equal(result.state, "working");
+  assert.equal(state.createCalls, 1);
+  assert.equal(state.activationCalls, 1);
+  assert.equal(state.task.worktreeBase, baseCommit);
+  const privateRegistryPath = path.join(
+    repoRoot,
+    ".git",
+    "repo-agent-harness",
+    "orchestration",
+    "operators",
+    "default",
+    "instances",
+    "default.json"
+  );
+  const materialized = JSON.parse(fs.readFileSync(privateRegistryPath, "utf8"));
+  const manager = materialized.nodes.find((node) => node.id === "manager-docs");
+  assert.equal(manager.state, "working");
+  assert.equal(manager.taskId, "task-manager-docs");
+  assert.equal(manager.launchReservation, null);
+  assert.equal(manager.taskBinding.materializationAttempt.broker, "codex-native-firstmate-at-most-once-v1");
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.out.concat(validation.err).join("\n"));
+  const reconciled = await materializeCodexTask({
+    nodeId: "manager-docs",
+    nextAction: "Deliver the approved documentation artifact.",
+    native,
+    attestor
+  });
+  assert.equal(reconciled.reconciled, true);
+  assert.equal(state.createCalls, 1);
+  assert.equal(state.activationCalls, 1);
 });
 
 fixtureTest("Codex-native Firstmate taxonomy preserves canonical roles and exact titles", async () => {
@@ -4714,7 +4848,7 @@ fixtureTest("orchestration reservation protocol requires durable launch-key reco
   assert.match(protocol, /Immediately before task creation, atomically compare the reserved registry against `preCreate`/);
   assert.match(protocol, /externalTask\.idempotencyKey/);
   assert.match(protocol, /On a timeout, crash, ambiguous response, or failed bind, retain the reservation/);
-  assert.match(protocol, /do not clear or retry creation until absence is proven/);
+  assert.match(protocol, /never treats a zero-result search as absence and never issues another native create/);
   assert.match(protocol, /unrelated valid registry mutation advanced the revision before bind/);
   assert.match(protocol, /target task-identity\/trust\/entire authority envelope including approval gates/);
   assert.match(protocol, /reconciliation never creates a second task/);

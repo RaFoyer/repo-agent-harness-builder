@@ -88,9 +88,27 @@ independent repository Firstmates.
 - Codex does not supply the portable registry, authority ledger, idempotent
   task-create key, immutable parent task binding, or landed-work proof. Keep
   those controls in the harness.
-- If creation, title assignment, or binding is ambiguous, retain the
-  reservation, quarantine the result, reconcile observed task identity, and do
-  not retry until absence is proven.
+- Route every Boss, Manager, and Worker task through the repository-private
+  `codex-native-firstmate-at-most-once-v1` broker. Codex native create does not
+  accept the launch key, so seal issuance in the live reservation and persist
+  the matching hash-linked `create-issued` receipt after the immediate
+  reservation/source/authority CAS and before the one inert native create call.
+  Raw task creation is prohibited for an active instance.
+- If creation, title assignment, binding, or activation is ambiguous, retain
+  the reservation and broker ledger. Zero discovery matches never prove
+  absence and never permit another native create. Resume only from one exact
+  self-authenticating launch-envelope match; multiple or mismatched candidates
+  remain quarantined for explicit reconciliation.
+- Keep the new task inert and without execution authority until exact
+  task/title/repository/root/base/parent-envelope/pin readback, a durable
+  external Ed25519 request/response, and the inert bind all succeed. Persist
+  activation issuance before the one activation call and require positive
+  activation plus pin readback before marking the registry node working.
+- Validate the complete 0600 Git-common attempt ledger, receipt hash chain, tip
+  anchor, and unique-token lock before mutation. Never remove a lock that this
+  invocation did not acquire. A stale lock requires exact-hash CAS plus an
+  external dead-owner decision and preserved recovery archive; ledger loss,
+  rollback, truncation, or tamper stays fail-closed.
 - Use the portable control-loop policy for liveness. A live task, heartbeat, or
   attached process is not progress without a parent-owned canonical,
   hash-linked evidence receipt appended through registry/prior-hash CAS. The

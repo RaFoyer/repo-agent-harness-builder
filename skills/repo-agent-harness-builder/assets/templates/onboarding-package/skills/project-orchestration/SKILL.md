@@ -97,7 +97,9 @@ always require task-backed immediate parents.
    with that failure.
    Never repeat an identical failed action after its retry budget is exhausted;
    resume only after a changed precondition is recorded. Reconcile crashes or
-   ambiguous creates by launch key; never retry until absence is proven.
+   ambiguous creates by launch key when the external API provides authoritative
+   idempotency or absence proof. Otherwise follow the selected adapter's
+   at-most-once broker; a zero-result search never authorizes another create.
 10. Mark responsibility terminal only after owned children are terminal and the
    completion profile's exact evidence is recorded.
 11. In hybrid mode, reconcile open owner directives without turning the Boss into a communication gatekeeper.

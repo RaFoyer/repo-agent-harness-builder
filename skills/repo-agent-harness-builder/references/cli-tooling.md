@@ -258,9 +258,12 @@ it.
   revision before task creation, then compare the complete reserved-state
   contract—including target and parent trust plus full authority envelopes—immediately before the external call and again when binding the
   returned task ID. A stale or duplicate reservation must fail before side
-  effects. The launch key is the durable task-API idempotency and reconciliation
-  key: after an ambiguous create, crash, timeout, or bind failure, keep the
-  reservation and reconcile by that key rather than creating again. Its callback
+  effects. When the external API accepts it, the launch key is the durable
+  task-API idempotency and reconciliation key: after an ambiguous create,
+  crash, timeout, or bind failure, keep the reservation and reconcile by that
+  key rather than creating again. An adapter whose native create API cannot
+  accept the key must use its governed at-most-once broker; zero discovery
+  matches remain quarantined and never authorize a retry. Its callback
   requires a configured logical Boss rather than inserting a placeholder,
   requires an externally attested immutable task binding, and activates the
   instance when the first permitted Boss or logical Manager is reserved.
@@ -269,10 +272,11 @@ it.
 overwrite; every other orchestration command is read-only. A Codex, Claude
 Code, Gemini CLI, Cursor, or other adapter may use a launch spec only when
 current authority allows task creation, then must reserve the node by
-compare-and-set, validate the current reservation contract immediately before
-external task creation, use the launch key as the task API idempotency key, and
-write the returned task ID and working state back only with the matching current
-reservation contract.
+compare-and-set and validate the current reservation contract immediately before
+external task creation. An adapter uses the launch key as the task API
+idempotency key only where that API supports it; otherwise it follows its
+governed at-most-once issuance protocol. It writes the returned task ID and
+working state back only with the matching current reservation contract.
 This separates a portable repository contract from client-specific task APIs.
 
 ## GitHub Command Contract

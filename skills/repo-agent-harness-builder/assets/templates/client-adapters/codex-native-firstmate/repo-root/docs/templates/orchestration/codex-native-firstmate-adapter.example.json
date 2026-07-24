@@ -19,6 +19,17 @@
     "parallelWrites": "disjoint-only",
     "landedWorkProofRequiredBeforeArchive": true
   },
+  "materializationBroker": {
+    "protocol": "codex-native-firstmate-at-most-once-v1",
+    "stateStore": "git-common-private-0600",
+    "nativeCreateAcceptsIdempotencyKey": false,
+    "registryIssuanceMarkerRequired": true,
+    "persistCreateIssuedBeforeNativeCall": true,
+    "staleLockRecovery": "exact-lock-hash-plus-external-dead-owner-proof-and-cas",
+    "zeroMatchBehavior": "quarantine-without-create-retry",
+    "positiveMatchBehavior": "resume-exact-readback-attestation-and-bind",
+    "rawCreateAllowed": false
+  },
   "browserIntegration": "unconfigured",
   "browserAuthenticationBoundary": null,
   "githubIntegration": "unconfigured",
