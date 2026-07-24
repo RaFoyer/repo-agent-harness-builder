@@ -1150,7 +1150,6 @@ function taskBindingAttestationBlockers(registry, node, binding) {
 
 function materializedWorkContract(registry, node, parent) {
   const logicalParent = logicalParentBinding(registry, node, parent);
-  const pinLifecycle = firstmateTaskPinLifecycle(registry, node);
   const nodeContract = {
     id: node.id,
     role: node.role,
@@ -1176,7 +1175,6 @@ function materializedWorkContract(registry, node, parent) {
     ...(registry.schemaVersion >= 5 && registry.controlLoopPolicy
       ? { controlLoopPolicy: registry.controlLoopPolicy }
       : {}),
-    ...(pinLifecycle ? { pinLifecycle } : {}),
     scope: registry.scope,
     trustPolicy: registry.trustPolicy,
     node: nodeContract,
@@ -3175,6 +3173,18 @@ function firstmatePinPolicyBlockers(adapter) {
 function firstmateTaskPinLifecycle(registry, node) {
   if (!isCodexNativeFirstmateAdapter(registry.clientAdapter)) return null;
   const initialState = node.role === "boss" || node.role === "manager" ? "pinned" : "unpinned";
+  const terminalManagerRequirements = [
+    "terminal completion evidence satisfies the completion profile",
+    "immediate-parent reconciliation is recorded"
+  ];
+  const requiredStateTransitions = node.role === "boss"
+    ? [{ requiredState: "pinned", while: "materialized-resident" }]
+    : node.role === "manager"
+      ? [
+          { requiredState: "pinned", while: "materialized-nonterminal" },
+          { requiredState: "unpinned", afterAll: terminalManagerRequirements }
+        ]
+      : [{ requiredState: "unpinned", while: "always" }];
   return {
     initialState,
     requiredWhile: node.role === "boss"
@@ -3182,15 +3192,13 @@ function firstmateTaskPinLifecycle(registry, node) {
       : node.role === "manager"
         ? "materialized-nonterminal"
         : "never",
+    requiredStateTransitions,
     terminalManagerUnpin: node.role === "manager" ? {
-      allowedOnlyAfter: [
-        "terminal completion evidence satisfies the completion profile",
-        "immediate-parent reconciliation is recorded"
-      ]
+      allowedOnlyAfter: terminalManagerRequirements
     } : { allowed: false },
     driftReconciliation: {
       inspectDuring: "each bounded parent control check",
-      correctTo: initialState,
+      correctTo: "current-required-state",
       countsAsProgress: false
     }
   };

@@ -1099,6 +1099,26 @@ fixtureTest("Firstmate launch materialization blocks legacy task pin policy", as
 fixtureTest("Firstmate launch materialization binds native task pin lifecycle", async () => {
   const registry = validOrchestrationRegistry();
   registry.clientAdapter = configuredFirstmateAdapter(registry);
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  const existingBindingHash = materializedWorkContractHash(registry, boss, null);
+  const legacyRetention = {
+    pinBoss: true,
+    archivePolicy: registry.clientAdapter.retention.archivePolicy,
+    handoffPolicy: registry.clientAdapter.retention.handoffPolicy
+  };
+  registry.clientAdapter.retention = legacyRetention;
+  assert.equal(
+    materializedWorkContractHash(registry, boss, null),
+    existingBindingHash,
+    "mutable native task pin policy must not change an existing immutable work-contract hash"
+  );
+  registry.clientAdapter.retention = {
+    ...legacyRetention,
+    pinNonterminalManagers: true,
+    pinWorkers: false,
+    managerUnpinPolicy: "after-terminal-evidence-and-parent-reconciliation",
+    reconcilePinDrift: true
+  };
   writeOrchestrationRegistry(registry);
 
   const managerLaunch = capture();
@@ -1113,9 +1133,22 @@ fixtureTest("Firstmate launch materialization binds native task pin lifecycle", 
         "immediate-parent reconciliation is recorded"
       ]
     },
+    requiredStateTransitions: [
+      {
+        requiredState: "pinned",
+        while: "materialized-nonterminal"
+      },
+      {
+        requiredState: "unpinned",
+        afterAll: [
+          "terminal completion evidence satisfies the completion profile",
+          "immediate-parent reconciliation is recorded"
+        ]
+      }
+    ],
     driftReconciliation: {
       inspectDuring: "each bounded parent control check",
-      correctTo: "pinned",
+      correctTo: "current-required-state",
       countsAsProgress: false
     }
   });
@@ -1138,8 +1171,41 @@ fixtureTest("Firstmate launch materialization binds native task pin lifecycle", 
   const workerSpec = JSON.parse(workerLaunch.out.join("\n"));
   assert.equal(workerSpec.pinLifecycle.initialState, "unpinned");
   assert.equal(workerSpec.pinLifecycle.requiredWhile, "never");
+  assert.deepEqual(workerSpec.pinLifecycle.requiredStateTransitions, [
+    {
+      requiredState: "unpinned",
+      while: "always"
+    }
+  ]);
   assert.deepEqual(workerSpec.pinLifecycle.terminalManagerUnpin, { allowed: false });
+  assert.equal(workerSpec.pinLifecycle.driftReconciliation.correctTo, "current-required-state");
   assert.equal(workerSpec.pinLifecycle.driftReconciliation.countsAsProgress, false);
+});
+
+fixtureTest("Firstmate optional Boss launch stays pinned without entering the immutable binding hash", async () => {
+  const registry = ownerFirstOrchestrationRegistry();
+  registry.controlLoopPolicy = orchestrationControlLoopPolicy();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  registry.clientAdapter.bossTaskId = null;
+  registry.clientAdapter.completionProfiles.artifact = ["accepted feature outcome"];
+  delete boss.taskBinding;
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 0, validation.out.concat(validation.err).join("\n"));
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "boss"], launch.io), 0, launch.err.join("\n"));
+  const spec = JSON.parse(launch.out.join("\n"));
+  assert.equal(spec.pinLifecycle.initialState, "pinned");
+  assert.deepEqual(spec.pinLifecycle.requiredStateTransitions, [
+    {
+      requiredState: "pinned",
+      while: "materialized-resident"
+    }
+  ]);
+  assert.equal(spec.reservation.workContract.payload.pinLifecycle, undefined);
+  assert.equal(spec.externalTask.pinLifecycle.driftReconciliation.correctTo, "current-required-state");
 });
 
 fixtureTest("Codex-native Firstmate taxonomy preserves canonical roles and exact titles", async () => {
