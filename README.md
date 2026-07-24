@@ -1,224 +1,53 @@
 # Repo Agent Harness Builder
 
-Create an agent-friendly operating layer for a repository, project folder, or
-personal folder. An agent means an AI coding assistant or file-capable helper
-such as Codex, Claude Code, Gemini CLI, Cursor, Kimi, or another tool that can
-inspect files and follow local instructions. The result is a short root
-instruction file, lazy-loaded protocol docs, and a deterministic CLI that makes
-repeatable agent work safer and easier to verify.
+Give any repository or folder an **agent operating layer**: a short root
+instruction file, lazy-loaded protocol docs, and a deterministic local CLI that
+make agent work repeatable, safe, and verifiable.
 
-The durable contract lives in ordinary files in the target repo or folder:
+"Agent" means any AI coding assistant that can read files and follow local
+instructions — Codex, Claude Code, Gemini CLI, Cursor, Kimi, and others. The
+harness lives in ordinary committed files, so no single agent client owns it;
+each client is just an adapter around the same contract.
 
-- `AGENTS.md` and a table of contents for progressive disclosure
-- lifecycle and maintenance docs for protocols
-- a local CLI with `help`, `context`, `preflight`, `precommit`, `doctor`,
-  `verify`, `checklist`, `qa`, `secrets`, connection checks, Lavish review
-  posture, project-orchestration inspection, and goal-graph inspection
-- strongly recommended no-mistakes setup and branch-aware status commands for
-  branch-to-PR validation, with optional user-local agent pinning
-- AXI-shaped CLI ergonomics: compact no-args home views, structured stdout,
-  contextual next steps, and fail-loud usage errors
-- optional Lavish review-surface commands for visual artifacts, explicit
-  update checks, and tracker-decision capture before ticket-backed goals
-- setup checklists with `active`, `inactive`, and `not-applicable` states
-- value-safe secrets, external-authority, and connector boundaries
-- repository-scoped GitHub profiles with `gh-axi` command classification,
-  process-local credential support, and orchestration capability intersection
-- repository-scoped connector authentication profiles for browser and CLI login flows
-- optional loops, automations, heartbeats, and review workflows
-- optional Boss/Manager/Worker project orchestration with explicit lifecycle,
-  trust, authority, budgets, completion evidence, and nested portfolio,
-  goal-graph, bounded execution loops, schema-v4 hybrid owner-to-node
-  conversation, and schema-v5 optional Boss materialization
-- tracked inactive orchestration policy plus named private operator instances
-  under Git common state (or path-keyed user state for non-Git folders), so
-  linked worktrees share local runtime state without committing task identity
-- fleet-managed `project-orchestration`, `goal-graph-loop`, and
-  `codex-native-firstmate` reference snapshots with a deprecated
-  `goal-chain-loop` alias; their authoritative distributions remain outside
-  downstream repository ownership
-- an inactive-by-default Codex-native Firstmate adapter that gives each
-  generated repository its own logical Boss capability and native task/worktree
-  mapping without requiring a global project registry
-- portable onboarding material for nontechnical recipients
+## What a generated harness gives you
 
-Codex, Claude Code, Gemini CLI, Kimi, Cursor, and future coding agents are
-adapters around that shared contract. No one agent client owns the harness.
-The launch contract composes skills in a fixed order: portable project
-orchestration, the selected client adapter, an applicable domain loop such as
-the goal graph, then node-specific skills. Missing required skills fail closed.
+**Core (every harness)**
 
-For Codex-heavy teams, the generated harness includes an opt-in
-`codex-native-firstmate` profile. Firstmate is the client-facing Boss persona,
-not a fourth role: when materialized, one persistent Firstmate task owns the
-repository portfolio; the owner may also begin with Manager feature tasks and
-add that Boss later. Managers own bounded workstreams, and Workers own bounded
-execution loops. Codex pinning is a navigation lifecycle, not authority:
-keep the materialized resident Boss and materialized nonterminal Managers
-pinned, never pin Workers or transient helpers, and unpin a Manager after its
-terminal completion and landed-work evidence plus parent reconciliation are
-recorded.
-Codex native task creation does not accept the portable launch key, so the
-adapter routes every Boss, Manager, and Worker through a repository-private
-at-most-once broker. It seals issuance in both the live registry reservation
-and a hash-linked `create-issued` receipt after an immediate
-registry/source/authority CAS and before the sole inert create call;
-ledger rollback and zero-result discovery never authorize a retry. Only one exact
-self-authenticating task readback may resume durable external attestation,
-binding, one-time activation, and positive activation/pin confirmation.
-The capability is installed per repository but remains inactive until a human
-configures its scope, authority, budgets, completion evidence, task creation,
-worktree, integration, heartbeat, and retention policies. Cross-repository
-fleet orchestration is optional composition above independent repo-local
-Firstmates, never a prerequisite. The adapter does not require an external
-FirstMate repository or service; repositories that do not select it still use
-the self-contained portable orchestration and goal-graph surfaces normally.
+- `AGENTS.md` plus a table of contents, so agents load context progressively
+  instead of reading everything up front
+- a local CLI (`./harness` or your repo's name) with deterministic commands:
+  `help`, `context`, `preflight`, `precommit`, `doctor`, `verify`, `checklist`,
+  `qa`, `secrets`, and connection checks — compact no-args home views,
+  structured output, fail-loud errors
+- setup checklists with `active` / `inactive` / `not-applicable` states
+- value-safe boundaries for secrets, external authority, and connectors,
+  including repository-scoped GitHub and connector-authentication profiles
 
-## Global Skill Ownership
+**Optional layers (installed inactive; a human activates each one)**
 
-Shared skills have one fleet-level owner. Downstream repository sync commands
-may manage only their own project-specific skill names; they must not replace,
-link, copy, or back up `repo-agent-harness-builder`, `project-orchestration`,
-`goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` in a global
-client skill directory. A generated repository may carry reference snapshots
-under `.agents/skills/`, but downstream verification and sync must not require
-or claim ownership of those fleet-owned copies.
+- **Validation gate** — `no-mistakes` branch-to-PR validation with
+  branch-aware status commands
+- **Project orchestration** — Boss / Manager / Worker roles with explicit
+  lifecycle, trust, authority, budgets, and completion evidence. Bosses manage
+  Managers, Managers own goal-graph loops, Workers own bounded execution loops.
+- **Codex-native Firstmate adapter** — maps orchestration onto native Codex
+  tasks. Because Codex task creation accepts no idempotency key, every task is
+  created through a repository-private **at-most-once broker**: issuance is
+  sealed durably before the single create call, ambiguous outcomes are
+  quarantined instead of retried, and bindings are externally attested. See
+  the [project-orchestration reference](skills/repo-agent-harness-builder/references/project-orchestration.md)
+  and [codex-native-firstmate reference](skills/repo-agent-harness-builder/references/codex-native-firstmate.md).
+- **Review surfaces** — optional Lavish HTML-artifact review and
+  tracker-decision capture
+- **Automation** — loops, heartbeats, and review workflows
 
-Keep recoverable copies under a non-discoverable archive such as
-`.codex/skill-archives/<owner>/<timestamp>/`, never beside active skills as
-`<name>.backup-*`. Use
-[`REPOSITORY-HARNESS-UPGRADE-PROMPT.md`](skills/repo-agent-harness-builder/assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md)
-to ask another repository for a read-only, customization-aware migration audit
-before approving changes.
+Harnesses work for software repositories, non-GitHub project folders, and
+personal file-steward folders (Downloads, Documents), and can be exported as a
+portable onboarding package for nontechnical recipients.
 
-## First Successful Result
+## Quick start
 
-After setup, a human or agent should be able to run a local helper command and
-see a read-only readiness result, such as:
-
-```bash
-./harness
-./harness help
-./harness ergonomics status
-./harness no-mistakes status
-./harness lavish status
-./harness orchestration status --example
-./harness orchestration instances
-./harness orchestration directives
-./harness orchestration liveness --example
-./harness orchestration adapter-status --example
-./harness orchestration taxonomy --example
-./harness github status
-./harness github plan --profile example-github-worker
-./harness github run --profile example-github-worker --dry-run -- pr list
-./harness context
-./harness preflight
-```
-
-Use `--example` with `status`, `validate`, `adapter-status`, or `taxonomy` to
-inspect only the tracked inactive contract, regardless of private-instance
-selection.
-
-For a personal-folder setup, the first useful result is normally a
-metadata-only inventory report and a written plan before any file changes.
-
-## Prerequisites
-
-- macOS, Linux, or WSL/Git Bash with a POSIX-style shell for the generated CLI facade.
-- Node.js 18 or newer and `npx` for skill installation and generated CLI tests.
-- Python 3 for scaffold and packaging scripts.
-- `git` for repository mode.
-- `gh`, plus the profile-selected executor (normally `gh-axi`), only if you
-  activate a repository GitHub profile. `gh-axi` invokes upstream `gh`; the
-  facade's read-only status and plan commands do not require a credential.
-- `no-mistakes` only if you want the branch-to-PR validation gate; generated
-  `no-mistakes status` reports when it is unavailable.
-- `lavish-axi` only if you want optional HTML artifact review sessions;
-  generated `lavish status` and `lavish update --check` keep this optional.
-
-Native Windows without WSL/Git Bash is a direct-read/reference path until a
-Windows adapter is added. Give the package to the agent and ask it to read
-`START-HERE.md`, `AGENT-HANDOFF.md`, and `SKILL.md` directly.
-
-Nontechnical recipients can give the zip package to an agent and ask it to walk
-them through setup. They do not need to know GitHub before the first
-conversation.
-
-Beginner path:
-
-1. Use the `repo-agent-harness-reference.zip` and
-   `repo-agent-harness-reference.zip.sha256` files someone sent you, or ask a
-   technical friend/agent to retrieve them from the latest GitHub release.
-2. Attach or upload both files to the AI coding assistant your friend recommended.
-3. Paste the prompt from `START-HERE.md`.
-4. Ask the agent to verify the checksum for download corruption/asset mismatch
-   and the manifest for extracted file integrity before installing anything.
-   If the checksum fails, redownload both files once as a clean pair and verify
-   again. If it still fails, stop and ask the sender or maintainer for a fresh
-   package.
-   If Python 3 is unavailable, the agent must say `manifest unverified`; use
-   reference-only mode or explicitly accept that risk before installing or
-   scaffolding from the archive.
-5. If the assistant cannot inspect attachments or local files, do not treat a
-   pasted hash as verification. Switch to a file-capable/local agent, use a
-   local terminal verification path, or stay in reference-only mode.
-
-## Agent Support Status
-
-| Client | Status |
-| --- | --- |
-| Codex | Local installer path and generated harness checks are tested in this repo |
-| Claude Code | Adapter install command is an example; verify a real destination install before promising support |
-| Gemini CLI | Adapter install command is an example; verify a real destination install before promising support |
-| Kimi, Cursor, other clients | Treat as direct-read adapters unless the local installer reports support |
-| Unsupported clients | Ask the agent to read `SKILL.md`, `AGENT-HANDOFF.md`, and reference docs directly |
-
-## Recipient Install
-
-For nontechnical recipients, use the GitHub release archive plus `.sha256` and
-manifest verification. That path gives the agent a fixed package manifest with
-`sourceRef`, `sourceCommit`, file hashes, and a local verifier before anything
-is installed or scaffolded.
-
-Do not use the mutable `RaFoyer/repo-agent-harness-builder` install command as
-the recipient trust path unless the installer supports an immutable reviewed tag
-or commit ref and that exact form has been tested.
-
-## Maintainer Install Smoke
-
-These commands are for maintainers and technical collaborators after the GitHub
-repository is public. They prove source discovery for the public repo ref that
-the installer resolves; treat them as development/convenience installs, not as a
-recipient integrity mechanism.
-
-Detect supported agent clients:
-
-```bash
-npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder -g
-```
-
-Example install commands for specific clients. These verify source discovery
-unless the local installer also proves the destination adapter was installed:
-
-```bash
-npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder --agent codex -g -y
-npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder --agent claude-code -g -y
-npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder --agent gemini-cli -g -y
-```
-
-Every client supported by your local `skills` installer:
-
-```bash
-npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder --agent '*' -g -y
-```
-
-If a client is not supported by `npx skills`, give it this repository or the
-generated reference archive and ask it to read `SKILL.md`, `AGENT-HANDOFF.md`,
-and the reference docs directly.
-
-## Use
-
-After installation, ask your agent:
+Install the skill (see below), then ask your agent:
 
 ```text
 Use repo-agent-harness-builder to set up a harness for this repository or folder.
@@ -228,71 +57,96 @@ scaffold a harness, install or replace a skill, or share files until the plan
 shows the target path, file count, and exact commands.
 ```
 
-The skill can help with:
+After setup, prove readiness with read-only commands:
 
-- software repository harnesses
-- non-GitHub project-folder harnesses
-- personal file-steward harnesses for folders such as Downloads and Documents
-- portable onboarding packages
-- CLI skeletons with no-args home views, ergonomics audits, preflight,
-  precommit, verify, doctor, checklist, browser QA, secrets, connection
-  commands, connector auth-profile planning, design status, optional Lavish
-  review/tracker-capture commands, branch-aware no-mistakes status/setup with
-  optional local agent pinning, skill/self checks, project orchestration
-  validation/launch contracts, and goal-graph helpers
-- project-wide Boss/Manager/Worker orchestration with independent lifecycle,
-  trust, authority, budget, completion-profile, and loop-ownership controls
-- goal graphs and recurring work definitions that compose with the general
-  orchestration layer: Bosses manage Managers, Managers own goal-graph loops,
-  and Workers own bounded node loops; a strict chain is a linear graph topology
-- bundled orchestration and goal-graph assets for prompts, registries, ledgers,
-  graph templates, and handoff records
-- repo-local Codex-native Firstmate assets under `.codex/` and a
-  fleet-managed reference snapshot under `.agents/skills/codex-native-firstmate/`,
-  scaffolded as inactive protocol support rather than an implicit runtime
-  dependency; its custom-agent profiles are namespaced to preserve existing
-  repository profiles
-- fleet-managed reference snapshots under `.agents/skills/project-orchestration/`
-  and `.agents/skills/goal-graph-loop/`, plus the deprecated
-  `.agents/skills/goal-chain-loop/` compatibility redirect; downstream sync and
-  verification resolve these skills through their authoritative distribution
+```bash
+./harness
+./harness context
+./harness preflight
+./harness orchestration status --example
+./harness github status
+```
 
-## Build The Portable Package
+`--example` inspects the tracked inactive contract without touching private
+instance state.
+
+## Prerequisites
+
+- macOS, Linux, or WSL/Git Bash (native Windows is a direct-read path for now)
+- Node.js 18+ and `npx`; Python 3; `git` for repository mode
+- Optional, only if you activate the matching layer: `gh`/`gh-axi`,
+  `no-mistakes`, `lavish-axi`
+
+## Installing the skill
+
+**Maintainers and technical collaborators** — install from the public repo:
+
+```bash
+npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder -g
+```
+
+Add `--agent codex`, `--agent claude-code`, `--agent gemini-cli`, or
+`--agent '*'` to target specific clients. Treat these as convenience installs,
+not an integrity mechanism.
+
+**Nontechnical recipients** — use the GitHub release archive instead. It ships
+with a `.sha256` checksum, a signed manifest (`sourceRef`, `sourceCommit`, file
+hashes), and a local verifier the agent must run before installing anything:
+
+1. Get `repo-agent-harness-reference.zip` and its `.sha256` from the latest
+   release (or from whoever sent it to you).
+2. Attach both files to your AI assistant and paste the prompt from
+   `START-HERE.md`.
+3. The agent verifies checksum and manifest before setup. If verification
+   fails twice on a fresh download, stop and ask the sender for a new package.
+   If the agent cannot inspect local files, stay in reference-only mode — a
+   pasted hash is not verification.
+
+Do not use the mutable repo install command as a recipient trust path unless
+the installer pins an immutable reviewed tag and that exact form was tested.
+
+Build the package yourself with:
 
 ```bash
 python3 skills/repo-agent-harness-builder/scripts/build_reference_package.py --out-dir outputs
 ```
 
-The package is designed to be inspectable before a nontechnical person uses it
-or drops it into an agent chat. The agent should inspect it, verify the
-manifest, run the safety verifier, and guide the recipient through setup.
+## Agent support status
 
-## Verify
+| Client | Status |
+| --- | --- |
+| Codex | Installer path and generated harness checks are tested in this repo |
+| Claude Code, Gemini CLI | Install commands are examples; verify a real destination install before promising support |
+| Kimi, Cursor, others | Direct-read adapters: point them at `SKILL.md` and `AGENT-HANDOFF.md` |
+
+## Fleet-owned skills
+
+The shared skills `repo-agent-harness-builder`, `project-orchestration`,
+`goal-graph-loop`, `goal-chain-loop` (deprecated alias), and
+`codex-native-firstmate` have one fleet-level owner. Generated repositories may
+carry read-only reference snapshots under `.agents/skills/`, but downstream
+sync commands must never replace, link, copy, or back up the fleet-owned copies
+in a global client skill directory. Keep recoverable copies in a
+non-discoverable archive (e.g. `.codex/skill-archives/<owner>/<timestamp>/`),
+and use the
+[upgrade prompt](skills/repo-agent-harness-builder/assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md)
+for customization-aware migration audits.
+
+## Verifying this repository
 
 ```bash
 npm run check
 ```
 
-The check script validates:
+This validates skill discovery, script syntax, package build + manifest safety,
+the generated CLI's full test suite, no-mistakes contracts, and
+personal-folder scope guards. After the repo is public,
+`npm run check:public-install-only` additionally proves public install
+discovery. Feature PRs should go through the no-mistakes gate after local
+checks pass; this meta repository pins that gate to Codex, while generated
+harnesses stay agent-agnostic.
 
-- local skill discovery through a non-global `npx -y skills@1.5.12 add --list` dry run
-- Python script syntax
-- package build, manifest safety, package verification, and unsafe zip-name refusal
-- generated repo harness CLI tests
-- generated no-mistakes setup/status contracts and harness verifier coverage
-- protected personal-folder scope behavior
-
-For feature PRs, prefer the no-mistakes gate after local checks when the
-no-mistakes remote is initialized. This meta repository pins that gate to Codex;
-generated harnesses remain agent-agnostic with `agent: auto`.
-
-After the GitHub repo is public, verify public install discovery with:
-
-```bash
-npm run check:public-install-only
-```
-
-## Repository Layout
+## Repository layout
 
 ```text
 skills/repo-agent-harness-builder/  installable skill, scripts, refs, templates
