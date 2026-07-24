@@ -31,7 +31,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |
 | Structuring any project work as Boss/Manager/Worker delegation | `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} orchestration status --example` and `orchestration liveness --example` for portable-contract inspection |
 | Handling a direct project-owner instruction in hybrid orchestration | `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} orchestration directives` |
-| Configuring or operating the opt-in Codex-native Firstmate Boss profile | `ops/protocols/AGENT-ORCHESTRATION.md`, `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`, then `./{{CLI_NAME}} orchestration adapter-status --example` and `orchestration taxonomy --example` for portable-contract inspection |
+| Configuring or operating the opt-in Codex-native Firstmate Boss profile, including Boss/Manager pin and terminal-unpin lifecycle | `ops/protocols/AGENT-ORCHESTRATION.md`, `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`, then `./{{CLI_NAME}} orchestration adapter-status --example` and `orchestration taxonomy --example` for portable-contract inspection |
 | Planning ticket-backed implementation dependency graphs or strict linear chains | `ops/protocols/GOAL-GRAPH.md`, `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} goals status` |
 | Capturing Lavish review decisions before implementation | `ops/protocols/LAVISH-REVIEW.md`, tracker protocol if active, then `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>` |
 | Changing CI, deploy, or branches | `ops/protocols/CICD.md` or `ops/protocols/BRANCH-PROMOTION.md` if present |

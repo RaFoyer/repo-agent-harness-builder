@@ -715,6 +715,10 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
     },
     retention: {
       pinBoss: true,
+      pinNonterminalManagers: true,
+      pinWorkers: false,
+      managerUnpinPolicy: "after-terminal-evidence-and-parent-reconciliation",
+      reconcilePinDrift: true,
       archivePolicy: "manual-after-landed-proof",
       handoffPolicy: "parent-review-before-archive"
     },
@@ -923,6 +927,7 @@ test("help lists core commands", () => {
   assert.match(help, /orchestration validate/);
   assert.match(help, /orchestration prompt/);
   assert.match(help, /orchestration launch-spec/);
+  assert.match(help, /pin the resident Boss and nonterminal Managers, never Workers or helpers/);
   assert.match(help, /goals status/);
   assert.match(help, /design status/);
   assert.match(help, /ergonomics status/);
@@ -961,6 +966,7 @@ fixtureTest("Codex-native Firstmate adapter is repo-local, inactive, dependency-
   assert.match(text, /adapter_state: "unconfigured"/);
   assert.match(text, /repo_local_scope: true/);
   assert.match(text, /assets_present: 7/);
+  assert.match(text, /resident Boss and nonterminal Managers pinned; Workers never pinned/);
   for (const profile of ["firstmate-boss", "firstmate-manager", "firstmate-worker"]) {
     const profilePath = path.join(repoRoot, ".codex", "agents", `${profile}.toml`);
     assert.equal(fs.existsSync(profilePath), true);
@@ -1011,7 +1017,12 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     ["GitHub boundary", (registry) => { registry.clientAdapter.githubAuthenticationBoundary = null; }, /githubAuthenticationBoundary/],
     ["GitHub profile policy", (registry) => { registry.clientAdapter.githubIntegration = "repository-facade"; }, /githubProfilePolicy/],
     ["heartbeat ownership", (registry) => { delete registry.clientAdapter.heartbeat.registryMutator; }, /heartbeat must configure mode, cadence, and registry mutator/],
-    ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /retention must configure pin, handoff, and archive policy/],
+    ["Boss pin policy", (registry) => { registry.clientAdapter.retention.pinBoss = false; }, /retention must pin the resident Boss and nonterminal Managers/],
+    ["Manager pin policy", (registry) => { registry.clientAdapter.retention.pinNonterminalManagers = false; }, /retention must pin the resident Boss and nonterminal Managers/],
+    ["Worker pin policy", (registry) => { registry.clientAdapter.retention.pinWorkers = true; }, /never pin Workers/],
+    ["Manager terminal-unpin policy", (registry) => { registry.clientAdapter.retention.managerUnpinPolicy = "on-terminal"; }, /unpin terminal Managers/],
+    ["pin drift reconciliation", (registry) => { registry.clientAdapter.retention.reconcilePinDrift = false; }, /reconcile pin drift/],
+    ["retention policy", (registry) => { registry.clientAdapter.retention.handoffPolicy = null; }, /configure handoff\/archive policy/],
     ["reconciliation policy", (registry) => { registry.clientAdapter.reconciliationPolicy = null; }, /reconciliationPolicy/],
     ["owner direct messaging", (registry) => { registry.clientAdapter.ownerDirectMessaging.enabled = false; }, /ownerDirectMessaging/],
     ["owner direct target roles", (registry) => { registry.clientAdapter.ownerDirectMessaging.targetRoles = ["manager"]; }, /ownerDirectMessaging/],
@@ -1023,7 +1034,16 @@ fixtureTest("Codex-native Firstmate adapter readiness requires complete explicit
     writeOrchestrationRegistry(partialRegistry);
     const partial = capture();
     assert.equal(await main(["orchestration", "adapter-status"], partial.io), 0, `${name}: ${partial.err.join("\n")}`);
-    assert.match(partial.out.join("\n"), ["adapter skill", "binding assurance"].includes(name) ? /orchestration_active: false/ : /orchestration_active: true/, name);
+    const registryInvalidCases = [
+      "adapter skill",
+      "Boss pin policy",
+      "Manager pin policy",
+      "Worker pin policy",
+      "Manager terminal-unpin policy",
+      "pin drift reconciliation",
+      "binding assurance"
+    ];
+    assert.match(partial.out.join("\n"), registryInvalidCases.includes(name) ? /orchestration_active: false/ : /orchestration_active: true/, name);
     assert.match(partial.out.join("\n"), /activation_ready: false/, name);
     assert.match(partial.out.join("\n"), expectedBlocker, name);
     if (name === "adapter skill") {
@@ -1055,6 +1075,24 @@ fixtureTest("active orchestration rejects an explicitly configured inactive clie
   const code = await main(["orchestration", "validate"], io);
   assert.equal(code, 1);
   assert.match(out.join("\n"), /configured clientAdapter must be active when orchestration is active/);
+});
+
+fixtureTest("Firstmate launch materialization blocks legacy task pin policy", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.clientAdapter = configuredFirstmateAdapter(registry);
+  delete registry.clientAdapter.retention.pinNonterminalManagers;
+  delete registry.clientAdapter.retention.pinWorkers;
+  delete registry.clientAdapter.retention.managerUnpinPolicy;
+  delete registry.clientAdapter.retention.reconcilePinDrift;
+  writeOrchestrationRegistry(registry);
+
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 1);
+  assert.match(validation.out.join("\n"), /retention must pin the resident Boss and nonterminal Managers/);
+
+  const launch = capture();
+  assert.equal(await main(["orchestration", "launch-spec", "manager-docs"], launch.io), 1);
+  assert.match(launch.err.join("\n"), /registry has blockers/i);
 });
 
 fixtureTest("Codex-native Firstmate taxonomy preserves canonical roles and exact titles", async () => {

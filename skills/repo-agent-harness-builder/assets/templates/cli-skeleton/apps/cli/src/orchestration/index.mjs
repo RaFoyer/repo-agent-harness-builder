@@ -2723,6 +2723,7 @@ function validateRegistry(registry) {
   if (registry.status === "inactive" && nodes.length === 0) warnings.push("orchestration is scaffolded but inactive; configure a Boss and nodes before activation");
   if (isCodexNativeFirstmateAdapter(registry.clientAdapter) && registry.clientAdapter.status === "active") {
     blockers.push(...legacyTaskBindingInventoryBlockers(registry, registry.clientAdapter, nodesById));
+    blockers.push(...firstmatePinPolicyBlockers(registry.clientAdapter));
   }
 
   for (const node of nodes) {
@@ -3156,6 +3157,19 @@ function presentationTaxonomyBlockers(registry, adapter) {
   return blockers;
 }
 
+function firstmatePinPolicyBlockers(adapter) {
+  const retention = adapter?.retention;
+  if (isObject(retention)
+    && retention.pinBoss === true
+    && retention.pinNonterminalManagers === true
+    && retention.pinWorkers === false
+    && retention.managerUnpinPolicy === "after-terminal-evidence-and-parent-reconciliation"
+    && retention.reconcilePinDrift === true) {
+    return [];
+  }
+  return ["clientAdapter.retention must pin the resident Boss and nonterminal Managers, never pin Workers, unpin terminal Managers only after evidence and parent reconciliation, and reconcile pin drift"];
+}
+
 function firstmateActivationBlockers(registry, adapter) {
   const blockers = [];
   if (!isObject(registry) || registry.status !== "active") {
@@ -3235,12 +3249,12 @@ function firstmateActivationBlockers(registry, adapter) {
   }
 
   const retention = adapter.retention;
+  blockers.push(...firstmatePinPolicyBlockers(adapter));
   if (!isObject(retention)
-    || typeof retention.pinBoss !== "boolean"
     || !isNonEmptyString(retention.archivePolicy)
     || retention.archivePolicy === "unconfigured"
     || !isNonEmptyString(retention.handoffPolicy)) {
-    blockers.push("clientAdapter.retention must configure pin, handoff, and archive policy");
+    blockers.push("clientAdapter.retention must configure handoff/archive policy");
   }
   if (!isNonEmptyString(adapter.reconciliationPolicy) || adapter.reconciliationPolicy === "unconfigured") {
     blockers.push("clientAdapter.reconciliationPolicy is required");
@@ -3275,8 +3289,11 @@ function runAdapterStatus(io) {
   }));
   const presentCount = assets.filter((asset) => asset.present).length;
   const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
-  const registryValid = Boolean(loaded.exists && !loaded.error && validateLoadedRegistry(loaded).blockers.length === 0);
-  const activationBlockers = registryValid ? firstmateActivationBlockers(loaded.registry, adapter) : ["registry must be valid"];
+  const registryFindings = validateLoadedRegistry(loaded);
+  const registryValid = Boolean(loaded.exists && !loaded.error && registryFindings.blockers.length === 0);
+  const activationBlockers = registryValid
+    ? firstmateActivationBlockers(loaded.registry, adapter)
+    : ["registry must be valid", ...registryFindings.blockers];
   if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
 
   io.stdout(`profile: ${toonString(CODEX_FIRSTMATE_PROFILE)}`);
@@ -3294,7 +3311,7 @@ function runAdapterStatus(io) {
   io.stdout("native_capabilities[9]{capability,detection,status}:");
   io.stdout('  "persistent tasks","Codex client runtime","verify before activation"');
   io.stdout('  "managed worktrees","Codex client runtime","verify before activation"');
-  io.stdout('  "task title/pin/archive/handoff","Codex client runtime","verify before activation"');
+  io.stdout('  "task title/pin/archive/handoff","Codex client runtime","resident Boss and nonterminal Managers pinned; Workers never pinned"');
   io.stdout('  "Goal mode","Codex client runtime","optional"');
   io.stdout('  "subagents","Codex client runtime","read-heavy helpers only"');
   io.stdout('  "automations/heartbeats","Codex client runtime","disabled until configured"');

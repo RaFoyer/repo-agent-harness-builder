@@ -572,7 +572,17 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
         ".agents/skills/project-orchestration/SKILL.md": ["name: project-orchestration", "## Composition Order"],
         ".agents/skills/goal-graph-loop/SKILL.md": ["name: goal-graph-loop", "$project-orchestration"],
         ".agents/skills/goal-chain-loop/SKILL.md": ["name: goal-chain-loop", "$goal-graph-loop", "compatibility"],
-        ".agents/skills/codex-native-firstmate/SKILL.md": ["name: codex-native-firstmate", "$project-orchestration"],
+        ".agents/skills/codex-native-firstmate/SKILL.md": [
+            "name: codex-native-firstmate",
+            "$project-orchestration",
+            "nonterminal Manager pinned",
+            "Never pin Workers",
+        ],
+        "ops/protocols/CODEX-NATIVE-FIRSTMATE.md": [
+            "## Task Pin Lifecycle",
+            "never pin Workers or transient helpers",
+            "unpins a Manager only after",
+        ],
         "apps/cli/src/orchestration/index.mjs": ["requiredSkills", "missing required project-local skills"],
         "apps/cli/src/github/index.mjs": ["GH_CONFIG_DIR", "GH_REPO", "github.profile.", "ambient_global_login_used: false"],
     }
@@ -584,6 +594,30 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
         for fragment in required_fragments:
             if fragment not in text:
                 errors.append(f"composition contract missing {fragment!r}: {rel_path}")
+
+    adapter_example = target / "docs" / "templates" / "orchestration" / "codex-native-firstmate-adapter.example.json"
+    if adapter_example.is_file():
+        try:
+            retention = json.loads(adapter_example.read_text(encoding="utf-8")).get("retention")
+        except (json.JSONDecodeError, OSError):
+            retention = None
+        expected_pin_policy = {
+            "pinBoss": True,
+            "pinNonterminalManagers": True,
+            "pinWorkers": False,
+            "managerUnpinPolicy": "after-terminal-evidence-and-parent-reconciliation",
+            "reconcilePinDrift": True,
+        }
+        actual_pin_policy = (
+            {key: retention.get(key) for key in expected_pin_policy}
+            if isinstance(retention, dict)
+            else None
+        )
+        if actual_pin_policy != expected_pin_policy:
+            errors.append(
+                "Codex task pin policy must pin the resident Boss and nonterminal Managers, "
+                "never pin Workers, unpin terminal Managers after reconciliation, and reconcile drift"
+            )
 
 
 def leading_front_matter(text: str) -> str | None:

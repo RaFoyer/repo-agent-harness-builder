@@ -2,7 +2,7 @@
 protocol_id: CODEX-NATIVE-FIRSTMATE
 title: Codex-Native Firstmate Adapter
 status: inactive
-version: 0.2.0
+version: 0.3.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Maps portable Boss, Manager, and Worker orchestration to native Codex tasks, worktrees, and bounded subagents without adding a hierarchy.
@@ -83,6 +83,37 @@ changes task parentage.
 - Transient subagent: bounded read-heavy help in the parent's current worktree;
   it is not a durable registry node and does not imply filesystem isolation.
 
+## Task Pin Lifecycle
+
+Pinning is a native navigation state, not authority, progress, parentage, or
+lifecycle evidence. The materialization controller applies the initial pin
+state during create/title/bind reconciliation:
+
+- pin the materialized resident Boss while it owns the repository portfolio;
+- pin every materialized nonterminal Manager, including optional-root logical
+  Managers;
+- never pin Workers or transient helpers.
+
+The project owner owns a logical Manager's pin until a materialized Boss
+assumes its lifecycle. The current lifecycle owner unpins a Manager only after
+terminal evidence and parent reconciliation are recorded, then applies the
+configured archive policy. Keep an ambiguously bound or quarantined Manager
+pinned until reconciliation proves whether it is retained, cancelled, or
+superseded; do not hide it and create a duplicate. Direct owner conversation
+does not alter pin state.
+
+During each bounded parent control check, compare the visible native pin state
+with the configured policy and reconcile drift when authorized. Pin correction
+is lifecycle maintenance, not progress evidence, and never resets unchanged or
+same-failure budgets. If native pin state cannot be inspected or changed,
+report the exact capability gap rather than assuming conformance.
+
+An existing active adapter that records only the legacy `pinBoss` boolean is
+not activation-ready under this version, and new task materialization stays
+blocked. Deliberately replan its private retention policy without changing task
+IDs, bindings, parentage, or completion evidence; never infer missing Manager
+or Worker posture from the current UI.
+
 Merge `.codex/config.firstmate.example.toml` deliberately when genuine
 Boss -> Manager -> Worker nesting is required. Its `agents.max_depth = 2`
 setting is an example, not an activation side effect.
@@ -152,9 +183,10 @@ fleet-managed entries—`$project-orchestration`, this adapter, and any domain
 loop such as `$goal-graph-loop`—must be resolved through their authoritative
 distribution, never copied or synchronized by the downstream repository.
 
-Do not archive a task or remove its worktree until the completion profile's
-landed-work evidence is recorded. A restorable app snapshot is not landed-work
-proof.
+Do not unpin a terminal Manager, archive a task, or remove its worktree until
+the completion profile's landed-work evidence and parent reconciliation are
+recorded. A restorable app snapshot is not landed-work proof. Workers and
+transient helpers remain unpinned throughout their lifecycle.
 
 ## Native Capability Detection
 
@@ -180,19 +212,21 @@ connector, CLI, or app-server bridge.
 Keep each private orchestration instance inactive and `clientAdapter` null until a human
 configures repo-local scope, root materialization, logical Boss contract, task-creation grant, trust policy,
 authority envelopes, budgets, completion profiles, adapter, base/worktree
-policy, Browser/GitHub integration, heartbeat, retention/archive policy, and
-binding/reconciliation assurance. Installed examples and a Firstmate title do
-not grant activation or task authority.
+policy, Browser/GitHub integration, heartbeat, the exact Boss/Manager/Worker
+pin lifecycle, retention/archive policy, and binding/reconciliation assurance.
+Installed examples and a Firstmate title do not grant activation or task
+authority.
 
 For an active adapter, record the matching Boss task ID when materialized (or
 null for an optional unmaterialized root), a base ref, managed
 disjoint-worktree policy, deliberate Browser and GitHub choices, heartbeat
-mode/cadence/registry mutator, retention handoff/archive policy, and a
-reconciliation policy. Also record completion profiles with their required
-evidence and the repository-scoped authentication boundary for each selected
-integration. Without a standing creation grant, record the per-task human
-approval gate. A trusted external Ed25519 binding attestor and its repo-selected
-public-key trust anchor must also be available.
+mode/cadence/registry mutator, resident-Boss/materialized-Manager-only pin
+policy, retention handoff/archive policy, and a reconciliation policy. Also
+record completion profiles with their required evidence and the
+repository-scoped authentication boundary for each selected integration.
+Without a standing creation grant, record the per-task human approval gate. A
+trusted external Ed25519 binding attestor and its repo-selected public-key
+trust anchor must also be available.
 
 `completionProfiles` must exactly cover every completion profile used by the
 registry, including every required evidence identifier. Configure a presentation

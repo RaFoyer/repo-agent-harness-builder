@@ -366,6 +366,23 @@ for required_path in \
   fi
 done
 
+damaged="$TMP/generated-repo-invalid-task-pin-policy"
+cp -R "$TMP/generated-repo" "$damaged"
+python3 - "$damaged/docs/templates/orchestration/codex-native-firstmate-adapter.example.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+data["retention"]["pinWorkers"] = True
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+if python3 "$SKILL/scripts/verify_harness.py" --target "$damaged" --cli-name harness; then
+  echo "expected verifier to reject a task pin policy that pins Workers" >&2
+  exit 1
+fi
+
 echo "== downstream fleet skill ownership boundary =="
 downstream_without_fleet_skills="$TMP/generated-repo-without-fleet-skill-copies"
 cp -R "$TMP/generated-repo" "$downstream_without_fleet_skills"

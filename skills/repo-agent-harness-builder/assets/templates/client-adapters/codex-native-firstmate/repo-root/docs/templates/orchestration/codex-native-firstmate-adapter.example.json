@@ -35,7 +35,11 @@
     "registryMutator": null
   },
   "retention": {
-    "pinBoss": false,
+    "pinBoss": true,
+    "pinNonterminalManagers": true,
+    "pinWorkers": false,
+    "managerUnpinPolicy": "after-terminal-evidence-and-parent-reconciliation",
+    "reconcilePinDrift": true,
     "archivePolicy": "manual-after-landed-proof",
     "handoffPolicy": null
   },
