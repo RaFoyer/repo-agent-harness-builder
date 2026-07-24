@@ -110,6 +110,38 @@ subagents share the parent's filesystem/worktree unless the client explicitly
 provides another isolation boundary, so do not fan out overlapping writes
 through subagents.
 
+### Task Pin Lifecycle
+
+Pinning is a Codex navigation and discoverability state. It does not grant
+authority, prove liveness, change parentage, or make a task nonterminal.
+
+- Keep the materialized resident Boss pinned while it owns the repository
+  portfolio.
+- Pin each materialized nonterminal Manager, including an optional-root
+  logical Manager. The project owner owns that pin until a materialized Boss
+  assumes the Manager lifecycle.
+- Never pin Workers or transient helpers. Their immediate parent owns their
+  lifecycle and evidence without promoting them into the repository's
+  top-level navigation surface.
+- After terminal completion and landed-work evidence plus parent reconciliation
+  are recorded, unpin the Manager and apply the configured archive policy. A quarantined or
+  ambiguously bound Manager stays pinned until reconciliation so it cannot be
+  lost and duplicated.
+
+The materialization controller applies the initial pin state as part of
+create/title/bind reconciliation. The current lifecycle owner applies the
+terminal unpin. During each bounded parent control check, compare the visible
+native pin state with this policy and reconcile drift when authorized. A pin
+correction is lifecycle maintenance, not progress evidence, and it never resets
+an unchanged or same-failure budget. A direct owner conversation does not
+change this policy.
+
+An existing active adapter that records only the legacy `pinBoss` boolean is
+not activation-ready under this contract, and new task materialization remains
+blocked until it is replanned. Deliberately replan its private adapter retention
+policy without changing task IDs, bindings, parentage, or completion evidence;
+do not infer missing Manager or Worker posture from current UI state.
+
 For a genuine Boss -> Manager -> Worker subagent depth, merge the supplied
 example setting `agents.max_depth = 2` into the project's Codex configuration.
 The example file is deliberately not named `.codex/config.toml`, so scaffolding
@@ -185,8 +217,10 @@ separate operation. Therefore:
    and terminal reconciliation reopens admission through the same runtime
    authority. The project registry is never treated as the machine-wide lock.
 7. Never archive a task or remove its worktree until the completion profile's
-   landed-work evidence is recorded. A restorable app snapshot is useful but is
-   not proof that repository work landed.
+   landed-work evidence is recorded; for a Manager, also require its
+   immediate-parent reconciliation before terminal unpin, archive, or worktree
+   removal. A restorable app snapshot is useful but is not proof that repository
+   work landed.
 
 If the native task API cannot accept an idempotency key or search by launch key,
 the adapter must use the strongest available correlation metadata, keep the
@@ -228,7 +262,9 @@ activation, a human must deliberately configure:
 6. base-ref and managed-worktree policy, including overlapping-write rules
 7. Browser and GitHub integration choices and authentication boundaries
 8. heartbeat/automation cadence and who may mutate the registry
-9. retention, pin, handoff, archive, and landed-work proof policy
+9. retention, handoff, archive, landed-work proof, and exact pin lifecycle:
+   resident Boss pinned, materialized nonterminal Managers pinned, Workers
+   never pinned, and terminal Managers unpinned after reconciliation
 10. binding attestation and reconciliation behavior required by the project's
     assurance level
 11. one presentation taxonomy, repository identity, and any executive title

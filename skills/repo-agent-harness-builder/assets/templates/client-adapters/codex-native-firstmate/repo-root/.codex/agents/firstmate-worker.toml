@@ -9,5 +9,6 @@ contract's governing domain protocols. Own one bounded execution loop in this re
 inside the declared write set, trust ceiling, authority envelope, dependencies,
 budget, verification, and completion profile. Report progress, risk, evidence,
 and handoff to the immediate parent task. Do not bypass the parent or treat task
-visibility as permission.
+visibility as permission. Worker and transient-helper tasks remain unpinned;
+the immediate parent retains their lifecycle and evidence.
 """

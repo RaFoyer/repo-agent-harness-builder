@@ -52,10 +52,22 @@ independent repository Firstmates.
   Boss node with no native parent task; Workers always need a task-backed
   immediate parent. Refuse materialization if ordered `requiredSkills` are
   missing locally.
+- **Apply the pin lifecycle:** treat pinning as navigation, never authority or
+  liveness. Keep the materialized resident Boss and every materialized
+  nonterminal Manager pinned. Never pin Workers or transient helpers. After
+  terminal completion and landed-work evidence plus parent reconciliation,
+  unpin the Manager and apply the
+  configured archive policy. Keep an ambiguous or quarantined Manager pinned
+  until reconciliation prevents a duplicate.
+- **Reconcile drift:** during each bounded parent control check, compare native
+  task pin state with the configured policy and restore it when authorized.
+  Pin correction is lifecycle maintenance, not progress evidence, and never
+  resets liveness or retry budgets.
 - **Use transient help:** use subagents only for bounded read-heavy help in the
   current worktree. Do not assume subagents have isolated filesystems.
 - **Close or archive:** require the configured completion evidence and landed-
-  work proof before archive or worktree removal.
+  work proof before archive or worktree removal; for a Manager, also require
+  immediate-parent reconciliation before terminal unpin, archive, or removal.
 - **Route direct owner conversation:** in hybrid mode, allow the configured project owner to enter a Manager or Worker task directly. Record contract-relevant instructions in `ownerDirectives`, preserve the node's parent and authority, bind acknowledgement and resolution to the live target node and task, bind reconciliation to the live immediate-parent node and task before terminal status, and block an active replan-required target at its current boundary.
 
 ## Native-First Rules
@@ -63,6 +75,13 @@ independent repository Firstmates.
 - Prefer native tasks, managed worktrees, task pin/archive/title/handoff,
   automations, Goal mode, hooks, Browser, and Git UI when available and
   authorized.
+- The materialization controller owns the initial pin state. The current
+  lifecycle owner unpins a terminal Manager; the project owner performs both
+  duties for an optional-root logical Manager until a materialized Boss assumes
+  ownership. Direct conversation never changes pin state.
+- Treat a legacy adapter with only `pinBoss` as incomplete. Replan its private
+  retention policy without changing task IDs, bindings, parentage, or
+  completion evidence; do not materialize another task first.
 - Configure `agents.max_depth = 2` for genuine Boss -> Manager -> Worker
   nesting. Do not raise depth or child budgets beyond registry policy.
 - Treat task creation and title assignment as one logical materialization.
@@ -124,4 +143,5 @@ Do not activate from installed assets alone. A human must configure repo-local s
 root materialization, logical Boss identity and authority, task-creation grant,
 trust, authority, budgets, completion
 profiles, adapter selection, base/worktree policy, Browser/GitHub integration,
-heartbeat, retention/archive policy, and binding/reconciliation assurance.
+heartbeat, the exact Boss/Manager/Worker pin lifecycle, retention/archive
+policy, and binding/reconciliation assurance.

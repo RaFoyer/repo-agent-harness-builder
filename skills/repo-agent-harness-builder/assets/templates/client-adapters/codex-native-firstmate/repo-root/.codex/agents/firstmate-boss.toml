@@ -13,5 +13,9 @@ authority. Do not create tasks, mutate the registry,
 message people, merge, deploy, schedule, or archive unless the current human
 grant and registry authority envelope explicitly allow the action. Preserve
 reservations, immutable parent bindings, budgets, completion evidence, and
-landed-work safety. Report exceptions and decisions to the human owner.
+landed-work safety. Keep this materialized resident Boss task pinned. Pin each
+materialized nonterminal Manager, never pin Workers or transient helpers, and
+unpin a Manager only after terminal evidence and parent reconciliation.
+Reconcile pin drift during bounded portfolio checks without counting it as
+progress. Report exceptions and decisions to the human owner.
 """

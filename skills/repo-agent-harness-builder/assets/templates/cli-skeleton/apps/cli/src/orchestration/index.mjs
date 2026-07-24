@@ -2723,6 +2723,7 @@ function validateRegistry(registry) {
   if (registry.status === "inactive" && nodes.length === 0) warnings.push("orchestration is scaffolded but inactive; configure a Boss and nodes before activation");
   if (isCodexNativeFirstmateAdapter(registry.clientAdapter) && registry.clientAdapter.status === "active") {
     blockers.push(...legacyTaskBindingInventoryBlockers(registry, registry.clientAdapter, nodesById));
+    blockers.push(...firstmatePinPolicyBlockers(registry.clientAdapter));
   }
 
   for (const node of nodes) {
@@ -3156,6 +3157,54 @@ function presentationTaxonomyBlockers(registry, adapter) {
   return blockers;
 }
 
+function firstmatePinPolicyBlockers(adapter) {
+  const retention = adapter?.retention;
+  if (isObject(retention)
+    && retention.pinBoss === true
+    && retention.pinNonterminalManagers === true
+    && retention.pinWorkers === false
+    && retention.managerUnpinPolicy === "after-terminal-landed-work-evidence-and-parent-reconciliation"
+    && retention.reconcilePinDrift === true) {
+    return [];
+  }
+  return ["clientAdapter.retention must pin the resident Boss and nonterminal Managers, never pin Workers, unpin terminal Managers only after evidence and parent reconciliation, and reconcile pin drift"];
+}
+
+function firstmateTaskPinLifecycle(registry, node) {
+  if (!isCodexNativeFirstmateAdapter(registry.clientAdapter)) return null;
+  const initialState = node.role === "boss" || node.role === "manager" ? "pinned" : "unpinned";
+  const terminalManagerRequirements = [
+    "terminal completion evidence satisfies the completion profile",
+    "completion profile's landed-work evidence is recorded",
+    "immediate-parent reconciliation is recorded"
+  ];
+  const requiredStateTransitions = node.role === "boss"
+    ? [{ requiredState: "pinned", while: "materialized-resident" }]
+    : node.role === "manager"
+      ? [
+          { requiredState: "pinned", while: "materialized-nonterminal" },
+          { requiredState: "unpinned", afterAll: terminalManagerRequirements }
+        ]
+      : [{ requiredState: "unpinned", while: "always" }];
+  return {
+    initialState,
+    requiredWhile: node.role === "boss"
+      ? "materialized-resident"
+      : node.role === "manager"
+        ? "materialized-nonterminal"
+        : "never",
+    requiredStateTransitions,
+    terminalManagerUnpin: node.role === "manager" ? {
+      allowedOnlyAfter: terminalManagerRequirements
+    } : { allowed: false },
+    driftReconciliation: {
+      inspectDuring: "each bounded parent control check",
+      correctTo: "current-required-state",
+      countsAsProgress: false
+    }
+  };
+}
+
 function firstmateActivationBlockers(registry, adapter) {
   const blockers = [];
   if (!isObject(registry) || registry.status !== "active") {
@@ -3235,12 +3284,12 @@ function firstmateActivationBlockers(registry, adapter) {
   }
 
   const retention = adapter.retention;
+  blockers.push(...firstmatePinPolicyBlockers(adapter));
   if (!isObject(retention)
-    || typeof retention.pinBoss !== "boolean"
     || !isNonEmptyString(retention.archivePolicy)
     || retention.archivePolicy === "unconfigured"
     || !isNonEmptyString(retention.handoffPolicy)) {
-    blockers.push("clientAdapter.retention must configure pin, handoff, and archive policy");
+    blockers.push("clientAdapter.retention must configure handoff/archive policy");
   }
   if (!isNonEmptyString(adapter.reconciliationPolicy) || adapter.reconciliationPolicy === "unconfigured") {
     blockers.push("clientAdapter.reconciliationPolicy is required");
@@ -3275,8 +3324,11 @@ function runAdapterStatus(io) {
   }));
   const presentCount = assets.filter((asset) => asset.present).length;
   const selected = adapter?.profile === CODEX_FIRSTMATE_PROFILE;
-  const registryValid = Boolean(loaded.exists && !loaded.error && validateLoadedRegistry(loaded).blockers.length === 0);
-  const activationBlockers = registryValid ? firstmateActivationBlockers(loaded.registry, adapter) : ["registry must be valid"];
+  const registryFindings = validateLoadedRegistry(loaded);
+  const registryValid = Boolean(loaded.exists && !loaded.error && registryFindings.blockers.length === 0);
+  const activationBlockers = registryValid
+    ? firstmateActivationBlockers(loaded.registry, adapter)
+    : ["registry must be valid", ...registryFindings.blockers];
   if (presentCount !== assets.length) activationBlockers.push("all Firstmate profile assets must be present");
 
   io.stdout(`profile: ${toonString(CODEX_FIRSTMATE_PROFILE)}`);
@@ -3294,7 +3346,7 @@ function runAdapterStatus(io) {
   io.stdout("native_capabilities[9]{capability,detection,status}:");
   io.stdout('  "persistent tasks","Codex client runtime","verify before activation"');
   io.stdout('  "managed worktrees","Codex client runtime","verify before activation"');
-  io.stdout('  "task title/pin/archive/handoff","Codex client runtime","verify before activation"');
+  io.stdout('  "task title/pin/archive/handoff","Codex client runtime","resident Boss and nonterminal Managers pinned; Workers never pinned"');
   io.stdout('  "Goal mode","Codex client runtime","optional"');
   io.stdout('  "subagents","Codex client runtime","read-heavy helpers only"');
   io.stdout('  "automations/heartbeats","Codex client runtime","disabled until configured"');
@@ -3653,6 +3705,7 @@ function runLaunchSpec(nodeId, io) {
   const workContract = materializedWorkContract(loaded.registry, node, parent);
   const workContractHash = materializedWorkContractHash(loaded.registry, node, parent);
   const launchKey = launchKeyFor(loaded.registry, node, parent);
+  const pinLifecycle = firstmateTaskPinLifecycle(loaded.registry, node);
   const reservation = {
     launchKey,
     workContract: { algorithm: "sha256", hash: workContractHash, payload: workContract },
@@ -3712,6 +3765,7 @@ function runLaunchSpec(nodeId, io) {
     ...(loaded.registry.schemaVersion >= 3 ? { requiredSkills: requiredSkillsFor(loaded.registry, node) } : {}),
     trustLevel: node.trustLevel,
     authority: canonicalAuthority(node.authority),
+    ...(pinLifecycle ? { pinLifecycle } : {}),
     workContract: { algorithm: "sha256", hash: workContractHash },
     taskBinding: taskBindingUpdate({
       registry: loaded.registry,
@@ -3727,7 +3781,8 @@ function runLaunchSpec(nodeId, io) {
       ...(firstmate ? {
         requiredTitle: node.title,
         requiredCreateBehavior: "Use launchKey as the external task API idempotency key, then set and verify the exact requiredTitle before binding.",
-        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title."
+        requiredAdoptBehavior: "Before binding an existing task found by launchKey, rename it to requiredTitle and verify the observed title.",
+        pinLifecycle
       } : {}),
       indeterminateCreateBehavior: "Keep the reservation and reconcile the external task by launchKey before any retry or release."
     },
@@ -3763,6 +3818,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
+          ...(pinLifecycle ? [`verified native task pin state=${pinLifecycle.initialState} and lifecycle reconciliation contract`] : []),
           ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, bind revision, and bind time",
           "state=working",
@@ -3791,7 +3847,8 @@ function runLaunchSpec(nodeId, io) {
           createAllowed: false,
           ...(firstmate ? {
             requiredTitle: node.title,
-            renameAndVerifyBeforeBind: true
+            renameAndVerifyBeforeBind: true,
+            pinLifecycle
           } : {})
         },
         requiredReservation: {
@@ -3836,6 +3893,7 @@ function runLaunchSpec(nodeId, io) {
         requiredUpdates: [
           "taskId from reconciled external task",
           ...(firstmate ? ["verified externalTitle and titleVerification matching the registry title"] : []),
+          ...(pinLifecycle ? [`verified native task pin state=${pinLifecycle.initialState} and lifecycle reconciliation contract`] : []),
           ...(node.role === "boss" || logicalParent ? [] : ["parentTaskId=immediate parent taskId"]),
           "Ed25519-attested taskBinding with immutable launch key, work-contract hash, node/task/parent identities, latest bind revision, and bind time",
           "state=working",

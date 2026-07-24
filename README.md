@@ -53,7 +53,11 @@ For Codex-heavy teams, the generated harness includes an opt-in
 not a fourth role: when materialized, one persistent Firstmate task owns the
 repository portfolio; the owner may also begin with Manager feature tasks and
 add that Boss later. Managers own bounded workstreams, and Workers own bounded
-execution loops.
+execution loops. Codex pinning is a navigation lifecycle, not authority:
+keep the materialized resident Boss and materialized nonterminal Managers
+pinned, never pin Workers or transient helpers, and unpin a Manager after its
+terminal completion and landed-work evidence plus parent reconciliation are
+recorded.
 The capability is installed per repository but remains inactive until a human
 configures its scope, authority, budgets, completion evidence, task creation,
 worktree, integration, heartbeat, and retention policies. Cross-repository
