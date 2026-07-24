@@ -66,7 +66,8 @@ independent repository Firstmates.
 - **Use transient help:** use subagents only for bounded read-heavy help in the
   current worktree. Do not assume subagents have isolated filesystems.
 - **Close or archive:** require the configured completion evidence and landed-
-  work proof before archive or worktree removal.
+  work proof before archive or worktree removal; for a Manager, also require
+  immediate-parent reconciliation before terminal unpin, archive, or removal.
 - **Route direct owner conversation:** in hybrid mode, allow the configured project owner to enter a Manager or Worker task directly. Record contract-relevant instructions in `ownerDirectives`, preserve the node's parent and authority, bind acknowledgement and resolution to the live target node and task, bind reconciliation to the live immediate-parent node and task before terminal status, and block an active replan-required target at its current boundary.
 
 ## Native-First Rules
@@ -142,4 +143,5 @@ Do not activate from installed assets alone. A human must configure repo-local s
 root materialization, logical Boss identity and authority, task-creation grant,
 trust, authority, budgets, completion
 profiles, adapter selection, base/worktree policy, Browser/GitHub integration,
-heartbeat, retention/archive policy, and binding/reconciliation assurance.
+heartbeat, the exact Boss/Manager/Worker pin lifecycle, retention/archive
+policy, and binding/reconciliation assurance.

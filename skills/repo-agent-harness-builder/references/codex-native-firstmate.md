@@ -217,8 +217,10 @@ separate operation. Therefore:
    and terminal reconciliation reopens admission through the same runtime
    authority. The project registry is never treated as the machine-wide lock.
 7. Never archive a task or remove its worktree until the completion profile's
-   landed-work evidence is recorded. A restorable app snapshot is useful but is
-   not proof that repository work landed.
+   landed-work evidence is recorded; for a Manager, also require its
+   immediate-parent reconciliation before terminal unpin, archive, or worktree
+   removal. A restorable app snapshot is useful but is not proof that repository
+   work landed.
 
 If the native task API cannot accept an idempotency key or search by launch key,
 the adapter must use the strongest available correlation metadata, keep the

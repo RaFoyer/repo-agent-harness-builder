@@ -10,7 +10,7 @@ Codex-native Firstmate overlay for a validated Boss launch prompt
 - Use managed worktree tasks for durable write-capable Workers. Use transient subagents only for bounded read-heavy help in the current worktree.
 - Prefer native task lifecycle, Goal mode, automations, hooks, Browser, and Git surfaces when configured and authorized.
 - Preserve the registry reservation and launch key. Create or adopt, rename, and verify the exact registry title before bind. If create, title, or bind is ambiguous, quarantine and reconcile; do not create a duplicate.
-- Require completion-profile evidence and landed-work proof before archive or worktree removal.
+- Require completion-profile evidence and landed-work proof before archive or worktree removal; for a Manager, also require immediate-parent reconciliation before terminal unpin, archive, or removal.
 - In schema-v4 hybrid mode, let the configured project owner enter Manager and Worker tasks directly without making Firstmate a conversation relay. Treat chat as context, never authority.
 - In schema-v5 optional-root mode, preserve the null parent-task binding of Managers launched before the Boss task; materializing the Boss later must not invalidate or silently reparent them.
 - Record only durable or contract-relevant owner instructions as governed `ownerDirectives`. Require acknowledgement and resolution bound to the live target node and task, plus reconciliation bound to the live immediate-parent node and task before terminal status.

@@ -40,7 +40,7 @@
     "pinWorkers": false,
     "managerUnpinPolicy": "after-terminal-landed-work-evidence-and-parent-reconciliation",
     "reconcilePinDrift": true,
-    "archivePolicy": "manual-after-landed-proof",
+    "archivePolicy": "manual-after-landed-proof-and-parent-reconciliation",
     "handoffPolicy": null
   },
   "reconciliationPolicy": null,
