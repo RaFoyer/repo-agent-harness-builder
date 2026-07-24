@@ -338,7 +338,7 @@ This adapter boundary makes worker launch easy without hiding external writes in
   from the repository-local skill installation. Resolve fleet-managed entries
   through their authoritative distribution without copying them downstream.
 - Never create a task before the launch spec's atomic reservation and immediate `preCreate` comparison succeed; a stale revision, changed status, parent authority or approval gate, task identity, occupied reservation, or exhausted reserved capacity is a pre-side-effect failure.
-- Use `launchKey` as the durable external idempotency and reconciliation key. An indeterminate create or bind result keeps its reservation until lookup proves no external task exists.
+- Use `launchKey` as the durable external idempotency and reconciliation key only when the external API supports it. Otherwise follow the selected adapter's governed at-most-once issuance protocol: after `create-issued`, a zero-result search stays quarantined and never authorizes another native create.
 - Create child tasks only while the parent is `working`, `waiting`, or `blocked`; a `ready-for-parent` node must not acquire new unfinished responsibility.
 - Only a dependency with `state: terminal` and `terminalDisposition: completed` satisfies a prerequisite; cancelled or superseded work remains blocking until the registry is replanned to a completed replacement.
 - Do not declare dependencies between an ancestor and descendant, and reject cycles that combine parent and dependency links.
