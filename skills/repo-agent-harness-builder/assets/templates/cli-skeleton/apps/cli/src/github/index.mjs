@@ -148,6 +148,48 @@ function profileRoot(profile) {
   return path.join(base, "agent-connectors", repoId, subdir, profile.id);
 }
 
+export function runRepositoryGithubRead(args) {
+  const loaded = loadJson("ops/connections.json");
+  if (!loaded.ok) return { ok: false, status: 1, stdout: "", stderr: loaded.error };
+  const profiles = githubProfiles(loaded.value).filter((profile) => {
+    const config = githubConfig(profile);
+    return profile.status === "configured"
+      && validateProfile(profile).length === 0
+      && config?.allowedCapabilities?.includes("github.pr.read");
+  });
+  if (profiles.length !== 1) {
+    return {
+      ok: false,
+      status: 1,
+      stdout: "",
+      stderr: "exactly one configured repository-scoped GitHub read profile is required"
+    };
+  }
+  const profile = profiles[0];
+  const root = profileRoot(profile);
+  const rootBlocker = validateProfileRoot(root);
+  if (rootBlocker) return { ok: false, status: 1, stdout: "", stderr: rootBlocker };
+  const child = createGithubChildEnvironment(profile, root);
+  if (!child.ok) {
+    return { ok: false, status: 1, stdout: "", stderr: "selected process-local GitHub credential is unavailable" };
+  }
+  const executable = githubConfig(profile).preferredCli === "gh" ? "gh" : "gh-axi";
+  const result = spawnSync(executable, args, {
+    cwd: CONFIG.repoRoot,
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: child.env,
+    timeout: 10_000,
+    maxBuffer: 2 * 1024 * 1024
+  });
+  return {
+    ok: result.status === 0,
+    status: result.status ?? 1,
+    stdout: redactSecrets(result.stdout || ""),
+    stderr: redactSecrets(result.stderr || "")
+  };
+}
+
 function pathInsideRepo(candidatePath) {
   const resolved = path.resolve(candidatePath);
   const repoRoot = path.resolve(CONFIG.repoRoot);

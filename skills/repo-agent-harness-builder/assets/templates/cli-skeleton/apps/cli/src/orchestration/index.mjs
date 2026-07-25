@@ -10,6 +10,13 @@ import {
   codexMaterializationPinDecision,
   materializeCodexTaskWithBroker
 } from "./codex-materialization-broker.mjs";
+import {
+  REPORT_STAGES,
+  collectOrchestrationReport,
+  reconcileOrchestrationReport,
+  renderOrchestrationReconcile,
+  renderOrchestrationReport
+} from "./report.mjs";
 
 const EXAMPLE_REGISTRY_REL_PATH = "ops/orchestration.example.json";
 const LEGACY_REGISTRY_REL_PATH = "ops/orchestration.json";
@@ -20,7 +27,9 @@ const SUPPORTED_REGISTRY_SCHEMA_VERSIONS = new Set([2, 3, 4, 5]);
 const COORDINATION_MODES = new Set(["managed", "hybrid"]);
 const ROOT_MATERIALIZATION_MODES = new Set(["required", "optional"]);
 const PARENT_BINDING_MODES = new Set(["task", "logical"]);
-const TRACKED_EXAMPLE_COMMANDS = new Set(["status", "validate", "adapter-status", "taxonomy", "liveness"]);
+const TRACKED_EXAMPLE_COMMANDS = new Set([
+  "status", "validate", "adapter-status", "taxonomy", "liveness", "report", "reconcile"
+]);
 const TRACKED_POLICY_EXTENSION_FIELDS = new Set(["kind", "schemaVersion", "policy"]);
 const TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS = new Set([
   "id", "role", "workRef", "workKind", "governingProtocols", "requiredSkills", "label", "title",
@@ -30,7 +39,7 @@ const TRACKED_EXAMPLE_LOGICAL_NODE_FIELDS = new Set([
 const TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS = [
   "taskId", "parentTaskId", "taskBinding", "launchReservation", "nextAction", "waitingOn",
   "blocker", "unblockAction", "blockedByDirectiveIds", "handoffEvidence", "terminalDisposition",
-  "completionEvidence", "completedAt", "trustApproval"
+  "completionEvidence", "completedAt", "trustApproval", "stageTracking"
 ];
 const TRACKED_EXAMPLE_AUTHORITY_FIELDS = new Set([
   "allowedReads", "allowedWrites", "allowedExternalActions", "approvalGates", "canDelegate",
@@ -39,7 +48,8 @@ const TRACKED_EXAMPLE_AUTHORITY_FIELDS = new Set([
 const TRACKED_EXAMPLE_COMPLETION_PROFILE_FIELDS = new Set(["type", "requiredEvidence"]);
 const TRACKED_EXAMPLE_ROOT_FIELDS = new Set([
   "schemaVersion", "revision", "status", "coordinationMode", "rootControl", "prefix", "scope",
-  "bindingAttestation", "clientAdapter", "trustPolicy", "controlLoopPolicy", "nodes", "ownerDirectives", "extensions"
+  "bindingAttestation", "clientAdapter", "trustPolicy", "controlLoopPolicy", "reportingPolicy",
+  "nodes", "ownerDirectives", "extensions"
 ]);
 const TRACKED_EXAMPLE_SCOPE_FIELDS = new Set(["id", "kind", "rootRef", "ownerRef", "objective"]);
 const TRACKED_EXAMPLE_TRUST_POLICY_FIELDS = new Set([
@@ -135,6 +145,15 @@ const CONTROL_LOOP_POLICY_FIELDS = new Set([
   "progressSignal", "quietActivityCountsAsProgress", "maxUnchangedChecks",
   "maxSameFailureRetries", "maxControlIntervalSeconds", "maxClockSkewSeconds",
   "retryRequiresChangedPrecondition", "sharedRuntimeRecovery"
+]);
+const REPORTING_POLICY_FIELDS = new Set([
+  "quietAfterSeconds", "postMergeStabilitySeconds", "terminalVisibilitySeconds",
+  "stageBudgetsSeconds", "wipLimits", "agentAuthors"
+]);
+const REPORTING_WIP_LIMIT_FIELDS = new Set(["maxConcurrentLanes", "maxOpenPullRequests"]);
+const REPORTING_AGENT_AUTHOR_FIELDS = new Set(["names", "emails"]);
+const STAGE_TRACKING_FIELDS = new Set([
+  "stage", "enteredAt", "gitBaseRef", "gitHeadRef", "pullRequestNumber", "validationRunId"
 ]);
 const SHARED_RUNTIME_RECOVERY_FIELDS = new Set([
   "requireActiveSetSnapshot", "requirePreActionCompare", "activeSetChangeAction",
@@ -825,6 +844,7 @@ function validateTrackedExampleRegistry(registry) {
       blockers.push("tracked example trustPolicy.limits contains unsupported fields");
     }
   }
+  validateReportingPolicy(registry.reportingPolicy, blockers);
   return blockers;
 }
 
@@ -1193,6 +1213,84 @@ function materializedWorkContract(registry, node, parent) {
       authority: canonicalAuthority(parent.authority)
     } : null
   });
+}
+
+function validateReportingPolicy(policy, blockers) {
+  if (policy === undefined) return;
+  if (!isObject(policy)) {
+    blockers.push("reportingPolicy must be an object when configured");
+    return;
+  }
+  const unexpectedFields = Object.keys(policy).filter((field) => !REPORTING_POLICY_FIELDS.has(field));
+  if (unexpectedFields.length) blockers.push(`reportingPolicy contains unsupported fields: ${unexpectedFields.sort().join(", ")}`);
+  for (const field of ["quietAfterSeconds", "postMergeStabilitySeconds", "terminalVisibilitySeconds"]) {
+    if (!Number.isSafeInteger(policy[field]) || policy[field] < 1 || policy[field] > 31_536_000) {
+      blockers.push(`reportingPolicy.${field} must be an integer from 1 through 31536000`);
+    }
+  }
+  if (!isObject(policy.stageBudgetsSeconds)) {
+    blockers.push("reportingPolicy.stageBudgetsSeconds must be an object");
+  } else {
+    const unexpectedStages = Object.keys(policy.stageBudgetsSeconds).filter((stage) => !REPORT_STAGES.includes(stage));
+    if (unexpectedStages.length) {
+      blockers.push(`reportingPolicy.stageBudgetsSeconds contains unsupported stages: ${unexpectedStages.sort().join(", ")}`);
+    }
+    for (const [stage, value] of Object.entries(policy.stageBudgetsSeconds)) {
+      if (!Number.isSafeInteger(value) || value < 1 || value > 31_536_000) {
+        blockers.push(`reportingPolicy.stageBudgetsSeconds.${stage} must be an integer from 1 through 31536000`);
+      }
+    }
+  }
+  if (!isObject(policy.wipLimits)) {
+    blockers.push("reportingPolicy.wipLimits must be an object");
+  } else {
+    const unexpectedLimits = Object.keys(policy.wipLimits).filter((field) => !REPORTING_WIP_LIMIT_FIELDS.has(field));
+    if (unexpectedLimits.length) blockers.push(`reportingPolicy.wipLimits contains unsupported fields: ${unexpectedLimits.sort().join(", ")}`);
+    for (const field of REPORTING_WIP_LIMIT_FIELDS) {
+      if (!Number.isSafeInteger(policy.wipLimits[field]) || policy.wipLimits[field] < 1 || policy.wipLimits[field] > 10_000) {
+        blockers.push(`reportingPolicy.wipLimits.${field} must be an integer from 1 through 10000`);
+      }
+    }
+  }
+  if (!isObject(policy.agentAuthors)) {
+    blockers.push("reportingPolicy.agentAuthors must be an object");
+  } else {
+    const unexpectedAuthorFields = Object.keys(policy.agentAuthors).filter((field) => !REPORTING_AGENT_AUTHOR_FIELDS.has(field));
+    if (unexpectedAuthorFields.length) blockers.push(`reportingPolicy.agentAuthors contains unsupported fields: ${unexpectedAuthorFields.sort().join(", ")}`);
+    for (const field of REPORTING_AGENT_AUTHOR_FIELDS) {
+      if (!isStringArray(policy.agentAuthors[field])) {
+        blockers.push(`reportingPolicy.agentAuthors.${field} must be an array of strings`);
+      }
+    }
+  }
+}
+
+function validateStageTracking(stageTracking, label, blockers) {
+  if (stageTracking === undefined || stageTracking === null) return;
+  if (!isObject(stageTracking)) {
+    blockers.push(`${label}: stageTracking must be an object when configured`);
+    return;
+  }
+  const unexpectedFields = Object.keys(stageTracking).filter((field) => !STAGE_TRACKING_FIELDS.has(field));
+  if (unexpectedFields.length) blockers.push(`${label}: stageTracking contains unsupported fields: ${unexpectedFields.sort().join(", ")}`);
+  if (!REPORT_STAGES.includes(stageTracking.stage)) {
+    blockers.push(`${label}: stageTracking.stage must be one of ${REPORT_STAGES.join(", ")}`);
+  }
+  if (!isUtcRfc3339Timestamp(stageTracking.enteredAt)) {
+    blockers.push(`${label}: stageTracking.enteredAt must be a UTC RFC3339 timestamp`);
+  }
+  for (const field of ["gitBaseRef", "gitHeadRef", "validationRunId"]) {
+    if (stageTracking[field] !== undefined
+      && stageTracking[field] !== null
+      && !isNonEmptyString(stageTracking[field])) {
+      blockers.push(`${label}: stageTracking.${field} must be a non-empty single-line string or null`);
+    }
+  }
+  if (stageTracking.pullRequestNumber !== undefined
+    && stageTracking.pullRequestNumber !== null
+    && (!Number.isSafeInteger(stageTracking.pullRequestNumber) || stageTracking.pullRequestNumber < 1)) {
+    blockers.push(`${label}: stageTracking.pullRequestNumber must be a positive integer or null`);
+  }
 }
 
 function validateControlLoopPolicy(registry, blockers, warnings) {
@@ -2675,6 +2773,7 @@ function validateRegistry(registry) {
     }
   }
   const controlLoopPolicy = validateControlLoopPolicy(registry, blockers, warnings);
+  validateReportingPolicy(registry.reportingPolicy, blockers);
   validateSharedRuntimeRecoveryReceipts(registry, controlLoopPolicy, blockers);
   if (registry.bindingAttestation !== undefined && registry.bindingAttestation !== null) {
     if (!isObject(registry.bindingAttestation)
@@ -2766,6 +2865,7 @@ function validateRegistry(registry) {
     }
     if (!isNonEmptyString(node.label)) blockers.push(`${label}: label is required`);
     if (!isNonEmptyString(node.objective)) blockers.push(`${label}: objective is required`);
+    validateStageTracking(node.stageTracking, label, blockers);
     if (!Array.isArray(node.dependencies) || !node.dependencies.every(isNonEmptyString)) blockers.push(`${label}: dependencies must be an array of node ids`);
     const parent = node.parentId ? nodesById.get(node.parentId) : null;
     if (node.role === "boss" && node.parentId !== null) blockers.push(`${label}: Boss parentId must be null`);
@@ -2916,6 +3016,9 @@ function validateRegistry(registry) {
         blockers.push(`${label}: completionProfile.type must name a supported profile`);
       } else if (!isStringArray(node.completionProfile.requiredEvidence, { nonEmpty: true })) {
         blockers.push(`${label}: completionProfile.requiredEvidence must be non-empty`);
+      } else if (node.completionProfile.type !== "repository-merge"
+        && ["pr", "merged", "post-merge-stable"].includes(node.stageTracking?.stage)) {
+        blockers.push(`${label}: stageTracking may use pr, merged, or post-merge-stable only for repository-merge completion`);
       }
     }
     if (node.state === "terminal") {
@@ -3029,6 +3132,8 @@ function printHelp(io) {
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
   io.stdout("  liveness           Show progress, retry, and recovery-loop posture");
+  io.stdout("  report             Compute a private-live per-lane report without storing observations");
+  io.stdout("  reconcile          Diff private-live claims from observations; propose transitions only");
   io.stdout("  directives         Show governed direct owner instructions and reconciliation state");
   io.stdout("  next               List dependency-eligible nodes");
   io.stdout("  prompt boss        Print a bounded Boss prompt");
@@ -3036,7 +3141,8 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("init and migrate only create a private 0600 local instance; all other commands are read-only and no command creates tasks or mutates external systems.");
-  io.stdout("--example forces status, validate, adapter-status, taxonomy, or liveness to inspect the tracked inactive example without resolving private runtime state.");
+  io.stdout("report and reconcile require a selected private live instance; --example explicitly inspects the tracked inactive contract offline.");
+  io.stdout("--example forces status, validate, adapter-status, taxonomy, liveness, report, or reconcile to inspect the tracked inactive example without resolving private runtime state.");
   io.stdout("Use --operator/--instance for orchestration commands or REPO_ORCHESTRATION_OPERATOR/REPO_ORCHESTRATION_INSTANCE for composing facades; raw state paths are unsupported.");
 }
 
@@ -3495,6 +3601,69 @@ function runStatus(io) {
   printFindings(io, findings);
   io.stdout(renderHelpBlock([`Run ./${CONFIG.cliName} orchestration validate`, `Run ./${CONFIG.cliName} orchestration next`]));
   return findings.blockers.length ? 1 : 0;
+}
+
+function runReport(io, options = {}) {
+  const loaded = loadRegistry({ liveRequired: !selectedTrackedExample });
+  if (!loaded.exists || loaded.error) {
+    io.stdout("orchestration_report:");
+    io.stdout('  mode: "read-only"');
+    io.stdout('  authority: "none"');
+    io.stdout('  observations_cached: false');
+    io.stdout(`  registry: ${toonString(registryLabel(loaded))}`);
+    io.stdout(`  error: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
+    return 1;
+  }
+  const findings = validateLoadedRegistry(loaded);
+  if (findings.blockers.length) {
+    io.stdout("orchestration_report:");
+    io.stdout('  mode: "read-only"');
+    io.stdout('  authority: "none"');
+    io.stdout('  observations_cached: false');
+    io.stdout(`  registry: ${toonString(registryLabel(loaded))}`);
+    printFindings(io, findings);
+    return 1;
+  }
+  const report = collectOrchestrationReport(loaded.registry, {
+    repoRoot: CONFIG.repoRoot,
+    observationRunner: options.observationRunner,
+    now: options.now,
+    offline: loaded.source === "tracked-example"
+  });
+  renderOrchestrationReport(report, io, registryLabel(loaded));
+  return 0;
+}
+
+function runReconcile(io, options = {}) {
+  const loaded = loadRegistry({ liveRequired: !selectedTrackedExample });
+  if (!loaded.exists || loaded.error) {
+    io.stdout("orchestration_reconcile:");
+    io.stdout('  mode: "read-only"');
+    io.stdout('  authority: "none"');
+    io.stdout("  applied: 0");
+    io.stdout(`  registry: ${toonString(registryLabel(loaded))}`);
+    io.stdout(`  error: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
+    return 1;
+  }
+  const findings = validateLoadedRegistry(loaded);
+  if (findings.blockers.length) {
+    io.stdout("orchestration_reconcile:");
+    io.stdout('  mode: "read-only"');
+    io.stdout('  authority: "none"');
+    io.stdout("  applied: 0");
+    io.stdout(`  registry: ${toonString(registryLabel(loaded))}`);
+    printFindings(io, findings);
+    return 1;
+  }
+  const report = collectOrchestrationReport(loaded.registry, {
+    repoRoot: CONFIG.repoRoot,
+    observationRunner: options.observationRunner,
+    now: options.now,
+    offline: loaded.source === "tracked-example"
+  });
+  const reconciliation = reconcileOrchestrationReport(report);
+  renderOrchestrationReconcile(reconciliation, io, registryLabel(loaded), report.now);
+  return reconciliation.hardErrors.length ? 1 : 0;
 }
 
 function runDirectives(io) {
@@ -4487,7 +4656,7 @@ export async function materializeCodexTask(options = {}) {
   });
 }
 
-export async function runOrchestration(argv, io) {
+export async function runOrchestration(argv, io, options = {}) {
   const parsed = parseLocalSelection(argv, io);
   if (!parsed.ok) return 2;
   const [command = "status", ...rest] = parsed.argv;
@@ -4500,7 +4669,7 @@ export async function runOrchestration(argv, io) {
       code: "tracked-example-inspection-only",
       command: `orchestration ${command}`,
       message: "--example is limited to read-only tracked-example inspection commands",
-      hints: [`Use --example with status, validate, liveness, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
+      hints: [`Use --example with status, validate, liveness, report, reconcile, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
     });
     return 2;
   }
@@ -4553,6 +4722,12 @@ export async function runOrchestration(argv, io) {
     case "liveness":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration liveness", hints: [`Run ./${CONFIG.cliName} orchestration liveness`] })) return 2;
       return runLiveness(io);
+    case "report":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration report", hints: [`Run ./${CONFIG.cliName} orchestration report`] })) return 2;
+      return runReport(io, options);
+    case "reconcile":
+      if (rejectUnexpectedArgs(rest, io, { command: "orchestration reconcile", hints: [`Run ./${CONFIG.cliName} orchestration reconcile`] })) return 2;
+      return runReconcile(io, options);
     case "directives":
       if (rejectUnexpectedArgs(rest, io, { command: "orchestration directives", hints: [`Run ./${CONFIG.cliName} orchestration directives`] })) return 2;
       return runDirectives(io);

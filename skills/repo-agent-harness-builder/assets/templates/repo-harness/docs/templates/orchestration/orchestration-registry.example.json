@@ -46,6 +46,27 @@
       "unmanagedStartBehavior": "block-recovery"
     }
   },
+  "reportingPolicy": {
+    "quietAfterSeconds": 43200,
+    "postMergeStabilitySeconds": 172800,
+    "terminalVisibilitySeconds": 3600,
+    "stageBudgetsSeconds": {
+      "plan": 86400,
+      "implement": 259200,
+      "validate": 86400,
+      "pr": 172800,
+      "merged": 172800,
+      "post-merge-stable": 604800
+    },
+    "wipLimits": {
+      "maxConcurrentLanes": 6,
+      "maxOpenPullRequests": 12
+    },
+    "agentAuthors": {
+      "names": [],
+      "emails": []
+    }
+  },
   "ownerDirectives": [],
   "nodes": [
     {
@@ -61,6 +82,7 @@
       "parentId": null,
       "dependencies": [],
       "state": "eligible",
+      "stageTracking": null,
       "trustLevel": "T3",
       "authority": {
         "allowedReads": ["project"],
@@ -91,6 +113,7 @@
       "parentId": "boss",
       "dependencies": [],
       "state": "eligible",
+      "stageTracking": null,
       "trustLevel": "T1",
       "authority": {
         "allowedReads": ["project"],
