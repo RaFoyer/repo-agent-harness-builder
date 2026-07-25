@@ -238,7 +238,9 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 9. Run `orchestration report` on each heartbeat cadence and annotate its
    computed facts with judgment. Run `orchestration reconcile` to inspect
    discrepancies and proposed governed transitions. Both commands are
-   read-only; phase 1 has no apply mode or transition authority.
+   read-only; phase 1 has no apply mode or transition authority. They require
+   a selected private live registry unless `--example` explicitly requests
+   offline tracked-contract inspection.
 10. Update the evidence fingerprint only when Git, tracker, child, PR, check,
    external-operation, or completion evidence materially changes. Increment
    unchanged or same-failure counters otherwise. Bind each failure to the

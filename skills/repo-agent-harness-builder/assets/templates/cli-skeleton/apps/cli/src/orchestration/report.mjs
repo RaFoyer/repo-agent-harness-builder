@@ -184,11 +184,9 @@ function safeGitRef(value) {
 }
 
 function authorKind(name, email, policy) {
-  const names = new Set((Array.isArray(policy.names) ? policy.names : []).map((value) => String(value).toLowerCase()));
-  const emails = new Set((Array.isArray(policy.emails) ? policy.emails : []).map((value) => String(value).toLowerCase()));
-  const normalizedName = String(name || "").toLowerCase();
-  const normalizedEmail = String(email || "").toLowerCase();
-  if (names.has(normalizedName) || emails.has(normalizedEmail)) return "agent";
+  const names = new Set(Array.isArray(policy.names) ? policy.names : []);
+  const emails = new Set(Array.isArray(policy.emails) ? policy.emails : []);
+  if (names.has(name) || emails.has(email)) return "agent";
   return "human";
 }
 
@@ -282,11 +280,14 @@ function lastEvidence(candidates) {
     .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))[0] || null;
 }
 
-function stageEntryFor(stage, node, git, pr, validation, stableAt) {
+function stageEntryFor(stage, node, git, pr, validation, stableAt, profileEvidenceSatisfied) {
   if (stage === "post-merge-stable") return stableAt;
   if (stage === "merged") return pr.mergedAt;
   if (stage === "pr") return pr.createdAt;
-  if (stage === "validate") return validation.observedAt || pr.checksAt;
+  if (stage === "validate") {
+    return validation.observedAt || pr.checksAt
+      || (profileEvidenceSatisfied && isTimestamp(node.completedAt) ? node.completedAt : null);
+  }
   if (stage === "implement") {
     return git.commits.map((commit) => commit.authoredAt)
       .sort((left, right) => Date.parse(left) - Date.parse(right))[0] || null;
@@ -309,6 +310,7 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   const recordedEvidence = new Set(Array.isArray(node.completionEvidence) ? node.completionEvidence : []);
   const profileEvidenceSatisfied = requiredEvidence.length > 0
     && requiredEvidence.every((item) => recordedEvidence.has(item));
+  const profileCompletionSatisfied = !repositoryMerge && nodeClosed && profileEvidenceSatisfied;
   const stableEvidenceAt = repositoryMerge && pullRequest.merged && pullRequest.checks === "green" && nodeClosed
     ? [pullRequest.mergedAt, pullRequest.checksAt, node.completedAt]
       .filter(isTimestamp)
@@ -318,8 +320,13 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
     ? new Date(Date.parse(stableEvidenceAt) + policy.postMergeStabilitySeconds * 1000).toISOString()
     : null;
   const stable = repositoryMerge
-    ? isTimestamp(stableAt) && Date.parse(stableAt) <= Date.parse(now)
-    : nodeClosed && profileEvidenceSatisfied;
+    && isTimestamp(stableAt) && Date.parse(stableAt) <= Date.parse(now);
+  const profileGateId = {
+    artifact: "artifact-evidence-recorded",
+    "external-operation": "external-operation-evidence-recorded",
+    "human-decision": "recorded-decision-and-disposition-evidence",
+    custom: "custom-profile-evidence-recorded"
+  }[node.completionProfile?.type] || "profile-evidence-recorded";
   const gates = repositoryMerge ? [
     { id: "plan-recorded", passed: true },
     { id: "implementation-evidence", passed: git.commits.length > 0 },
@@ -328,7 +335,7 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
     { id: "merged-green-closed-and-stable", passed: stable }
   ] : [
     { id: "plan-recorded", passed: true },
-    { id: "required-profile-evidence-recorded", passed: profileEvidenceSatisfied },
+    { id: profileGateId, passed: profileEvidenceSatisfied },
     { id: "node-closed", passed: nodeClosed }
   ];
   let stage = "plan";
@@ -337,7 +344,15 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   if (repositoryMerge && pullRequest.exists) stage = "pr";
   if (repositoryMerge && pullRequest.merged) stage = "merged";
   if (stable) stage = "post-merge-stable";
-  const stageEnteredAt = stageEntryFor(stage, node, git, pullRequest, validation, stableAt);
+  const stageEnteredAt = stageEntryFor(
+    stage,
+    node,
+    git,
+    pullRequest,
+    validation,
+    stableAt,
+    !repositoryMerge && profileEvidenceSatisfied
+  );
   const stageAgeSeconds = secondsBetween(now, stageEnteredAt);
   const evidence = [
     ...git.commits.map((commit) => ({
@@ -360,7 +375,7 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   const latest = lastEvidence(evidence);
   const positiveEvidenceRecent = latest
     && secondsBetween(now, latest.at) <= policy.quietAfterSeconds;
-  const laneState = stable
+  const laneState = stable || profileCompletionSatisfied
     ? "completion evidence satisfied"
     : positiveEvidenceRecent
       ? "changing evidence"
@@ -402,6 +417,7 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
     nodeClosed,
     repositoryMerge,
     stable,
+    profileCompletionSatisfied,
     attention,
     node
   };

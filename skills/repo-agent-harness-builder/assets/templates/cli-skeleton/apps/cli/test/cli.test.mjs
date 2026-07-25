@@ -3979,6 +3979,84 @@ fixtureTest("orchestration report renders quiet cause unknown and stage-age atte
   assert.doesNotMatch(text, /mtime/i);
 });
 
+fixtureTest("orchestration report and reconcile require a private live registry unless --example is explicit", async () => {
+  const report = capture();
+  assert.equal(await main(["orchestration", "report"], report.io), 1);
+  const reportText = report.out.join("\n");
+  assert.match(reportText, /mode: "read-only"/);
+  assert.match(reportText, /authority: "none"/);
+  assert.match(reportText, /missing local:default\/default/);
+  assert.doesNotMatch(reportText, /ops\/orchestration\.example\.json/);
+
+  const reconcile = capture();
+  assert.equal(await main(["orchestration", "reconcile"], reconcile.io), 1);
+  const reconcileText = reconcile.out.join("\n");
+  assert.match(reconcileText, /mode: "read-only"/);
+  assert.match(reconcileText, /authority: "none"/);
+  assert.match(reconcileText, /missing local:default\/default/);
+  assert.doesNotMatch(reconcileText, /ops\/orchestration\.example\.json/);
+});
+
+fixtureTest("orchestration reporting keeps non-merge completion in profile gates and lane state", () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.terminalDisposition = "completed";
+  manager.completedAt = "2026-07-10T11:59:30Z";
+  manager.completionProfile = { type: "artifact", requiredEvidence: ["artifact:accepted"] };
+  manager.completionEvidence = ["artifact:accepted"];
+  const worker = registry.nodes.find((node) => node.id === "worker-research");
+  worker.state = "terminal";
+  worker.terminalDisposition = "completed";
+  worker.completedAt = "2026-07-10T11:59:30Z";
+  worker.completionProfile = {
+    type: "human-decision",
+    requiredEvidence: ["recorded human decision", "downstream disposition"]
+  };
+  worker.completionEvidence = ["recorded human decision", "downstream disposition"];
+  const report = collectOrchestrationReport(registry, {
+    observationRunner: () => ({ ok: false, status: 1, stdout: "" }),
+    now: "2026-07-10T12:00:00Z"
+  });
+  const artifact = report.allNodeReports.find((lane) => lane.id === "manager-docs");
+  const decision = report.allNodeReports.find((lane) => lane.id === "worker-research");
+  for (const lane of [artifact, decision]) {
+    assert.equal(lane.stage, "validate");
+    assert.equal(lane.laneState, "completion evidence satisfied");
+    assert.equal(lane.stable, false);
+    assert.equal(lane.profileCompletionSatisfied, true);
+  }
+  assert.ok(artifact.gates.some((gate) => gate.id === "artifact-evidence-recorded" && gate.passed));
+  assert.ok(decision.gates.some((gate) => gate.id === "recorded-decision-and-disposition-evidence" && gate.passed));
+});
+
+fixtureTest("orchestration reporting matches configured Git authors exactly including case", () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.stageTracking = {
+    stage: "implement",
+    enteredAt: "2026-07-10T11:00:00Z",
+    gitBaseRef: "origin/main",
+    gitHeadRef: "RA/report-lane",
+    pullRequestNumber: null,
+    validationRunId: null
+  };
+  registry.reportingPolicy = orchestrationReportingPolicy();
+  const report = collectOrchestrationReport(registry, {
+    observationRunner: (command) => command === "git"
+      ? {
+          ok: true,
+          status: 0,
+          stdout: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t2026-07-10T11:30:00Z\tcodex agent\tother@example.invalid"
+        }
+      : { ok: false, status: 1, stdout: "" },
+    now: "2026-07-10T12:00:00Z"
+  });
+  const lane = report.allNodeReports.find((candidate) => candidate.id === "manager-docs");
+  assert.equal(lane.agentCommits, 0);
+  assert.equal(lane.humanCommits, 1);
+});
+
 fixtureTest("orchestration reconcile is read-only and hard-errors terminal repository-merge claims without observed merge", async () => {
   const registry = validOrchestrationRegistry();
   registry.reportingPolicy = orchestrationReportingPolicy();

@@ -3016,6 +3016,9 @@ function validateRegistry(registry) {
         blockers.push(`${label}: completionProfile.type must name a supported profile`);
       } else if (!isStringArray(node.completionProfile.requiredEvidence, { nonEmpty: true })) {
         blockers.push(`${label}: completionProfile.requiredEvidence must be non-empty`);
+      } else if (node.completionProfile.type !== "repository-merge"
+        && ["pr", "merged", "post-merge-stable"].includes(node.stageTracking?.stage)) {
+        blockers.push(`${label}: stageTracking may use pr, merged, or post-merge-stable only for repository-merge completion`);
       }
     }
     if (node.state === "terminal") {
@@ -3129,8 +3132,8 @@ function printHelp(io) {
   io.stdout("  trust              Show the T0-T5 trust ladder and inheritance rules");
   io.stdout("  validate           Validate registry structure, state, trust, and authority");
   io.stdout("  liveness           Show progress, retry, and recovery-loop posture");
-  io.stdout("  report             Compute the live per-lane report without storing observations");
-  io.stdout("  reconcile          Diff registry claims from observations; propose transitions only");
+  io.stdout("  report             Compute a private-live per-lane report without storing observations");
+  io.stdout("  reconcile          Diff private-live claims from observations; propose transitions only");
   io.stdout("  directives         Show governed direct owner instructions and reconciliation state");
   io.stdout("  next               List dependency-eligible nodes");
   io.stdout("  prompt boss        Print a bounded Boss prompt");
@@ -3138,6 +3141,7 @@ function printHelp(io) {
   io.stdout("  launch-spec <id>   Print a JSON task-creation contract for a client adapter");
   io.stdout("");
   io.stdout("init and migrate only create a private 0600 local instance; all other commands are read-only and no command creates tasks or mutates external systems.");
+  io.stdout("report and reconcile require a selected private live instance; --example explicitly inspects the tracked inactive contract offline.");
   io.stdout("--example forces status, validate, adapter-status, taxonomy, liveness, report, or reconcile to inspect the tracked inactive example without resolving private runtime state.");
   io.stdout("Use --operator/--instance for orchestration commands or REPO_ORCHESTRATION_OPERATOR/REPO_ORCHESTRATION_INSTANCE for composing facades; raw state paths are unsupported.");
 }
@@ -3600,10 +3604,12 @@ function runStatus(io) {
 }
 
 function runReport(io, options = {}) {
-  const loaded = loadRegistry();
+  const loaded = loadRegistry({ liveRequired: !selectedTrackedExample });
   if (!loaded.exists || loaded.error) {
     io.stdout("orchestration_report:");
     io.stdout('  mode: "read-only"');
+    io.stdout('  authority: "none"');
+    io.stdout('  observations_cached: false');
     io.stdout(`  registry: ${toonString(registryLabel(loaded))}`);
     io.stdout(`  error: ${toonString(loaded.error || `missing ${registryLabel(loaded)}`)}`);
     return 1;
@@ -3612,6 +3618,8 @@ function runReport(io, options = {}) {
   if (findings.blockers.length) {
     io.stdout("orchestration_report:");
     io.stdout('  mode: "read-only"');
+    io.stdout('  authority: "none"');
+    io.stdout('  observations_cached: false');
     io.stdout(`  registry: ${toonString(registryLabel(loaded))}`);
     printFindings(io, findings);
     return 1;
@@ -3627,7 +3635,7 @@ function runReport(io, options = {}) {
 }
 
 function runReconcile(io, options = {}) {
-  const loaded = loadRegistry();
+  const loaded = loadRegistry({ liveRequired: !selectedTrackedExample });
   if (!loaded.exists || loaded.error) {
     io.stdout("orchestration_reconcile:");
     io.stdout('  mode: "read-only"');

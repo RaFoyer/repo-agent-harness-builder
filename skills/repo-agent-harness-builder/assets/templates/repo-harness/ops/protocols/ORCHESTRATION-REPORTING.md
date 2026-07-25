@@ -29,6 +29,9 @@ Phase 1 is observation-only:
 - `./{{CLI_NAME}} orchestration report` computes the current lane table.
 - `./{{CLI_NAME}} orchestration reconcile` diffs registry claims from current
   observations and prints proposed governed transitions.
+- Normal `report` and `reconcile` require a selected private live registry and
+  fail closed when it is absent. `--example` is the explicit offline inspection
+  path for the tracked contract.
 - Neither command writes the registry, tracker, GitHub, task state, a cache, or
   any other system. They carry no apply flag and grant no authority.
 - No daemon or polling writer belongs to this reporting layer.
@@ -106,6 +109,11 @@ Stage observations are monotonic facts, not task activity guesses:
 - `post-merge-stable`: the PR is merged, checks are green, the registry node is
   closed with completed disposition, and the configured cooldown elapsed
 
+Those canonical lifecycle labels are reserved for repository-merge profiles.
+Artifact, human-decision, external-operation, and custom profiles use their
+own required-evidence and closed-node objective gates; completed profile work
+is shown through lane state and gates, never as merged or post-merge-stable.
+
 The lane-state vocabulary is deliberately small:
 
 - `changing evidence`: recent positive evidence exists
@@ -118,9 +126,10 @@ blocker, failed check, exhausted measurable budget, stage-age breach, or WIP
 breach appears in the attention list while the evidence-derived lane state
 remains honest.
 
-Git attribution uses commit author name and email. Report agent and human
-counts separately. Do not assign a cause to unattributed GitHub events, and do
-not use aggregate activity to claim that an agent lane advanced.
+Git attribution uses exact, case-sensitive commit author name and email
+matches. Report agent and human counts separately. Do not assign a cause to
+unattributed GitHub events, and do not use aggregate activity to claim that an
+agent lane advanced.
 
 ## Reconciliation Rules
 
