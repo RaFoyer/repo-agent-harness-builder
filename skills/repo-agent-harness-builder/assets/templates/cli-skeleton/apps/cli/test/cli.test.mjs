@@ -14,6 +14,7 @@ import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index
 import {
   materializeCodexTask,
   materializedWorkContractHash,
+  runOrchestration,
   taskBindingAttestationPayload,
   taskBindingLegacyAttestationDigest
 } from "../src/orchestration/index.mjs";
@@ -142,6 +143,31 @@ function orchestrationControlLoopPolicy() {
       requireAdmissionClosure: true,
       unmanagedStartBehavior: "block-recovery"
     }
+  };
+}
+
+function orchestrationReportingPolicy(overrides = {}) {
+  return {
+    quietAfterSeconds: 43_200,
+    postMergeStabilitySeconds: 172_800,
+    terminalVisibilitySeconds: 3_600,
+    stageBudgetsSeconds: {
+      plan: 86_400,
+      implement: 259_200,
+      validate: 86_400,
+      pr: 172_800,
+      merged: 172_800,
+      "post-merge-stable": 604_800
+    },
+    wipLimits: {
+      maxConcurrentLanes: 6,
+      maxOpenPullRequests: 12
+    },
+    agentAuthors: {
+      names: ["Codex Agent"],
+      emails: ["codex@example.invalid"]
+    },
+    ...overrides
   };
 }
 
@@ -3822,6 +3848,220 @@ fixtureTest("schema-v5 Firstmate readiness accepts an explicitly optional unmate
   assert.equal(await main(["orchestration", "adapter-status"], status.io), 0, status.err.join("\n"));
   assert.match(status.out.join("\n"), /orchestration_active: true/);
   assert.match(status.out.join("\n"), /activation_ready: true/);
+});
+
+fixtureTest("orchestration report derives stable completion, gate counts, attribution, WIP, and quota without writes", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.reportingPolicy = orchestrationReportingPolicy({
+    terminalVisibilitySeconds: 31_536_000
+  });
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "completed";
+  manager.completedAt = "2026-07-01T12:06:00Z";
+  manager.completionProfile = {
+    type: "repository-merge",
+    requiredEvidence: ["pr:42", "check:green"]
+  };
+  manager.completionEvidence = ["pr:42", "check:green"];
+  manager.stageTracking = {
+    stage: "merged",
+    enteredAt: "2026-07-01T12:00:00Z",
+    gitBaseRef: "origin/main",
+    gitHeadRef: "RA/report-lane",
+    pullRequestNumber: 42,
+    validationRunId: "run-report-42"
+  };
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+  const registryPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances", "default.json");
+  const before = fs.readFileSync(registryPath, "utf-8");
+  const calls = [];
+  const observationRunner = (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return {
+        ok: true,
+        status: 0,
+        stdout: JSON.stringify({
+          number: 42,
+          state: "MERGED",
+          isDraft: false,
+          mergedAt: "2026-07-01T12:00:00Z",
+          createdAt: "2026-06-30T12:00:00Z",
+          updatedAt: "2026-07-01T12:05:00Z",
+          statusCheckRollup: [
+            { name: "test", conclusion: "SUCCESS", completedAt: "2026-07-01T12:04:00Z" },
+            { name: "lint", conclusion: "SUCCESS", completedAt: "2026-07-01T12:05:00Z" }
+          ],
+          url: "https://github.com/example/repo/pull/42"
+        })
+      };
+    }
+    if (command === "gh" && args[0] === "pr" && args[1] === "list") {
+      return { ok: true, status: 0, stdout: "[]\n" };
+    }
+    if (command === "git") {
+      return {
+        ok: true,
+        status: 0,
+        stdout: [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t2026-06-29T10:00:00Z\tCodex Agent\tcodex@example.invalid",
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t2026-06-29T11:00:00Z\tHuman Engineer\thuman@example.invalid"
+        ].join("\n")
+      };
+    }
+    if (command === "no-mistakes" && args.includes("--run")) {
+      return {
+        ok: true,
+        status: 0,
+        stdout: 'outcome: "checks-passed"\ncompleted_at: "2026-07-01T12:05:00Z"\n'
+      };
+    }
+    if (command === "no-mistakes") {
+      return { ok: true, status: 0, stdout: "quota_remaining: 17\n" };
+    }
+    return { ok: false, status: 1, stdout: "" };
+  };
+  const report = capture();
+  assert.equal(await runOrchestration(["report"], report.io, {
+    observationRunner,
+    now: "2026-07-10T12:00:00Z"
+  }), 0, report.out.concat(report.err).join("\n"));
+  const text = report.out.join("\n");
+  assert.match(text, /mode: "read-only"/);
+  assert.match(text, /authority: "none"/);
+  assert.match(text, /observations_cached: false/);
+  assert.match(text, /"manager-docs","DOCS-4","terminal","completion evidence satisfied","post-merge-stable"/);
+  assert.match(text, /,5,5,0,/);
+  assert.match(text, /,1,1,"#42","green",true,/);
+  assert.match(text, /"open-pull-requests",true,0,12,"within-or-unconfigured"/);
+  assert.match(text, /"agent-provider-quota",true,"available",-1,-1,17/);
+  assert.equal(fs.readFileSync(registryPath, "utf-8"), before);
+  assert.ok(calls.every(([command, action]) => (
+    command === "git"
+    || (command === "gh" && action === "pr")
+    || (command === "no-mistakes" && action === "axi")
+  )));
+});
+
+fixtureTest("orchestration report renders quiet cause unknown and stage-age attention without mtime inference", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.reportingPolicy = orchestrationReportingPolicy({
+    stageBudgetsSeconds: { plan: 60 }
+  });
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.stageTracking = {
+    stage: "plan",
+    enteredAt: "2026-07-01T00:00:00Z",
+    gitBaseRef: null,
+    gitHeadRef: null,
+    pullRequestNumber: null,
+    validationRunId: null
+  };
+  writeOrchestrationRegistry(registry);
+  const observationRunner = (command, args) => {
+    if (command === "gh" && args[1] === "list") return { ok: true, status: 0, stdout: "[]\n" };
+    return { ok: false, status: 1, stdout: "" };
+  };
+  const report = capture();
+  assert.equal(await runOrchestration(["report"], report.io, {
+    observationRunner,
+    now: "2026-07-02T00:00:01Z"
+  }), 0, report.out.concat(report.err).join("\n"));
+  const text = report.out.join("\n");
+  assert.match(text, /"quiet, cause unknown"/);
+  assert.match(text, /"plan","2026-07-01T00:00:00Z",86401,60/);
+  assert.match(text, /stage-age-exceeded/);
+  assert.doesNotMatch(text, /mtime/i);
+});
+
+fixtureTest("orchestration reconcile is read-only and hard-errors terminal repository-merge claims without observed merge", async () => {
+  const registry = validOrchestrationRegistry();
+  registry.reportingPolicy = orchestrationReportingPolicy();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.taskId = "task-manager-docs";
+  manager.parentTaskId = "task-boss";
+  manager.terminalDisposition = "completed";
+  manager.completedAt = "2026-07-10T11:59:30Z";
+  manager.completionProfile = {
+    type: "repository-merge",
+    requiredEvidence: ["pr:42", "check:green"]
+  };
+  manager.completionEvidence = ["pr:42", "check:green"];
+  manager.stageTracking = {
+    stage: "post-merge-stable",
+    enteredAt: "2026-07-09T12:00:00Z",
+    gitBaseRef: null,
+    gitHeadRef: null,
+    pullRequestNumber: 42,
+    validationRunId: null
+  };
+  manager.taskBinding = taskBindingForTest(registry, manager);
+  writeOrchestrationRegistry(registry);
+  const registryPath = path.join(repoRoot, ".git", "repo-agent-harness", "orchestration", "operators", "default", "instances", "default.json");
+  const before = fs.readFileSync(registryPath, "utf-8");
+  const observationRunner = (command, args) => {
+    if (command === "gh" && args[0] === "pr" && args[1] === "list") {
+      return { ok: true, status: 0, stdout: "[]\n" };
+    }
+    return { ok: false, status: 1, stdout: "" };
+  };
+  const reconcile = capture();
+  assert.equal(await runOrchestration(["reconcile"], reconcile.io, {
+    observationRunner,
+    now: "2026-07-10T12:00:00Z"
+  }), 1);
+  const text = reconcile.out.join("\n");
+  assert.match(text, /mode: "read-only"/);
+  assert.match(text, /authority: "none"/);
+  assert.match(text, /applied: 0/);
+  assert.match(text, /registry claims terminal without merge evidence/);
+  assert.match(text, /proposed_governed_transition/);
+  assert.equal(fs.readFileSync(registryPath, "utf-8"), before);
+});
+
+fixtureTest("orchestration reporting schema is additive and rejects unsupported authority-like controls", async () => {
+  const backwardCompatible = validOrchestrationRegistry();
+  writeOrchestrationRegistry(backwardCompatible);
+  const legacyValidation = capture();
+  assert.equal(await main(["orchestration", "validate"], legacyValidation.io), 0, legacyValidation.out.concat(legacyValidation.err).join("\n"));
+
+  const invalid = validOrchestrationRegistry();
+  invalid.reportingPolicy = {
+    ...orchestrationReportingPolicy(),
+    autoApply: true
+  };
+  invalid.nodes.find((node) => node.id === "manager-docs").stageTracking = {
+    stage: "done",
+    enteredAt: "not-a-timestamp"
+  };
+  writeOrchestrationRegistry(invalid);
+  const validation = capture();
+  assert.equal(await main(["orchestration", "validate"], validation.io), 1);
+  const text = validation.out.join("\n");
+  assert.match(text, /reportingPolicy contains unsupported fields: autoApply/);
+  assert.match(text, /stageTracking\.stage must be one of/);
+  assert.match(text, /stageTracking\.enteredAt must be a UTC RFC3339 timestamp/);
+});
+
+fixtureTest("tracked orchestration report and reconcile remain offline inspection commands", async () => {
+  const report = capture();
+  assert.equal(await main(["orchestration", "report", "--example"], report.io), 0, report.out.concat(report.err).join("\n"));
+  const reportText = report.out.join("\n");
+  assert.match(reportText, /mode: "read-only"/);
+  assert.match(reportText, /registry: "ops\/orchestration\.example\.json"/);
+  assert.match(reportText, /"agent-provider-quota",false,"not-inspected"/);
+
+  const reconcile = capture();
+  assert.equal(await main(["orchestration", "reconcile", "--example"], reconcile.io), 0, reconcile.out.concat(reconcile.err).join("\n"));
+  const reconcileText = reconcile.out.join("\n");
+  assert.match(reconcileText, /applied: 0/);
+  assert.match(reconcileText, /hard_errors\[0\]/);
+  assert.match(reconcileText, /discrepancies\[\d+\]/);
 });
 
 fixtureTest("orchestration supports non-ticket artifact and decision work through one hierarchy", async () => {

@@ -25,6 +25,7 @@ REQUIRED_PROTOCOLS = [
     "GOAL-GRAPH.md",
     "GOAL-CHAIN.md",
     "AGENT-ORCHESTRATION.md",
+    "ORCHESTRATION-REPORTING.md",
     "CODEX-NATIVE-FIRSTMATE.md",
     "QA-BROWSER.md",
     "PRIVILEGED-DOCUMENTS.md",
@@ -54,6 +55,8 @@ COMMAND_SMOKE_TESTS = [
     ["orchestration", "status", "--example"],
     ["orchestration", "validate", "--example"],
     ["orchestration", "liveness", "--example"],
+    ["orchestration", "report", "--example"],
+    ["orchestration", "reconcile", "--example"],
     ["orchestration", "adapter-status", "--example"],
     ["orchestration", "taxonomy", "--example"],
     ["design", "status"],
@@ -102,6 +105,7 @@ TRACKED_EXAMPLE_NULLABLE_RUNTIME_NODE_FIELDS = {
     "completionEvidence",
     "completedAt",
     "trustApproval",
+    "stageTracking",
 }
 TRACKED_EXAMPLE_AUTHORITY_FIELDS = {
     "allowedReads",
@@ -307,6 +311,7 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         "clientAdapter",
         "trustPolicy",
         "controlLoopPolicy",
+        "reportingPolicy",
         "nodes",
         "ownerDirectives",
         "extensions",
@@ -431,6 +436,53 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
         limits = trust_policy.get("limits")
         if not isinstance(limits, dict) or set(limits) - {"maxActiveNodes", "maxDelegationDepth"}:
             errors.append(f"orchestration example trustPolicy.limits contains unsupported fields: {label}")
+    reporting_policy = registry.get("reportingPolicy")
+    expected_reporting_fields = {
+        "quietAfterSeconds",
+        "postMergeStabilitySeconds",
+        "terminalVisibilitySeconds",
+        "stageBudgetsSeconds",
+        "wipLimits",
+        "agentAuthors",
+    }
+    expected_report_stages = {
+        "plan", "implement", "validate", "pr", "merged", "post-merge-stable"
+    }
+    if not isinstance(reporting_policy, dict) or set(reporting_policy) != expected_reporting_fields:
+        errors.append(f"orchestration example must configure the complete read-only reporting policy: {label}")
+    else:
+        for field in ("quietAfterSeconds", "postMergeStabilitySeconds", "terminalVisibilitySeconds"):
+            value = reporting_policy.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 31_536_000:
+                errors.append(f"orchestration example reportingPolicy.{field} must be a bounded positive integer: {label}")
+        stage_budgets = reporting_policy.get("stageBudgetsSeconds")
+        if (
+            not isinstance(stage_budgets, dict)
+            or set(stage_budgets) != expected_report_stages
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 31_536_000
+                for value in stage_budgets.values()
+            )
+        ):
+            errors.append(f"orchestration example must configure a positive budget for every report stage: {label}")
+        wip_limits = reporting_policy.get("wipLimits")
+        if (
+            not isinstance(wip_limits, dict)
+            or set(wip_limits) != {"maxConcurrentLanes", "maxOpenPullRequests"}
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10_000
+                for value in wip_limits.values()
+            )
+        ):
+            errors.append(f"orchestration example must configure bounded lane and PR WIP limits: {label}")
+        agent_authors = reporting_policy.get("agentAuthors")
+        if (
+            not isinstance(agent_authors, dict)
+            or set(agent_authors) != {"names", "emails"}
+            or not is_string_array(agent_authors.get("names"))
+            or not is_string_array(agent_authors.get("emails"))
+        ):
+            errors.append(f"orchestration example agentAuthors must contain name and email arrays: {label}")
     control_loop_policy = registry.get("controlLoopPolicy")
     if schema_version == 5:
         expected_control_loop_fields = {
@@ -593,6 +645,22 @@ def validate_skill_composition(target: Path, errors: list[str]) -> None:
             "missing required project-local skills",
             "codex-native-firstmate-at-most-once-v1",
             "materializeCodexTaskWithBroker",
+            "runReconcile",
+            "collectOrchestrationReport",
+        ],
+        "apps/cli/src/orchestration/report.mjs": [
+            "quiet, cause unknown",
+            "registry claims terminal without merge evidence",
+            "post-merge-stable",
+            "agent-provider-quota",
+            'mode: "read-only"',
+            "applied: 0",
+        ],
+        "ops/protocols/ORCHESTRATION-REPORTING.md": [
+            "orchestration report",
+            "orchestration reconcile",
+            "Positive-Evidence Semantics",
+            "Phase 1 never applies a transition",
         ],
         "apps/cli/src/orchestration/codex-materialization-broker.mjs": [
             "materializeCodexTaskWithBroker",
@@ -769,6 +837,7 @@ def main() -> int:
         "apps/cli/src/ergonomics/index.mjs",
         "apps/cli/src/goals/index.mjs",
         "apps/cli/src/orchestration/index.mjs",
+        "apps/cli/src/orchestration/report.mjs",
         "apps/cli/src/orchestration/codex-materialization-broker.mjs",
         "apps/cli/src/lavish/index.mjs",
         "apps/cli/src/no-mistakes/index.mjs",

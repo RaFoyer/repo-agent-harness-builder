@@ -2,7 +2,7 @@
 protocol_id: AGENT-ORCHESTRATION
 title: Agent Orchestration
 status: inactive
-version: 0.4.0
+version: 0.5.0
 owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines project-wide Boss, Manager, and Worker coordination with explicit trust, authority, state, and evidence boundaries.
@@ -11,6 +11,7 @@ related_protocols:
   - CLI-INTERFACE
   - CODEX-NATIVE-FIRSTMATE
   - GOAL-GRAPH
+  - ORCHESTRATION-REPORTING
   - PROJECT-TRACKING
 ---
 
@@ -30,6 +31,10 @@ Provide one agent-agnostic control plane for structured work across the whole pr
 - The canonical tracker or approved project record owns work scope and acceptance criteria when one exists.
 - Domain protocols own domain-specific completion evidence, such as PR merges, published documents, approved decisions, or verified external operations.
 - Markdown ledgers and task titles are human-readable views. They do not override the registry.
+- `reportingPolicy` and live-node `stageTracking` are additive reporting
+  claims. `ORCHESTRATION-REPORTING.md` defines their read-only registry ×
+  observation join and reconciliation semantics. Reports are never a second
+  state store.
 
 The tracker work graph, private orchestration graph, client task graph, and evidence graph are related but distinct. Tracker movement does not bind a task; a Codex task ID does not redefine shared scope; a PR or artifact proves an outcome but does not replace lifecycle reconciliation.
 
@@ -84,6 +89,12 @@ the client task is unmaterialized. A logical Manager keeps a null
 `parentTaskId`, and that null is sealed into its binding so materializing the
 Boss later does not invalidate or reparent it. Workers always use `task`
 parent binding and therefore require a task-backed immediate parent.
+
+Schema versions 2 through 5 may also carry the additive optional
+`reportingPolicy` root object and optional live-node `stageTracking` object.
+Their absence remains valid for backward compatibility. Report and reconcile
+surface unknown fields or proposed initialization; they never rewrite an older
+instance as a side effect.
 
 Every node records:
 
@@ -224,7 +235,11 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 6. Inspect a bounded prompt with `orchestration prompt <node-id>`, then emit `orchestration launch-spec <node-id>` when a client is authorized to create the task.
 7. Use the client adapter handshake and record the created task ID and, for task-bound children, the immediate parent task ID before implementation begins. A schema-v5 logical Manager records a null parent task ID.
 8. Keep node state, next action or blocker, and evidence current.
-9. Update the evidence fingerprint only when Git, tracker, child, PR, check,
+9. Run `orchestration report` on each heartbeat cadence and annotate its
+   computed facts with judgment. Run `orchestration reconcile` to inspect
+   discrepancies and proposed governed transitions. Both commands are
+   read-only; phase 1 has no apply mode or transition authority.
+10. Update the evidence fingerprint only when Git, tracker, child, PR, check,
    external-operation, or completion evidence materially changes. Increment
    unchanged or same-failure counters otherwise. Bind each failure to the
    precondition observed with it; after the current precondition changes,
@@ -232,9 +247,9 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
    project-owner or active immediate-parent liveness owner, append a complete
    hash-linked observation using a registry-revision and prior-receipt-hash
    compare-and-set. Never replace, truncate, or reinitialize the receipt chain.
-10. At budget exhaustion, block and return control to the immediate parent.
+11. At budget exhaustion, block and return control to the immediate parent.
     Retry only after recording a changed precondition.
-11. Before any shared-runtime recovery, create a private receipt with the
+12. Before any shared-runtime recovery, create a private receipt with the
     preserved active run/head set and compare a second fingerprint immediately
     before action. Before the first snapshot, use an authority keyed to a stable
     runtime scope outside project registries to close new-run admission and
@@ -258,8 +273,8 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
     same authority during terminal reconciliation. Future, stale, changed, or
     delayed-start receipts abort and replan. A project registry alone never
     acts as a machine-wide runtime lock.
-12. Let the immediate parent accept, return, block, or fan in the result.
-13. Promote trust only from recorded evidence; reconcile terminal nodes before archive.
+13. Let the immediate parent accept, return, block, or fan in the result.
+14. Promote trust only from recorded evidence; reconcile terminal nodes before archive.
 
 ## CLI Support
 
@@ -272,6 +287,8 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration trust
 ./{{CLI_NAME}} orchestration validate [--example]
 ./{{CLI_NAME}} orchestration liveness [--example]
+./{{CLI_NAME}} orchestration report [--example]
+./{{CLI_NAME}} orchestration reconcile [--example]
 ./{{CLI_NAME}} orchestration directives
 ./{{CLI_NAME}} orchestration adapter-status [--example]
 ./{{CLI_NAME}} orchestration taxonomy [--example]
@@ -281,7 +298,7 @@ The profile determines terminal evidence. `completionEvidence` must contain ever
 ./{{CLI_NAME}} orchestration launch-spec <node-id>
 ```
 
-`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `liveness`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
+`init` and `migrate` only create a named private `0600` instance and refuse to overwrite one. All other commands are read-only. No orchestration command creates tasks, updates trackers, merges, deploys, schedules, or sends messages. Select instances with safe `--operator` and `--instance` names, or `REPO_ORCHESTRATION_OPERATOR` and `REPO_ORCHESTRATION_INSTANCE` when another facade composes with orchestration; never accept a raw state path. Use `--example` with `status`, `validate`, `liveness`, `report`, `reconcile`, `adapter-status`, or `taxonomy` when verifying the portable tracked contract. It deliberately bypasses private-instance resolution and ambient instance selectors, cannot be combined with a named selector, and cannot drive operational commands.
 
 When the opt-in Codex-native profile is relevant, inspect the portable
 baseline with `./{{CLI_NAME}} orchestration adapter-status --example`, preview

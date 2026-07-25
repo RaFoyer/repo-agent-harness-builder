@@ -30,6 +30,7 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Handling secrets or credentials | `ops/protocols/SECRETS.md` if present |
 | Planning automations, loops, or heartbeats | `ops/protocols/AUTOMATIONS.md` |
 | Structuring any project work as Boss/Manager/Worker delegation | `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} orchestration status --example` and `orchestration liveness --example` for portable-contract inspection |
+| Computing a Manager/Boss/fleet heartbeat or reconciling registry claims with current evidence | `ops/protocols/ORCHESTRATION-REPORTING.md`, `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} orchestration report` and `orchestration reconcile` |
 | Handling a direct project-owner instruction in hybrid orchestration | `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} orchestration directives` |
 | Configuring or operating the opt-in Codex-native Firstmate Boss profile, including at-most-once task materialization, exact readback/attestation/activation, and Boss/Manager pin and terminal-unpin lifecycle | `ops/protocols/AGENT-ORCHESTRATION.md`, `ops/protocols/CODEX-NATIVE-FIRSTMATE.md`, then `./{{CLI_NAME}} orchestration adapter-status --example` and `orchestration taxonomy --example` for portable-contract inspection |
 | Planning ticket-backed implementation dependency graphs or strict linear chains | `ops/protocols/GOAL-GRAPH.md`, `ops/protocols/AGENT-ORCHESTRATION.md`, then `./{{CLI_NAME}} goals status` |

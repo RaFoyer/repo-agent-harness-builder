@@ -71,7 +71,8 @@ Core commands:
   github plan          Show one GitHub profile's authority and isolation plan
   github run           Run classified gh-axi commands through an isolated profile
   orchestration status Summarize project-wide structured delegation
-                       Use --example with status, validate, liveness, adapter-status, or taxonomy
+                       Use --example with status, validate, liveness, report, reconcile,
+                       adapter-status, or taxonomy
                        to inspect only the tracked inactive contract
   orchestration instances
                        List named private orchestration instances
@@ -87,6 +88,9 @@ Core commands:
                        Validate hierarchy, lifecycle, trust, and authority
   orchestration liveness
                        Show evidence progress, retry budgets, and recovery posture
+  orchestration report Compute the per-lane stage/evidence table from current observations
+  orchestration reconcile
+                       Diff registry claims from observations and propose governed transitions
   orchestration next   List dependency-eligible work across the project
   orchestration prompt <node-id>
                        Print an adapter-ready prompt for a configured node
@@ -114,6 +118,7 @@ Safety posture:
   - no-mistakes wrappers summarize setup status without printing raw local paths
   - lavish tracker commands are proposal-first and never write to the tracker
   - lavish update defaults to --check; --apply is explicit
+  - orchestration report/reconcile are observation-only: no cache, apply mode, authority, or writes
   - orchestration init/migrate only create private 0600 instance files; other orchestration commands inspect policy/state and emit launch material; client adapters create tasks
   - GitHub execution refuses ambient global auth, cross-repository targets, unclassified commands, and authority outside the selected profile or node
   - adapter-status performs local read-only feature and asset inspection; it never configures Codex or activates orchestration
