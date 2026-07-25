@@ -448,7 +448,9 @@ def validate_orchestration_example(target: Path, errors: list[str]) -> None:
     expected_report_stages = {
         "plan", "implement", "validate", "pr", "merged", "post-merge-stable"
     }
-    if not isinstance(reporting_policy, dict) or set(reporting_policy) != expected_reporting_fields:
+    if reporting_policy is None:
+        pass
+    elif not isinstance(reporting_policy, dict) or set(reporting_policy) != expected_reporting_fields:
         errors.append(f"orchestration example must configure the complete read-only reporting policy: {label}")
     else:
         for field in ("quietAfterSeconds", "postMergeStabilitySeconds", "terminalVisibilitySeconds"):

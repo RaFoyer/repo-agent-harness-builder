@@ -18,6 +18,7 @@ import {
   taskBindingAttestationPayload,
   taskBindingLegacyAttestationDigest
 } from "../src/orchestration/index.mjs";
+import { collectOrchestrationReport, reconcileOrchestrationReport } from "../src/orchestration/report.mjs";
 import { runCommand } from "../src/util/exec.mjs";
 import { redactSecrets } from "../src/util/exec.mjs";
 import { findSecretIndicators } from "../src/util/secrets.mjs";
@@ -3936,7 +3937,7 @@ fixtureTest("orchestration report derives stable completion, gate counts, attrib
   assert.match(text, /observations_cached: false/);
   assert.match(text, /"manager-docs","DOCS-4","terminal","completion evidence satisfied","post-merge-stable"/);
   assert.match(text, /,5,5,0,/);
-  assert.match(text, /,1,1,"#42","green",true,/);
+  assert.match(text, /,1,1,true,"#42",true,"green","checks-passed",true,true,/);
   assert.match(text, /"open-pull-requests",true,0,12,"within-or-unconfigured"/);
   assert.match(text, /"agent-provider-quota",true,"available",-1,-1,17/);
   assert.equal(fs.readFileSync(registryPath, "utf-8"), before);
@@ -4022,6 +4023,49 @@ fixtureTest("orchestration reconcile is read-only and hard-errors terminal repos
   assert.match(text, /registry claims terminal without merge evidence/);
   assert.match(text, /proposed_governed_transition/);
   assert.equal(fs.readFileSync(registryPath, "utf-8"), before);
+});
+
+fixtureTest("orchestration reconcile checks terminal repository-merge claims outside Manager lanes", async () => {
+  const registry = validOrchestrationRegistry();
+  const worker = registry.nodes.find((node) => node.role === "worker");
+  worker.state = "terminal";
+  worker.terminalDisposition = "completed";
+  worker.completedAt = "2026-07-10T11:59:30Z";
+  worker.completionProfile = { type: "repository-merge", requiredEvidence: ["pr:77"] };
+  worker.completionEvidence = ["pr:77"];
+  const report = collectOrchestrationReport(registry, {
+    observationRunner: () => ({ ok: false, status: 1, stdout: "" }),
+    now: "2026-07-10T12:00:00Z"
+  });
+  const reconciliation = reconcileOrchestrationReport(report);
+  assert.deepEqual(reconciliation.hardErrors, [{
+    lane: "worker-research",
+    error: "registry claims terminal without merge evidence"
+  }]);
+});
+
+fixtureTest("orchestration reporting rejects cross-repository PR evidence and uses profile-specific gates", async () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.completionProfile = { type: "artifact", requiredEvidence: ["artifact:accepted"] };
+  manager.completionEvidence = ["artifact:accepted", "pr:other/repository#42"];
+  manager.stageTracking = { stage: "validate", enteredAt: "2026-07-01T00:00:00Z" };
+  writeOrchestrationRegistry(registry);
+  const calls = [];
+  const result = capture();
+  assert.equal(await runOrchestration(["report"], result.io, {
+    observationRunner: (command, args) => {
+      calls.push([command, ...args]);
+      return { ok: false, status: 1, stdout: "" };
+    },
+    now: "2026-07-02T00:00:00Z"
+  }), 0);
+  const text = result.out.join("\n");
+  assert.match(text, /,2,3,1,/);
+  assert.match(text, /"unconfigured",false,"unknown","unconfigured",false/);
+  assert.ok(!calls.some(([command, action, subcommand]) => (
+    command === "gh" && action === "pr" && subcommand === "view"
+  )));
 });
 
 fixtureTest("orchestration reporting schema is additive and rejects unsupported authority-like controls", async () => {

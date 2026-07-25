@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { CONFIG } from "../config.mjs";
+import { runRepositoryGithubRead } from "../github/index.mjs";
 import { toonString } from "../util/agent-output.mjs";
 
 export const REPORT_STAGES = [
@@ -33,6 +34,7 @@ function secondsBetween(later, earlier) {
 }
 
 function defaultObservationRunner(command, args, { cwd } = {}) {
+  if (command === "gh") return runRepositoryGithubRead(args);
   const env = {
     ...process.env,
     GH_PROMPT_DISABLED: "1",
@@ -100,8 +102,10 @@ function configuredPullRequestNumber(node) {
   const configured = node.stageTracking?.pullRequestNumber;
   if (Number.isSafeInteger(configured) && configured > 0) return configured;
   for (const evidence of Array.isArray(node.completionEvidence) ? node.completionEvidence : []) {
-    const match = String(evidence).match(/^pr:(?:[^#\s]+#|#)?(\d+)$/i);
-    if (match) return Number(match[1]);
+    const match = String(evidence).match(/^pr:(?:([^#\s]+)#|#)?(\d+)$/i);
+    if (match && (!match[1] || match[1].toLowerCase() === String(CONFIG.repoSlug).toLowerCase())) {
+      return Number(match[2]);
+    }
   }
   return null;
 }
@@ -185,7 +189,6 @@ function authorKind(name, email, policy) {
   const normalizedName = String(name || "").toLowerCase();
   const normalizedEmail = String(email || "").toLowerCase();
   if (names.has(normalizedName) || emails.has(normalizedEmail)) return "agent";
-  if (/\b(?:bot|codex|claude|gemini|automation)\b|\[bot\]/i.test(`${name} ${email}`)) return "agent";
   return "human";
 }
 
@@ -247,7 +250,7 @@ function openPullRequestObservation(runner, repoRoot) {
     "pr", "list",
     "--repo", CONFIG.repoSlug,
     "--state", "open",
-    "--limit", "1000",
+    "--limit", "10000",
     "--json", "number"
   ], repoRoot);
   const parsed = result.ok ? parseJson(result.stdout) : null;
@@ -299,7 +302,14 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   const validation = noMistakesObservation(node, runner, repoRoot);
   const nodeClosed = node.state === "terminal" && node.terminalDisposition === "completed";
   const validationGreen = pullRequest.checks === "green" || validation.green;
-  const stableEvidenceAt = pullRequest.merged && pullRequest.checks === "green" && nodeClosed
+  const repositoryMerge = node.completionProfile?.type === "repository-merge";
+  const requiredEvidence = Array.isArray(node.completionProfile?.requiredEvidence)
+    ? node.completionProfile.requiredEvidence
+    : [];
+  const recordedEvidence = new Set(Array.isArray(node.completionEvidence) ? node.completionEvidence : []);
+  const profileEvidenceSatisfied = requiredEvidence.length > 0
+    && requiredEvidence.every((item) => recordedEvidence.has(item));
+  const stableEvidenceAt = repositoryMerge && pullRequest.merged && pullRequest.checks === "green" && nodeClosed
     ? [pullRequest.mergedAt, pullRequest.checksAt, node.completedAt]
       .filter(isTimestamp)
       .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
@@ -307,19 +317,25 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   const stableAt = stableEvidenceAt
     ? new Date(Date.parse(stableEvidenceAt) + policy.postMergeStabilitySeconds * 1000).toISOString()
     : null;
-  const stable = isTimestamp(stableAt) && Date.parse(stableAt) <= Date.parse(now);
-  const gates = [
+  const stable = repositoryMerge
+    ? isTimestamp(stableAt) && Date.parse(stableAt) <= Date.parse(now)
+    : nodeClosed && profileEvidenceSatisfied;
+  const gates = repositoryMerge ? [
     { id: "plan-recorded", passed: true },
     { id: "implementation-evidence", passed: git.commits.length > 0 },
     { id: "validation-green", passed: validationGreen },
     { id: "pull-request-observed", passed: pullRequest.exists },
     { id: "merged-green-closed-and-stable", passed: stable }
+  ] : [
+    { id: "plan-recorded", passed: true },
+    { id: "required-profile-evidence-recorded", passed: profileEvidenceSatisfied },
+    { id: "node-closed", passed: nodeClosed }
   ];
   let stage = "plan";
   if (git.commits.length) stage = "implement";
-  if (validationGreen) stage = "validate";
-  if (pullRequest.exists) stage = "pr";
-  if (pullRequest.merged) stage = "merged";
+  if (validationGreen || (!repositoryMerge && profileEvidenceSatisfied)) stage = "validate";
+  if (repositoryMerge && pullRequest.exists) stage = "pr";
+  if (repositoryMerge && pullRequest.merged) stage = "merged";
   if (stable) stage = "post-merge-stable";
   const stageEnteredAt = stageEntryFor(stage, node, git, pullRequest, validation, stableAt);
   const stageAgeSeconds = secondsBetween(now, stageEnteredAt);
@@ -384,6 +400,7 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
     pullRequest,
     validation,
     nodeClosed,
+    repositoryMerge,
     stable,
     attention,
     node
@@ -399,6 +416,10 @@ export function collectOrchestrationReport(registry, options = {}) {
   const allLanes = (Array.isArray(registry.nodes) ? registry.nodes : [])
     .filter((node) => node?.role === "manager")
     .map((node) => laneReport(node, registry, policy, runner, repoRoot, now));
+  const allNodeReports = (Array.isArray(registry.nodes) ? registry.nodes : [])
+    .map((node) => node.role === "manager"
+      ? allLanes.find((lane) => lane.id === node.id)
+      : laneReport(node, registry, policy, runner, repoRoot, now));
   const lanes = allLanes.filter((lane) => {
     if (lane.registryState !== "terminal") return true;
     return isTimestamp(lane.node.completedAt)
@@ -470,7 +491,7 @@ export function collectOrchestrationReport(registry, options = {}) {
       lowestActor: "captain"
     }))
   ];
-  return { now, policy, lanes, allLanes, wip, budgets, attention };
+  return { now, policy, lanes, allLanes, allNodeReports, wip, budgets, attention };
 }
 
 export function renderOrchestrationReport(report, io, registryLabel) {
@@ -480,9 +501,9 @@ export function renderOrchestrationReport(report, io, registryLabel) {
   io.stdout('  observations_cached: false');
   io.stdout(`  registry: ${toonString(registryLabel)}`);
   io.stdout(`  observed_at: ${toonString(report.now)}`);
-  io.stdout(`lanes[${report.lanes.length}]{lane,work_ref,registry_state,lane_state,stage,stage_entered_at,stage_age_seconds,stage_budget_seconds,gates_passed,gates_total,gates_remaining,last_positive_evidence,evidence_at,evidence_author,agent_commits,human_commits,pr,checks,node_closed,attention}:`);
+  io.stdout(`lanes[${report.lanes.length}]{lane,work_ref,registry_state,lane_state,stage,stage_entered_at,stage_age_seconds,stage_budget_seconds,gates_passed,gates_total,gates_remaining,last_positive_evidence,evidence_at,evidence_author,agent_commits,human_commits,git_measurable,pr,pr_measurable,checks,validation_outcome,validation_measurable,node_closed,attention}:`);
   for (const lane of report.lanes) {
-    io.stdout(`  ${toonString(lane.id)},${toonString(lane.workRef)},${toonString(lane.registryState)},${toonString(lane.laneState)},${toonString(lane.stage)},${toonString(lane.stageEnteredAt || "unknown")},${lane.stageAgeSeconds},${lane.stageBudgetSeconds},${lane.gatesPassed},${lane.gatesTotal},${lane.gatesRemaining},${toonString(lane.latestEvidence?.ref || "none")},${toonString(lane.latestEvidence?.at || "unknown")},${toonString(lane.latestEvidence?.authorKind || "unknown")},${lane.agentCommits},${lane.humanCommits},${toonString(lane.pullRequest.number ? `#${lane.pullRequest.number}` : "unconfigured")},${toonString(lane.pullRequest.checks)},${lane.nodeClosed},${toonString(lane.attention.join("|") || "none")}`);
+    io.stdout(`  ${toonString(lane.id)},${toonString(lane.workRef)},${toonString(lane.registryState)},${toonString(lane.laneState)},${toonString(lane.stage)},${toonString(lane.stageEnteredAt || "unknown")},${lane.stageAgeSeconds},${lane.stageBudgetSeconds},${lane.gatesPassed},${lane.gatesTotal},${lane.gatesRemaining},${toonString(lane.latestEvidence?.ref || "none")},${toonString(lane.latestEvidence?.at || "unknown")},${toonString(lane.latestEvidence?.authorKind || "unknown")},${lane.agentCommits},${lane.humanCommits},${lane.gitMeasurable},${toonString(lane.pullRequest.number ? `#${lane.pullRequest.number}` : "unconfigured")},${lane.pullRequest.measurable},${toonString(lane.pullRequest.checks)},${toonString(lane.validation.outcome)},${lane.validation.measurable},${lane.nodeClosed},${toonString(lane.attention.join("|") || "none")}`);
   }
   if (!report.lanes.length) io.stdout('empty: "No nonterminal or recently completed Manager lanes"');
   io.stdout(`wip[${report.wip.length}]{kind,measurable,count,limit,state}:`);
@@ -502,7 +523,7 @@ export function renderOrchestrationReport(report, io, registryLabel) {
 export function reconcileOrchestrationReport(report) {
   const hardErrors = [];
   const discrepancies = [];
-  for (const lane of report.allLanes) {
+  for (const lane of report.allNodeReports) {
     if (lane.registryState === "terminal"
       && lane.node.completionProfile?.type === "repository-merge"
       && !lane.pullRequest.merged) {
@@ -511,6 +532,7 @@ export function reconcileOrchestrationReport(report) {
         error: "registry claims terminal without merge evidence"
       });
     }
+    if (lane.node.role !== "manager") continue;
     if (!isObject(lane.node.stageTracking)) {
       discrepancies.push({
         lane: lane.id,

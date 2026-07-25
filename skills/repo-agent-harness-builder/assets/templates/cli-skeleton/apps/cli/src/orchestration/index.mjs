@@ -4661,7 +4661,7 @@ export async function runOrchestration(argv, io, options = {}) {
       code: "tracked-example-inspection-only",
       command: `orchestration ${command}`,
       message: "--example is limited to read-only tracked-example inspection commands",
-      hints: [`Use --example with status, validate, liveness, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
+      hints: [`Use --example with status, validate, liveness, report, reconcile, adapter-status, or taxonomy`, `Select a named private instance for operational commands`]
     });
     return 2;
   }
