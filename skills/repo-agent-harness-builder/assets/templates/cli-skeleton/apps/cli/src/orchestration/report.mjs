@@ -323,7 +323,11 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   const stableAt = recordedStableAt || (stableEvidenceAt
     ? new Date(Date.parse(stableEvidenceAt) + policy.postMergeStabilitySeconds * 1000).toISOString()
     : null);
-  const stable = repositoryMerge
+  const stableEvidenceSatisfied = repositoryMerge
+    && pullRequest.merged
+    && pullRequest.checks === "green"
+    && nodeClosed;
+  const stable = stableEvidenceSatisfied
     && isTimestamp(stableAt) && Date.parse(stableAt) <= Date.parse(now);
   const profileGateId = {
     artifact: "artifact-evidence-recorded",

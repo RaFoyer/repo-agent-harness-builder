@@ -3,6 +3,7 @@ node_modules/
 dist/
 outputs/
 work/
+.verify-harness/
 *.zip
 *.zip.sha256
 __pycache__/
