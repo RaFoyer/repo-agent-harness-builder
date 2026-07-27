@@ -311,14 +311,18 @@ function laneReport(node, registry, policy, runner, repoRoot, now) {
   const profileEvidenceSatisfied = requiredEvidence.length > 0
     && requiredEvidence.every((item) => recordedEvidence.has(item));
   const profileCompletionSatisfied = !repositoryMerge && nodeClosed && profileEvidenceSatisfied;
+  const recordedStableAt = node.stageTracking?.stage === "post-merge-stable"
+    && isTimestamp(node.stageTracking?.enteredAt)
+    ? node.stageTracking.enteredAt
+    : null;
   const stableEvidenceAt = repositoryMerge && pullRequest.merged && pullRequest.checks === "green" && nodeClosed
     ? [pullRequest.mergedAt, pullRequest.checksAt, node.completedAt]
       .filter(isTimestamp)
       .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
     : null;
-  const stableAt = stableEvidenceAt
+  const stableAt = recordedStableAt || (stableEvidenceAt
     ? new Date(Date.parse(stableEvidenceAt) + policy.postMergeStabilitySeconds * 1000).toISOString()
-    : null;
+    : null);
   const stable = repositoryMerge
     && isTimestamp(stableAt) && Date.parse(stableAt) <= Date.parse(now);
   const profileGateId = {
@@ -560,24 +564,31 @@ export function reconcileOrchestrationReport(report) {
     } else if (lane.claimedStage !== lane.stage) {
       const claimIndex = STAGE_INDEX.get(lane.claimedStage);
       const observedIndex = STAGE_INDEX.get(lane.stage);
-      const direction = Number.isInteger(claimIndex) && Number.isInteger(observedIndex) && claimIndex > observedIndex
+      const claimAhead = Number.isInteger(claimIndex)
+        && Number.isInteger(observedIndex)
+        && claimIndex > observedIndex;
+      const direction = claimAhead
         ? "claim-ahead-of-evidence"
         : "evidence-ahead-of-claim";
       const claimEvidenceMeasurable = lane.claimedStage === "plan"
         || (lane.claimedStage === "implement" && lane.gitMeasurable)
         || (lane.claimedStage === "validate" && (lane.validation.measurable || lane.pullRequest.measurable))
         || (["pr", "merged", "post-merge-stable"].includes(lane.claimedStage) && lane.pullRequest.measurable);
-      const observationUnavailable = direction === "claim-ahead-of-evidence" && !claimEvidenceMeasurable;
+      const observationUnavailable = claimAhead && !claimEvidenceMeasurable;
       discrepancies.push({
         lane: lane.id,
         claim: `${lane.claimedStage} entered ${lane.claimedStageEnteredAt || "unknown"}`,
         observation: observationUnavailable
           ? `${lane.claimedStage} evidence source unavailable; lower observed stage is not negative evidence`
           : `${lane.stage} entered ${lane.stageEnteredAt || "unknown"} (${direction})`,
-        proposedTransition: observationUnavailable
-          ? "no transition: restore the read-only observation source and reconcile again"
+        proposedTransition: claimAhead
+          ? (observationUnavailable
+              ? "no transition: restore the read-only observation source and reconcile again"
+              : "no transition: retain the monotonic lifecycle claim and investigate the contradictory observation")
           : `governed CAS: set stageTracking to ${lane.stage} with observed entry evidence`,
-        disposition: observationUnavailable ? "observation-required" : "coordinator-review"
+        disposition: claimAhead
+          ? (observationUnavailable ? "observation-required" : "monotonic-noop")
+          : "coordinator-review"
       });
     } else if (!lane.claimedStageEnteredAt && lane.stageEnteredAt) {
       discrepancies.push({

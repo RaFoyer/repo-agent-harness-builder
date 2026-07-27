@@ -109,6 +109,14 @@ Stage observations are monotonic facts, not task activity guesses:
 - `post-merge-stable`: the PR is merged, checks are green, the registry node is
   closed with completed disposition, and the configured cooldown elapsed
 
+Lifecycle stages may move forward only. Reconciliation never proposes or
+applies a transition to an earlier stage, even when a later observation is
+missing, unavailable, or appears to contradict the recorded claim. Once
+`post-merge-stable` is established, its `stageTracking.enteredAt` value is the
+immutable stability anchor. Later checks, closures, or other unrelated evidence
+may be reported as new evidence, but they never recalculate that anchor or move
+the lane back to `merged`.
+
 Those canonical lifecycle labels are reserved for repository-merge profiles.
 Artifact, human-decision, external-operation, and custom profiles use their
 own required-evidence and closed-node objective gates; completed profile work
@@ -136,6 +144,9 @@ agent lane advanced.
 Reconciliation compares each stage claim and timestamp with the observed stage,
 then emits deterministic discrepancy records and proposed compare-and-set
 transitions for coordinator review. Phase 1 never applies a transition.
+Only evidence ahead of the recorded claim may produce a lifecycle-transition
+proposal. A claim ahead of an observation produces either an observation-source
+repair requirement or a monotonic no-op; it never produces a backward CAS.
 
 `registry claims terminal without merge evidence` is a hard error for a
 `repository-merge` completion profile. It is never treated as a safe terminal
