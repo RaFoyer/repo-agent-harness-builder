@@ -5,6 +5,7 @@ import { createHash, createPublicKey, verify as verifySignature } from "node:cry
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { CONFIG } from "../config.mjs";
+import { gitTopologyEnvironment, sanitizedGitEnvironment } from "../util/git-environment.mjs";
 import { rejectUnexpectedArgs, renderHelpBlock, renderUsageError, toonString } from "../util/agent-output.mjs";
 import {
   codexMaterializationPinDecision,
@@ -77,23 +78,6 @@ const RUNTIME_EXTENSION_FIELDS = new Set([
 ]);
 const RUNTIME_EXTENSION_FIELD_SUFFIXES = ["taskid", "taskids", "taskref", "taskrefs", "taskidentifier", "taskidentifiers", "threadid", "threadids", "threadref", "threadrefs", "threadidentifier", "threadidentifiers"];
 const RUNTIME_EXTENSION_VALUE_RE = /(?:codex:\/\/(?:tasks|threads)\/|(?:task|thread)(?:[-_ ]?(?:message|id|ref|identifier))?:)/i;
-const GIT_TOPOLOGY_OVERRIDE_ENV = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_COMMON_DIR",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_INDEX_FILE",
-  "GIT_CEILING_DIRECTORIES",
-  "GIT_DISCOVERY_ACROSS_FILESYSTEM"
-];
-const GIT_CONFIG_OVERRIDE_ENV = [
-  "GIT_CONFIG",
-  "GIT_CONFIG_GLOBAL",
-  "GIT_CONFIG_SYSTEM",
-  "GIT_CONFIG_NOSYSTEM",
-  "GIT_CONFIG_PARAMETERS"
-];
 const DIRECTIVE_KINDS = new Set(["owner-directive", "owner-intervention"]);
 const DIRECTIVE_IMPACTS = new Set(["within-contract", "replan-required"]);
 const DIRECTIVE_STATES = new Set(["issued", "acknowledged", "reconciled", "superseded", "cancelled"]);
@@ -238,23 +222,6 @@ function resolvedRepoRoot() {
   } catch (error) {
     throw new Error(`cannot resolve project root: ${error.message || "unknown error"}`);
   }
-}
-
-function sanitizedGitEnvironment() {
-  const env = { ...process.env };
-  for (const name of GIT_TOPOLOGY_OVERRIDE_ENV) delete env[name];
-  for (const name of GIT_CONFIG_OVERRIDE_ENV) delete env[name];
-  for (const name of Object.keys(env)) {
-    if (/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[name];
-  }
-  return env;
-}
-
-function gitTopologyEnvironment() {
-  const env = sanitizedGitEnvironment();
-  env.GIT_CONFIG_NOSYSTEM = "1";
-  env.GIT_CONFIG_GLOBAL = os.devNull;
-  return env;
 }
 
 function hasConfiguredExactSafeDirectory(repoRoot) {

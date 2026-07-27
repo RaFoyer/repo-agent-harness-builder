@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 
@@ -43,8 +44,33 @@ def should_skip(path: Path) -> bool:
     return any(part in SKIP_DIRS for part in rel.parts)
 
 
+def git_ignored(paths: list[Path]) -> set[Path]:
+    """Paths git would never publish, including global/system excludes.
+
+    Fails open: if git cannot answer, nothing is excluded and every candidate
+    is scanned, so the check stays fail-closed on content.
+    """
+    if not paths:
+        return set()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "check-ignore", "--stdin", "-z"],
+            input="\0".join(str(path.relative_to(ROOT)) for path in paths),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return set()
+    if result.returncode not in (0, 1):
+        return set()
+    return {ROOT / rel for rel in result.stdout.split("\0") if rel}
+
+
 def iter_public_paths() -> list[Path]:
-    return [path for path in sorted(ROOT.rglob("*")) if not should_skip(path)]
+    candidates = [path for path in sorted(ROOT.rglob("*")) if not should_skip(path)]
+    ignored = git_ignored(candidates)
+    return [path for path in candidates if path not in ignored]
 
 
 def check_gitignore(errors: list[str]) -> None:

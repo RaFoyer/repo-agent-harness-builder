@@ -1,15 +1,31 @@
 #!/usr/bin/env node
-import { main } from "../src/main.mjs";
+import { CONFIG } from "../src/config.mjs";
+import { applyRepositoryRuntimeContext, repositoryRuntimeContextFailureHint } from "../src/repository-runtime-context.mjs";
 import { redactSecrets } from "../src/util/secrets.mjs";
 
-main(process.argv.slice(2)).then((code) => {
-  process.exitCode = code;
-}).catch((error) => {
-  const message = redactSecrets(String(error)).replace(/\r?\n/g, " ");
-  console.log("error:");
-  console.log("  code: unhandled-cli-error");
-  console.log(`  message: ${JSON.stringify(message)}`);
-  console.log("help[1]:");
-  console.log('  "Run ./{{CLI_NAME}} help"');
+// Repository-scoped runtime context loads before any orchestration or GitHub
+// module so ambient variables inherited from another repository's process
+// cannot reach selector, attestor, or connector resolution.
+try {
+  applyRepositoryRuntimeContext({ repoSlug: CONFIG.repoSlug, repoRoot: CONFIG.repoRoot });
+} catch (error) {
+  console.error("error: repository-runtime-context-invalid");
+  console.error(repositoryRuntimeContextFailureHint(error));
   process.exitCode = 1;
-});
+}
+
+const { main } = process.exitCode ? {} : await import("../src/main.mjs");
+
+if (main) {
+  main(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  }).catch((error) => {
+    const message = redactSecrets(String(error)).replace(/\r?\n/g, " ");
+    console.log("error:");
+    console.log("  code: unhandled-cli-error");
+    console.log(`  message: ${JSON.stringify(message)}`);
+    console.log("help[1]:");
+    console.log('  "Run ./{{CLI_NAME}} help"');
+    process.exitCode = 1;
+  });
+}
