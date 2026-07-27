@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Orchestration"
+  short_description: "Run portable Boss, Manager, and Worker control loops"
+  default_prompt: "Use $project-orchestration to validate the repository hierarchy, authority, launch contract, and completion evidence before delegating work."

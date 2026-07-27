@@ -1,0 +1,67 @@
+{
+  "id": "codex-app",
+  "profile": "codex-native-firstmate",
+  "requiredSkill": "codex-native-firstmate",
+  "status": "inactive",
+  "bossTaskId": null,
+  "standingTaskCreationGrant": false,
+  "taskCreationApprovalGate": null,
+  "completionProfiles": null,
+  "presentationTaxonomy": {
+    "profile": "portable",
+    "repositoryIdentity": null,
+    "managerCatalog": ["CTO", "COO", "CPO", "CFO", "CMO", "CRO"],
+    "workerCatalog": ["Director", "Lead", "Contributor"]
+  },
+  "baseRef": null,
+  "worktreePolicy": {
+    "mode": "managed",
+    "parallelWrites": "disjoint-only",
+    "landedWorkProofRequiredBeforeArchive": true
+  },
+  "materializationBroker": {
+    "protocol": "codex-native-firstmate-at-most-once-v1",
+    "stateStore": "git-common-private-0600",
+    "nativeCreateAcceptsIdempotencyKey": false,
+    "registryIssuanceMarkerRequired": true,
+    "persistCreateIssuedBeforeNativeCall": true,
+    "staleLockRecovery": "exact-lock-hash-plus-external-dead-owner-proof-and-cas",
+    "zeroMatchBehavior": "quarantine-without-create-retry",
+    "positiveMatchBehavior": "resume-exact-readback-attestation-and-bind",
+    "rawCreateAllowed": false
+  },
+  "browserIntegration": "unconfigured",
+  "browserAuthenticationBoundary": null,
+  "githubIntegration": "unconfigured",
+  "githubAuthenticationBoundary": null,
+  "githubProfilePolicy": {
+    "facadeCommand": "./verify-harness github run",
+    "requireNodeProfileBindingForWrites": true,
+    "forbidAmbientGlobalAuth": true,
+    "gitTransportBoundary": null
+  },
+  "heartbeat": {
+    "mode": "disabled",
+    "cadence": null,
+    "registryMutator": null
+  },
+  "retention": {
+    "pinBoss": true,
+    "pinNonterminalManagers": true,
+    "pinWorkers": false,
+    "managerUnpinPolicy": "after-terminal-landed-work-evidence-and-parent-reconciliation",
+    "reconcilePinDrift": true,
+    "archivePolicy": "manual-after-landed-proof-and-parent-reconciliation",
+    "handoffPolicy": null
+  },
+  "reconciliationPolicy": null,
+  "ownerDirectMessaging": {
+    "enabled": false,
+    "targetRoles": ["manager", "worker"],
+    "recordDirectivesInRegistry": true,
+    "parentReconciliationRequired": true,
+    "authorityExpansionFromMessage": false
+  },
+  "legacyTaskBindings": [],
+  "headlessFallback": "disabled"
+}

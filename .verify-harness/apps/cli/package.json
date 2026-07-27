@@ -1,0 +1,11 @@
+{
+  "name": "@verify-harness/cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "verify-harness": "./bin/verify-harness.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

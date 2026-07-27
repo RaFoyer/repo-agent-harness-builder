@@ -726,7 +726,7 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
       managerCatalog: ["CTO", "COO"],
       workerCatalog: ["Director", "Lead", "Contributor"]
     },
-    baseRef: "{{DEFAULT_BRANCH}}",
+    baseRef: "main",
     worktreePolicy: {
       mode: "managed",
       parallelWrites: "disjoint-only",
@@ -774,7 +774,7 @@ function configuredFirstmateAdapter(registry, profile = "portable") {
   return adapter;
 }
 
-function createFixtureCommit(message = "fixture commit", branch = "{{DEFAULT_BRANCH}}") {
+function createFixtureCommit(message = "fixture commit", branch = "main") {
   const checkout = runCommand("git", ["checkout", "-B", branch], { cwd: repoRoot });
   assert.equal(checkout.ok, true, checkout.stderr);
   const commit = runCommand("git", [
@@ -804,7 +804,7 @@ function gitWithFixtureUser(args) {
 }
 
 function createFixtureMergeCommit(pr = 45, message = "fixture merge", body = "") {
-  const checkoutDefault = runCommand("git", ["checkout", "-B", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot });
+  const checkoutDefault = runCommand("git", ["checkout", "-B", "main"], { cwd: repoRoot });
   assert.equal(checkoutDefault.ok, true, checkoutDefault.stderr);
 
   const head = runCommand("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot });
@@ -819,7 +819,7 @@ function createFixtureMergeCommit(pr = 45, message = "fixture merge", body = "")
   const featureCommit = gitWithFixtureUser(["commit", "--allow-empty", "-m", `${message} implementation`]);
   assert.equal(featureCommit.ok, true, featureCommit.stderr);
 
-  const backToDefault = runCommand("git", ["checkout", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot });
+  const backToDefault = runCommand("git", ["checkout", "main"], { cwd: repoRoot });
   assert.equal(backToDefault.ok, true, backToDefault.stderr);
   const mergeArgs = ["merge", "--no-ff", branch, "-m", `Merge pull request #${pr} from test/${branch}`];
   if (body) mergeArgs.push("-m", body);
@@ -832,7 +832,7 @@ function createFixtureMergeCommit(pr = 45, message = "fixture merge", body = "")
 }
 
 function createFixtureSquashCommit(pr = 45, message = "fixture squash") {
-  const checkoutDefault = runCommand("git", ["checkout", "-B", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot });
+  const checkoutDefault = runCommand("git", ["checkout", "-B", "main"], { cwd: repoRoot });
   assert.equal(checkoutDefault.ok, true, checkoutDefault.stderr);
 
   const head = runCommand("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot });
@@ -850,7 +850,7 @@ function createFixtureSquashCommit(pr = 45, message = "fixture squash") {
 }
 
 function checkoutDefaultBranch() {
-  const checkout = runCommand("git", ["checkout", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot });
+  const checkout = runCommand("git", ["checkout", "main"], { cwd: repoRoot });
   assert.equal(checkout.ok, true, checkout.stderr);
 }
 
@@ -1270,7 +1270,7 @@ fixtureTest("private Codex broker seals registry issuance, binds inertly, and re
   registry.clientAdapter = configuredFirstmateAdapter(registry);
   writeOrchestrationRegistry(registry);
   createFixtureCommit("materialization broker fixture");
-  const baseCommit = runCommand("git", ["rev-parse", "{{DEFAULT_BRANCH}}"], { cwd: repoRoot }).stdout.trim();
+  const baseCommit = runCommand("git", ["rev-parse", "main"], { cwd: repoRoot }).stdout.trim();
   const state = {
     task: null,
     createCalls: 0,
@@ -1567,7 +1567,7 @@ test("unknown top-level command is a structured usage error on stdout", async ()
   assert.match(text, /error:/);
   assert.match(text, /code: unknown-command/);
   assert.match(text, /command: "publsh"/);
-  assert.match(text, /Run \.\/{{CLI_NAME}} help for available commands/);
+  assert.match(text, /Run \.\/verify-harness help for available commands/);
 });
 
 test("design status reports inactive module without design-system source", async () => {
@@ -7049,7 +7049,7 @@ Verification:
   const prompt = out.join("\n");
   assert.match(prompt, /Goal 2: Validate Generated CLI/);
   assert.match(prompt, /Repository:/);
-  assert.match(prompt, /Base: {{DEFAULT_BRANCH}}/);
+  assert.match(prompt, /Base: main/);
   assert.match(prompt, /Issue: #456: Generated CLI support/);
   assert.match(prompt, /Expected first deliverable:/);
   assert.match(prompt, /Complete only after PR is merged/);
