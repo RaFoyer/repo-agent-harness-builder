@@ -3948,6 +3948,64 @@ fixtureTest("orchestration report derives stable completion, gate counts, attrib
   )));
 });
 
+fixtureTest("orchestration reconcile preserves a stable anchor when a later green check lands inside cooldown", () => {
+  const registry = validOrchestrationRegistry();
+  registry.reportingPolicy = orchestrationReportingPolicy({
+    postMergeStabilitySeconds: 3600,
+    terminalVisibilitySeconds: 31_536_000
+  });
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.terminalDisposition = "completed";
+  manager.completedAt = "2026-07-01T12:05:00Z";
+  manager.completionProfile = {
+    type: "repository-merge",
+    requiredEvidence: ["pr:42", "check:green"]
+  };
+  manager.completionEvidence = ["pr:42", "check:green"];
+  manager.stageTracking = {
+    stage: "post-merge-stable",
+    enteredAt: "2026-07-01T13:05:00Z",
+    gitBaseRef: null,
+    gitHeadRef: null,
+    pullRequestNumber: 42,
+    validationRunId: null
+  };
+  const report = collectOrchestrationReport(registry, {
+    observationRunner: (command, args) => {
+      if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+        return {
+          ok: true,
+          status: 0,
+          stdout: JSON.stringify({
+            number: 42,
+            state: "MERGED",
+            isDraft: false,
+            mergedAt: "2026-07-01T12:00:00Z",
+            createdAt: "2026-06-30T12:00:00Z",
+            updatedAt: "2026-07-02T11:30:00Z",
+            statusCheckRollup: [
+              { name: "late-green", conclusion: "SUCCESS", completedAt: "2026-07-02T11:30:00Z" }
+            ],
+            url: "https://github.com/example/repo/pull/42"
+          })
+        };
+      }
+      if (command === "gh" && args[0] === "pr" && args[1] === "list") {
+        return { ok: true, status: 0, stdout: "[]\n" };
+      }
+      return { ok: false, status: 1, stdout: "" };
+    },
+    now: "2026-07-02T12:00:00Z"
+  });
+  const lane = report.allNodeReports.find((candidate) => candidate.id === "manager-docs");
+  assert.equal(lane.stage, "post-merge-stable");
+  assert.equal(lane.stageEnteredAt, "2026-07-01T13:05:00Z");
+  const reconciliation = reconcileOrchestrationReport(report);
+  assert.equal(reconciliation.hardErrors.length, 0);
+  assert.equal(reconciliation.discrepancies.length, 0);
+});
+
 fixtureTest("orchestration report renders quiet cause unknown and stage-age attention without mtime inference", async () => {
   const registry = validOrchestrationRegistry();
   registry.reportingPolicy = orchestrationReportingPolicy({
