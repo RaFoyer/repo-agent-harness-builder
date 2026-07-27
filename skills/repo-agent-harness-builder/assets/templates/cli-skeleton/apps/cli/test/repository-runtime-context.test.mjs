@@ -367,7 +367,9 @@ test("context rejects malformed public keys before replacing inherited values", 
 });
 
 test("CLI report and reconcile select the repository runtime registry", (context) => {
-  const fixtureRoot = mkdtempSync(path.join(process.cwd(), ".runtime-context-cli-"));
+  // Outside the harness tree: sibling test files copy that tree concurrently,
+  // and a transient fixture directory inside it makes those copies flaky.
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "{{CLI_NAME}}-runtime-context-cli-"));
   context.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
   const repoRoot = path.join(fixtureRoot, "repo");
   const configHome = path.join(fixtureRoot, "config");
