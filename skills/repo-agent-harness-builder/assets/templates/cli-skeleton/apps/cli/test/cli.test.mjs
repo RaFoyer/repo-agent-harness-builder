@@ -4006,6 +4006,42 @@ fixtureTest("orchestration reconcile preserves a stable anchor when a later gree
   assert.equal(reconciliation.discrepancies.length, 0);
 });
 
+fixtureTest("orchestration reporting requires current stable evidence despite a recorded stable anchor", () => {
+  const registry = validOrchestrationRegistry();
+  const manager = registry.nodes.find((node) => node.id === "manager-docs");
+  manager.state = "terminal";
+  manager.terminalDisposition = "completed";
+  manager.completedAt = "2026-07-01T12:05:00Z";
+  manager.completionProfile = {
+    type: "repository-merge",
+    requiredEvidence: ["pr:42", "check:green"]
+  };
+  manager.completionEvidence = ["pr:42", "check:green"];
+  manager.stageTracking = {
+    stage: "post-merge-stable",
+    enteredAt: "2026-07-01T13:05:00Z",
+    gitBaseRef: null,
+    gitHeadRef: null,
+    pullRequestNumber: 42,
+    validationRunId: null
+  };
+  const report = collectOrchestrationReport(registry, {
+    observationRunner: () => ({ ok: false, status: 1, stdout: "" }),
+    now: "2026-07-10T12:00:00Z"
+  });
+  const lane = report.allNodeReports.find((candidate) => candidate.id === "manager-docs");
+  assert.equal(lane.stableAt, "2026-07-01T13:05:00Z");
+  assert.equal(lane.stable, false);
+  assert.equal(lane.laneState, "quiet, cause unknown");
+  assert.equal(lane.gates.find((gate) => gate.id === "merged-green-closed-and-stable")?.passed, false);
+  const reconciliation = reconcileOrchestrationReport(report);
+  assert.deepEqual(reconciliation.hardErrors, [{
+    lane: "manager-docs",
+    error: "registry claims terminal without merge evidence"
+  }]);
+  assert.equal(reconciliation.discrepancies[0]?.proposedTransition, "no transition: restore the read-only observation source and reconcile again");
+});
+
 fixtureTest("orchestration report renders quiet cause unknown and stage-age attention without mtime inference", async () => {
   const registry = validOrchestrationRegistry();
   registry.reportingPolicy = orchestrationReportingPolicy({
