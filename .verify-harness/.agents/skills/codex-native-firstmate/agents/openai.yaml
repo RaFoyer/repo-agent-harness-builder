@@ -1,4 +1,0 @@
-interface:
-  display_name: "Codex-Native Firstmate"
-  short_description: "Run portable project orchestration through native Codex surfaces"
-  default_prompt: "Use $codex-native-firstmate after $project-orchestration to inspect the inactive Codex adapter before proposing activation or native task materialization."

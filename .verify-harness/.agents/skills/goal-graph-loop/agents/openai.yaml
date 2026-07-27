@@ -1,4 +1,0 @@
-interface:
-  display_name: "Goal Graph Loop"
-  short_description: "Run Manager-owned dependency graphs to landed outcomes"
-  default_prompt: "Use $goal-graph-loop to turn this repository work into a Manager-owned dependency graph with bounded Workers, fan-in, and completion evidence."

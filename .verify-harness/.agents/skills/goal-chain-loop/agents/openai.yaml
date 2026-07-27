@@ -1,4 +1,0 @@
-interface:
-  display_name: "Goal Chain Compatibility"
-  short_description: "Route legacy chain requests to the goal graph loop"
-  default_prompt: "Use $goal-chain-loop only as a compatibility alias, then follow $goal-graph-loop for this Manager-owned dependency graph."

@@ -1,5 +1,0 @@
-# Exact repo-relative paths that are allowed to pass filename-sensitive precommit checks.
-# Keep this file small, reviewed, and boring. Content scanning still runs for text files.
-# Examples:
-# docs/security/public-root-ca.crt
-# examples/demo-public-key.asc
