@@ -43,6 +43,8 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Security | `SECRETS.md`, `EXTERNAL-MCP.md` |
 | DevOps | `CICD.md`, `BRANCH-PROMOTION.md`, `DEVOPS-SECURITY.md` |
 | Optional evidence | `LAVISH-REVIEW.md`, `EVIDENCE-MAP.md`, `ARTIFACT-CONVENTIONS.md` |
+| Shared client instructions | `ENTRY-POINTS.md`, selected marker-delimited entry files |
+| QA acceptance evidence | `QA-EVIDENCE.md`, required-check policy and revision-bound manifests |
 
 ## TOC Routing Rules
 
@@ -53,6 +55,9 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Starting a session | `SESSION-PREFLIGHT.md` |
 | Adding or changing docs | `DOCUMENT-LIFECYCLE.md`, `DOCUMENT-QUALITY.md` |
 | Running repo commands | `CLI-INTERFACE.md` |
+| Finding the relevant protocol | `protocols find <query>`; read the matched source before acting |
+| Synchronizing selected client entry instructions | `ENTRY-POINTS.md` |
+| Verifying QA acceptance evidence | `QA-EVIDENCE.md` |
 | Structuring project-wide delegation or progressive autonomy | `AGENT-ORCHESTRATION.md` |
 | Changing agent-facing CLI output | `CLI-INTERFACE.md`, `AGENT-CLI-ERGONOMICS.md` |
 | Preparing a commit | `PRE-COMMIT.md` |
@@ -62,6 +67,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Changing UI, UX, design systems, components, tokens, brand surfaces, adaptive UI, or generated UI | `DESIGN-SYSTEM.md` if present |
 | Working with tickets | `PROJECT-TRACKING.md` |
 | Handling credentials | `SECRETS.md` |
+| Sending automated Slack bot messages | `SLACK-POST-GATE.md` if present |
 | Touching CI or deploy | `CICD.md`, `BRANCH-PROMOTION.md` |
 
 ## Document Classes

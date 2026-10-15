@@ -38,6 +38,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - Baseline and optional setup checklist, including inactive/not-applicable module states: read `references/harness-checklist.md`.
 - Protocol front matter, TOC routing, and documentation governance: read `references/protocol-library.md`.
 - CLI structure, extension, comments, tests, and maintenance: read `references/cli-tooling.md`.
+- Shared client entry-block sync, strict CLI inputs, advisory protocol discovery, and optional revision-bound QA evidence verification: read `references/cli-tooling.md`, then the relevant `ENTRY-POINTS.md` or `QA-EVIDENCE.md` template.
 - Agent-ergonomic CLI output, AXI-style discovery, and TOON-shaped stdout contracts: read `references/agent-cli-ergonomics.md`.
 - Portable zip/handoff package design: read `references/onboarding-package.md`.
 - Preflight, precommit, no-mistakes PR validation, CI, branch, secrets, tracker, and MCP guardrails: read `references/guardrails-and-devops.md`.
@@ -52,18 +53,19 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - Dependency-light Codex app mapping for the portable hierarchy, including the Firstmate Boss profile, managed worktrees, bounded subagents, native capability gaps, and inactive activation controls: read `references/codex-native-firstmate.md`.
 - Manager-owned ticket-backed implementation graphs, strict-chain topology, merge evidence, fan-in, and handoff: read `references/goal-graph-loop.md`.
 - Hooks, intent authority, generated artifacts, and evidence/provenance maps: read `references/advanced-patterns.md`.
+- Automated Slack bot messages, mrkdwn and Block Kit validation, channel genre checks, and credential-bound send enforcement: read `references/slack-post-gate.md`.
 
 ## Bundled Assets
 
 - `assets/templates/REPOSITORY-HARNESS-UPGRADE-PROMPT.md`: preservation-first message for auditing and discussing another repository's harness, CLI, skill provenance, and migration plan before edits.
 - `assets/templates/repo-harness/`: generic `AGENTS.md`, `AGENTS-TOC.md`, protocol templates, no-mistakes repo policy, and setup script.
-- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, repository-scoped `github`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
+- `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `docs`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, repository-scoped `github`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
 - `assets/templates/orchestration/`: inactive registry examples, ledgers, and Boss/Manager/Worker prompts with explicit trust, authority, loop ownership, evidence-fingerprint liveness, bounded retries, hybrid direct-owner messaging, optional Boss materialization, and parent reconciliation.
 - `assets/templates/client-adapters/codex-native-firstmate/`: opt-in Codex config examples, role profiles, Firstmate Boss overlay, protocol, and fleet-managed adapter reference snapshot around the portable orchestration core.
 - `assets/templates/goal-graph/`: ticket-backed implementation DAGs, strict-chain topology, repository-merge handoff prompts, and evidence templates that compose with project orchestration.
-- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, project-orchestration, goal-graph-loop, and compatibility skill templates plus agent-client install guidance.
+- `assets/templates/onboarding-package/`: portable handoff archive skeleton with bootstrap, repo-operator, project-orchestration, goal-graph-loop, compatibility, and optional Slack post-gate skills plus agent-client install guidance.
 
 Use placeholders consistently:
 
@@ -100,6 +102,7 @@ Prefer the scripts for repeatable scaffold/package work. If editing templates ma
 - Secret handling must be value-safe: names, paths, booleans, and counts only.
 - Repositories hold non-privileged internal documentation; role-restricted material belongs in an external authority with explicit permission boundaries.
 - External systems are auxiliary unless a protocol explicitly makes them authoritative for a named scope.
+- Automated Slack bot posts should use the optional `slack-post-gate` module when the repository needs them. Keep it inactive until channel policy, audience, classifier, audit ownership, and command-scoped bot credentials are configured; a command-text hook is defense in depth, not the credential boundary.
 - Connector packages may be global, but mutable authentication profiles must be repo-scoped by default unless a protocol explicitly marks a different boundary.
 - GitHub Workers must not inherit an ambient global `gh` login. Bind every write-capable GitHub launch to one repository profile and exact `github.*` capabilities; treat `git` network credentials as a separate boundary from `gh` authentication.
 - Hybrid coordination permits the project owner to talk directly to Managers and Workers without reparenting them or expanding authority. Record durable owner directives in the registry and require immediate-parent reconciliation; ordinary chat remains outside the control plane.

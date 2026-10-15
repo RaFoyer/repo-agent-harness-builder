@@ -9,6 +9,7 @@ summary: Defines local checks before changes enter shared history.
 related_protocols:
   - CLI-INTERFACE
   - DOCUMENT-QUALITY
+  - ENTRY-POINTS
 ---
 
 # Precommit Gate
@@ -33,6 +34,7 @@ Catch documentation drift, unsafe content, and missing verification before commi
 | Local paths | home-directory absolute paths, machine-specific config |
 | Protocol metadata | missing front matter or stale TOC |
 | CLI drift | command changed without help/docs/tests |
+| Client entry drift | configured shared blocks differ in staged instructions; configuration and content are both read from the index |
 | Tracker linkage | branch or PR lacks linked work item when required |
 | CI coverage | runnable path lacks workflow or local check |
 

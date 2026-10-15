@@ -11,6 +11,7 @@ import { runLavish } from "../lavish/index.mjs";
 import { runPrecommit } from "../precommit/checklist.mjs";
 import { runPreflight } from "../preflight/session.mjs";
 import { runQa } from "../qa/index.mjs";
+import { runDocs } from "../docs/entry-sync.mjs";
 import { hasFlag } from "../util/args.mjs";
 import { rejectUnexpectedArgs } from "../util/agent-output.mjs";
 
@@ -19,6 +20,7 @@ const VERIFY_STEPS = [
   { name: "preflight", run: (io) => runPreflight([], io) },
   { name: "checklist", run: (io) => runChecklist([], io) },
   { name: "protocols", run: (io) => listProtocols([], io) },
+  { name: "docs entry-sync", run: (io) => runDocs(["entry-sync"], io) },
   { name: "connections status", run: (io) => runConnections(["status"], io) },
   { name: "orchestration status --example", run: (io) => runOrchestration(["status", "--example"], io) },
   { name: "orchestration liveness --example", run: (io) => runOrchestration(["liveness", "--example"], io) },
@@ -29,6 +31,7 @@ const VERIFY_STEPS = [
   { name: "no-mistakes status", run: (io) => runNoMistakes(["status"], io) },
   { name: "lavish status", run: (io) => runLavish(["status"], io) },
   { name: "qa status", run: (io) => runQa(["status"], io) },
+  { name: "qa evidence status", run: (io) => runQa(["evidence", "status"], io) },
   { name: "qa no-masking", run: (io) => runQa(["no-masking"], io) },
   { name: "precommit --all", run: (io) => runPrecommit(["--all"], io) }
 ];

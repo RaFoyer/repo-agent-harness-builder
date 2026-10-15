@@ -104,6 +104,7 @@ cd "$HOME/Documents/Home Harness"
 - Project-wide hierarchy and progressive autonomy: the fleet-managed `skills/project-orchestration/SKILL.md` reference and `skill/repo-agent-harness-builder/references/project-orchestration.md`; after scaffolding, use the repo-local `AGENT-ORCHESTRATION.md`, inactive `ops/orchestration.example.json`, a named private operator instance, and the `orchestration` CLI
 - Codex-native Firstmate reference: the fleet-managed `skills/codex-native-firstmate/SKILL.md` and `skill/repo-agent-harness-builder/references/codex-native-firstmate.md`; load it after `project-orchestration`, resolve it through its authoritative distribution, and do not require a global project registry
 - Bundled Manager-owned repository-merge DAG reference: the fleet-managed `skills/goal-graph-loop/SKILL.md`; `skills/goal-chain-loop/SKILL.md` is a deprecated compatibility redirect
+- Optional outbound Slack bot gate: `skills/slack-post-gate/SKILL.md`; keep it inactive until channel policy, audience, classifier, audit ownership, and command-scoped bot credentials are configured
 - CLI extension and maintenance: `references/CLI-MAINTENANCE.md`
 - Archive safety: `references/ARCHIVE-INSPECTION.md`
 - Secrets and privacy boundaries: `references/SECRETS-AND-PRIVACY.md`

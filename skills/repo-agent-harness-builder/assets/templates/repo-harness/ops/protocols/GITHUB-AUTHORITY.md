@@ -44,8 +44,17 @@ Roles describe responsibility; they do not grant GitHub access. Effective author
 
 1. the orchestration node's `allowedExternalActions`;
 2. the selected profile's `allowedCapabilities`;
-3. the credential's actual GitHub permissions; and
-4. every applicable approval gate.
+3. the profile's optional `runtimeCapabilities` activation ceiling;
+4. the credential's actual GitHub permissions; and
+5. every applicable approval gate.
+
+`runtimeCapabilities`, when present, is a nonempty unique subset of
+`allowedCapabilities`. Omission preserves existing behavior. Owners can
+activate reads without rewriting stable authority contracts. Both the public
+executor and internal PR observers enforce the ceiling. This metadata does
+not measure actual provider grants or prevent bypass through unrestricted raw
+tools. Internal JSON observers select upstream `gh` through the same isolated
+profile, independently of the public `gh-axi` preference.
 
 Use stable capability identifiers such as:
 

@@ -11,6 +11,7 @@ This repository uses an agent harness. Keep this root file short and treat it as
 - Put role-restricted or privileged documentation in the external authority named by protocol, such as Drive, SharePoint, email, a document system, or a credentialed database.
 - Treat external tools and generated artifacts as useful context unless `ops/protocols/SOURCE-OF-TRUTH.md` or `ops/protocols/EXTERNAL-SYSTEMS.md` explicitly makes them authoritative.
 
+<!-- harness:operator:start -->
 ## Fresh Session Start
 
 1. Run `./{{CLI_NAME}} preflight` if the CLI is available.
@@ -18,6 +19,7 @@ This repository uses an agent harness. Keep this root file short and treat it as
 3. Load only the protocol files relevant to the task.
 4. Prefer the repo CLI for checks, tracker operations, secrets posture, and skill sync.
 5. Before opening or merging feature PRs, prefer the no-mistakes gate when it is initialized for this repo.
+<!-- harness:operator:end -->
 
 ## Safety Defaults
 

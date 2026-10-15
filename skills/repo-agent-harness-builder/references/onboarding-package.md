@@ -33,6 +33,7 @@ scripts/verify-bootstrap.sh
 scripts/build-reference-package.sh
 skills/bootstrap/SKILL.md
 skills/repo-operator/SKILL.md
+skills/slack-post-gate/SKILL.md
 ```
 
 ## Entry Points
@@ -62,6 +63,7 @@ Use two included skills:
 | --- | --- |
 | `bootstrap` | Before the repo exists locally: tool setup, account checks, clone/access, first handoff |
 | `repo-operator` | After clone: route to `AGENTS.md`, `AGENTS-TOC.md`, repo CLI, and protocols |
+| `slack-post-gate` | Optional after clone: install an inactive outbound Slack bot gate when the project automates posts |
 
 The bootstrap skill should not become a shadow copy of repo protocols. Its final move is to transfer authority to the repository.
 

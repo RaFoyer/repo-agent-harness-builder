@@ -1,0 +1,31 @@
+{
+  "status": "inactive",
+  "botCredentialRef": "env:SLACK_BOT_TOKEN",
+  "classifierCommand": [],
+  "classifierTimeoutSeconds": 45,
+  "channels": {
+    "C_REPLACE_ME": {
+      "audience": "Name the least technical regular reader and what they need from this room.",
+      "allowedGenres": [
+        "decision with owner and consequence",
+        "release or incident update that changes an action"
+      ],
+      "excludedSubjects": [
+        "debugging narrative",
+        "implementation detail with no audience action"
+      ]
+    }
+  },
+  "contentPolicy": {
+    "rules": [
+      {
+        "id": "internal-reference",
+        "pattern": "\\bINTERNAL-[0-9]{6}\\b",
+        "reason": "internal references are forbidden in this channel"
+      }
+    ]
+  },
+  "stylePolicy": {
+    "allowedDashLinePatterns": []
+  }
+}

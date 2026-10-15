@@ -4,6 +4,7 @@ import path from "node:path";
 import { CONFIG } from "../config.mjs";
 import { runCommand } from "../util/exec.mjs";
 import { hasFlag } from "../util/args.mjs";
+import { parseCliArgs } from "../util/strict-args.mjs";
 import { renderHelpBlock, renderUsageError, safeLine, toonString } from "../util/agent-output.mjs";
 
 const NOT_READY_RE = /\bnot initialized\b|no-mistakes init|run .*init|\bnot in a git repository\b|\bnot a git repository\b|\bno git repository\b|\bmissing remote\b|\bno remote\b|\bnot configured\b/i;
@@ -361,44 +362,12 @@ function help(io) {
 }
 
 function parseSetupArgs(argv) {
-  const options = { json: false, forkUrl: null, agent: null, help: false, errors: [] };
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--json") {
-      options.json = true;
-    } else if (arg === "--help" || arg === "-h") {
-      options.help = true;
-    } else if (arg === "--fork-url") {
-      const value = argv[index + 1];
-      if (!value || value.startsWith("-")) {
-        options.errors.push(arg);
-      } else {
-        options.forkUrl = value;
-        index += 1;
-      }
-    } else if (arg.startsWith("--fork-url=")) {
-      const value = arg.slice("--fork-url=".length);
-      if (!value) options.errors.push("--fork-url");
-      else options.forkUrl = value;
-    } else if (arg === "--agent") {
-      const value = argv[index + 1];
-      const normalized = normalizeAgent(value);
-      if (!value || value.startsWith("-") || !normalized) {
-        options.errors.push("--agent");
-      } else {
-        options.agent = normalized;
-        index += 1;
-      }
-    } else if (arg.startsWith("--agent=")) {
-      const value = arg.slice("--agent=".length);
-      const normalized = normalizeAgent(value);
-      if (!value || !normalized) options.errors.push("--agent");
-      else options.agent = normalized;
-    } else {
-      options.errors.push(arg);
-    }
-  }
-  return options;
+  const parsed = parseCliArgs(argv, { flags: { "--json": "boolean", "--help": "boolean", "-h": "boolean", "--fork-url": "value", "--agent": "value" } });
+  if (!parsed.ok) return { json: false, help: false, errors: parsed.details.length ? parsed.details : ["unexpected argument"] };
+  const value = parsed.values;
+  const agent = value["--agent"] === undefined ? null : normalizeAgent(value["--agent"]);
+  return { json: value["--json"] === true, help: value["--help"] || value["-h"], forkUrl: value["--fork-url"] || null,
+    agent, errors: value["--agent"] !== undefined && !agent ? ["--agent"] : [] };
 }
 
 async function runSetup(

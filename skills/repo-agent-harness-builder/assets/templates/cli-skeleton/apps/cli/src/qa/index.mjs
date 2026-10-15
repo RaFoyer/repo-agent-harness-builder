@@ -3,6 +3,7 @@ import path from "node:path";
 import { CONFIG } from "../config.mjs";
 import { runErgonomics } from "../ergonomics/index.mjs";
 import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
+import { runQaEvidence } from "./evidence.mjs";
 
 const PLAYWRIGHT_CONFIGS = [
   "playwright.config.ts",
@@ -184,6 +185,8 @@ function help(io) {
   io.stdout("  qa plan          Print deterministic/live browser QA guidance");
   io.stdout("  qa artifacts     List common browser QA artifact locations");
   io.stdout("  qa no-masking    Detect route mocking/bypass patterns in deterministic E2E tests");
+  io.stdout("  qa evidence status  Inspect the optional evidence gate without activating it");
+  io.stdout("  qa evidence verify <manifest> --revision <full-sha> --target <id>");
 }
 
 function status(io) {
@@ -279,6 +282,7 @@ function noMasking(io) {
 
 export async function runQa(argv, io) {
   const [subcommand = "help", ...restForCommand] = argv;
+  if (subcommand === "evidence") return runQaEvidence(restForCommand, io);
   if (subcommand === "help") {
     if (rejectUnexpectedArgs(restForCommand, io, { command: "qa help", hints: [`Run ./${CONFIG.cliName} qa help`] })) return 2;
     help(io);

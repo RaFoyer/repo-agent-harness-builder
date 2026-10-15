@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
 import { redactSecrets } from "./secrets.mjs";
+import { parseCliArgs } from "./strict-args.mjs";
 
 export function toonString(value) {
   return JSON.stringify(String(value));
@@ -53,14 +54,14 @@ export function renderUsageError(io, { code, command, message, details = [], hin
 }
 
 export function rejectUnexpectedArgs(argv, io, { command, allowedFlags = [], hints = [] }) {
-  const allowed = new Set(["--help", "-h", ...allowedFlags]);
-  const unexpected = argv.filter((arg) => !allowed.has(arg));
-  if (unexpected.length === 0) return false;
+  const flags = Object.fromEntries(["--help", "-h", ...allowedFlags].map((flag) => [flag, "boolean"]));
+  const parsed = parseCliArgs(argv, { flags });
+  if (parsed.ok) return false;
   renderUsageError(io, {
-    code: unexpected.some((arg) => arg.startsWith("-")) ? "unknown-flag" : "unexpected-argument",
+    code: parsed.code,
     command,
     message: `Unexpected argument for ${command}`,
-    details: unexpected,
+    details: parsed.details,
     hints: hints.length ? hints : [`Run ./${CONFIG.cliName} help`]
   });
   return true;

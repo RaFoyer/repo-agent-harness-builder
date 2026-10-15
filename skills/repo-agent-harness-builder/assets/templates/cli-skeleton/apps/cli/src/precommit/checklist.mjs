@@ -5,6 +5,7 @@ import { CONFIG } from "../config.mjs";
 import { hasFlag } from "../util/args.mjs";
 import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 import { findSecretIndicators } from "../util/secrets.mjs";
+import { checkEntrySync } from "../docs/entry-sync.mjs";
 
 const LOCAL_PATH_RE = /(\/Users\/[^\s)'"]+|\/home\/[^\s)'"]+|\/private\/var\/[^\s)'"]+|\/tmp\/[^\s)'"]+|\/var\/folders\/[^\s)'"]+|\/Volumes\/[^/\s)'"]+\/[^\s)'"]+|[A-Za-z]:\\Users\\[^\r\n)'"]+|~\/[^\s)'"]+)/;
 const HARD_SENSITIVE_FILE_RE = /(^|\/)(\.env(\..*)?|\.netrc|_netrc|\.pypirc|\.pgpass|\.htpasswd|credentials|id_rsa|id_ed25519|.*private.*key.*|.*\.(pem|key|p12|pfx|jks|jceks|bcfks|keystore|ppk|kdbx|gpg|pgp|pkcs12|p8))$/i;
@@ -226,6 +227,11 @@ export async function runPrecommit(argv, io) {
   const blockers = [];
   const warnings = [];
   const allowlist = loadAllowlist();
+
+  if (source !== "git-error") {
+    const entries = checkEntrySync({ source: source === "staged" ? "staged" : "worktree" });
+    if (!entries.ok) blockers.push(`Client entry blocks do not match ${entries.source} instructions; inspect docs entry-sync and stage the repaired files.`);
+  }
 
   if (source === "git-error") {
     blockers.push(`${error}. Precommit cannot safely inspect the index; repair git state and rerun.`);

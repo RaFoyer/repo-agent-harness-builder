@@ -24,6 +24,7 @@ This package is based on generalized patterns from mature repo-agent harnesses:
 - repo-local Codex-native Firstmate adapter patterns that map the portable Boss to one resident repository task and use native worktrees/subagents without requiring a global project registry
 - project-orchestration skill patterns for portable Boss/Manager/Worker control loops and fail-closed launch composition
 - goal-graph-loop skill patterns for Manager-owned repository-merge DAGs, delivery ledgers, bounded Worker tasks, and PR/merge handoffs; strict chains are linear topology
+- outbound Slack gate patterns for content policy, mrkdwn and Block Kit checks, channel-aware judgment, logged overrides, paired false-positive tests, and command-scoped bot credentials
 
 Public reference surfaces consulted:
 

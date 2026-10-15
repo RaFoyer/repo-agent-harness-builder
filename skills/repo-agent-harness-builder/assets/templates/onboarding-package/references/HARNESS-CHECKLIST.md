@@ -71,6 +71,8 @@ Scaffold as inactive when plausible:
 - no-mistakes setup, if the repository cannot use the default generated flow
 - CI, branch promotion, deploy readiness
 - QA/browser checks
+- shared client entry blocks with staged-content checks, inactive until target files are selected
+- QA evidence verification, inactive until required checks and a revision/target-bound producer are configured
 - design system
 - brand identity
 - evidence and provenance maps
@@ -80,6 +82,7 @@ Scaffold as inactive when plausible:
 - repo-agent handoff operations
 - provider setup
 - MCP/connectors with repo-owned connector profiles
+- outbound Slack bot posting with the optional `skills/slack-post-gate/SKILL.md`, channel contracts, a fail-closed classifier, and command-scoped bot credentials
 - QA/release handoff
 
 ## Activation Rule
