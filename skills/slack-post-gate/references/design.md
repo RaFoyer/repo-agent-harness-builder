@@ -14,9 +14,10 @@ Use one outbound bot command and keep its checks ordered by authority.
 | Transport formatting | Whether Slack can render and operate the payload as intended | Block | Never |
 | Style and audience | Whether the message reads well and belongs in the room | Block by default | Logged reason |
 
-The classifier must fail closed. An unavailable classifier produces a blocked
-decision unless an operator uses the judgment override and supplies a reason.
-The override never applies to content or formatting findings.
+The classifier must fail closed. Execution, timeout, unavailable-command,
+invalid-output, and schema errors always block. A valid classifier fail verdict
+can be overridden with a logged reason. The override never applies to content
+or formatting findings.
 
 ## Identity and transport
 
@@ -33,8 +34,8 @@ before composing.
 
 ## Content policy
 
-Scan the raw payload, including code. A credential pasted inside a code fence is
-still a credential. Start with specific high-confidence patterns for known
+Scan the raw payload, including decoded Unicode and code. A credential pasted
+inside a code fence is still a credential. Start with specific patterns for known
 credential forms, then add rules for the target channel:
 
 - internal run or job identifiers
@@ -65,8 +66,11 @@ messages contain SQL, shell comments, dunder paths, globs, comparison operators,
 package names, URLs, and email addresses. Preserve regression tests for each
 false positive found in real use.
 
-Refuse Block Kit buttons unless the repository proves a live interactivity
-endpoint and adds a separate interaction protocol. A button that looks active
+Review visible text in supported sections, fields, headers, context, rich text,
+tables, charts, and images. Respect each text type: plain text does not need
+mrkdwn entity escaping, and code is exempt from prose formatting checks.
+Refuse unsupported blocks. Refuse Block Kit buttons unless the repository proves
+a live interactivity endpoint and adds a separate interaction protocol. A button that looks active
 but does nothing is worse than plain instructions. Validate block counts,
 section lengths, table dimensions, and any fields used by a new block type.
 
@@ -100,7 +104,8 @@ The reference command contract is:
 - nonzero exit, timeout, invalid JSON, or another verdict: classifier error and
   a blocked decision
 
-Invoke the command as an argv array without a shell.
+Invoke the command as an argv array without a shell. Remove the bot credential
+from the classifier and git audit subprocess environments.
 
 ## Capability boundary
 
@@ -120,7 +125,7 @@ Write the decision before sending. Store metadata, not the message body:
 - timestamp and channel
 - decision and finding identifiers
 - draft byte count and digest
-- override reason, if used
+- a predefined override reason code, if used; never free-form reason text
 
 Use append mode. Do not read a log and rewrite it in place. If the pre-send
 audit write fails, block. If the delivery succeeds but the follow-up audit write

@@ -14,8 +14,8 @@ Build one sanctioned bot-post command with three checks:
 1. Content policy. Block secrets and channel-forbidden data. Never override it.
 2. Transport formatting. Validate Slack mrkdwn and Block Kit. Never override it.
 3. Style and audience judgment. Run mechanical prose checks and a channel-aware
-   classifier. Fail closed, but allow a reasoned override that reaches the
-   audit log before sending.
+   classifier. Classifier errors always block. A valid fail verdict or style
+   finding may use a predefined reason code logged before sending.
 
 Attribution follows who wrote the words. Agent-written text posts as the bot.
 A person's own words may post as that person. A person's ruling written up by
@@ -60,6 +60,7 @@ The reference poster accepts a classifier as an argv array. It sends the
 channel contract and draft as JSON on stdin and requires strict JSON on stdout.
 Keep the classifier adapter local to the repository so the portable gate does
 not depend on one model vendor or agent client.
+The classifier and git audit subprocesses must not inherit the bot credential.
 
 ## Verification
 

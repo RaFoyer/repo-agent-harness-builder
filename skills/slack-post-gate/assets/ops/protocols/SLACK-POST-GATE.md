@@ -53,8 +53,9 @@ The hosted human connector and the bot transport are not interchangeable.
 2. Compose for the channel contract in the gate config.
 3. Run the sanctioned poster. Use `--check-only` until a live send is approved.
 4. Block on any content or formatting finding.
-5. Block on style, genre, or classifier failure unless an operator supplies a
-   judgment override reason.
+5. Block on classifier execution or output errors. Block on style, genre, or a
+   valid classifier fail verdict unless an operator supplies a predefined
+   judgment override reason code.
 6. Write the pre-send audit event.
 7. Send only through the bot credential injected for this command.
 8. Record the delivery result without logging message text.
@@ -63,7 +64,9 @@ The hosted human connector and the bot transport are not interchangeable.
 
 - Content and formatting findings have no override.
 - The classifier fails closed.
+- Classifier errors cannot be overridden; only valid fail verdicts can.
 - A judgment override must reach the audit log before sending.
+- Child processes must not inherit the bot credential.
 - Only configured channel IDs may send.
 - The bot credential must be absent from ambient shells and general agent tools.
 - Client hooks are defense in depth. They do not replace credential isolation.

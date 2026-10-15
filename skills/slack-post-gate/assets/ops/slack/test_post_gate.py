@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -128,6 +129,13 @@ class ContentTests(unittest.TestCase):
             hard, _judgment = post.evaluate("Fallback text.", blocks, {}, self.config)
         self.assertIn("slack-credential", finding_ids(hard))
 
+    def test_unicode_rule_applies_to_block_text(self):
+        config = {"contentPolicy": {"rules": [{"id": "private-name", "pattern": "José", "reason": "private"}]}}
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "José reviewed it."}}]
+        with mock.patch.object(post, "classify", return_value=("pass", [])):
+            hard, _judgment = post.evaluate("Public fallback.", blocks, {}, config)
+        self.assertIn("private-name", finding_ids(hard))
+
 
 class StyleTests(unittest.TestCase):
     def setUp(self):
@@ -157,6 +165,37 @@ class StyleTests(unittest.TestCase):
 
 
 class BlockKitTests(unittest.TestCase):
+    def test_visible_text_reaches_formatting_style_and_classifier(self):
+        blocks = [
+            {"type": "section", "fields": [{"type": "mrkdwn", "text": "**bold** crucial field"}]},
+            {"type": "header", "text": {"type": "plain_text", "text": "Header news"}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": "Context news"}]},
+            {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "Rich news"}]}]},
+            {"type": "table", "rows": [[{"type": "raw_text", "text": "Table news"}]]},
+            {"type": "data_visualization", "title": "Chart news", "chart": {"axis_config": {"categories": ["Level news"]}, "series": [{"name": "Series news", "data": [{"label": "Level news", "value": 1}]}]}},
+        ]
+        with mock.patch.object(post, "classify", return_value=("pass", [])) as classify:
+            hard, judgment = post.evaluate("Fallback.", blocks, {}, {"contentPolicy": {"rules": []}})
+        self.assertIn("block-markdown-bold", finding_ids(hard))
+        self.assertIn("style-word-crucial", finding_ids(judgment))
+        draft = classify.call_args.args[0]
+        for value in ("bold", "Header news", "Context news", "Rich news", "Table news", "Chart news", "Series news", "Level news"):
+            self.assertIn(value, draft)
+
+    def test_plain_text_and_code_respect_text_type(self):
+        blocks = [
+            {"type": "header", "text": {"type": "plain_text", "text": "A & B < C"}},
+            {"type": "rich_text", "elements": [{"type": "rich_text_preformatted", "elements": [{"type": "text", "text": "a < b && c > d"}]}]},
+        ]
+        self.assertEqual([], post.block_findings(blocks))
+        with mock.patch.object(post, "classify", return_value=("pass", [])):
+            hard, judgment = post.evaluate("Ready.", blocks, {}, {"contentPolicy": {"rules": []}})
+        self.assertEqual([], hard)
+        self.assertEqual([], judgment)
+
+    def test_unknown_block_is_refused(self):
+        self.assertIn("unsupported-block", finding_ids(post.block_findings([{"type": "video", "title": "Private news"}])))
+
     def test_button_is_refused(self):
         blocks = [{"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Approve"}}]}]
         self.assertIn("button-without-interactivity", finding_ids(post.block_findings(blocks)))
@@ -240,6 +279,30 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual("error", verdict)
         self.assertTrue(reasons)
 
+    @mock.patch.object(post.subprocess, "run")
+    def test_classifier_child_does_not_receive_bot_credential(self, run):
+        run.return_value = mock.Mock(returncode=0, stdout='{"verdict":"pass","reasons":[]}', stderr="")
+        config = {**self.config, "botCredentialRef": "env:SLACK_BOT_TOKEN"}
+        with mock.patch.dict(os.environ, {"SLACK_BOT_TOKEN": "test-only-secret", "CLASSIFIER_SETTING": "retained"}):
+            self.assertEqual("pass", post.classify("Ready.", self.contract, config)[0])
+        self.assertNotIn("SLACK_BOT_TOKEN", run.call_args.kwargs["env"])
+        self.assertEqual("retained", run.call_args.kwargs["env"]["CLASSIFIER_SETTING"])
+
+    @mock.patch.object(post.subprocess, "run")
+    def test_git_audit_child_does_not_receive_bot_credential(self, run):
+        run.return_value = mock.Mock(returncode=1, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(os.environ, {"SLACK_BOT_TOKEN": "test-only-secret"}):
+            post.audit_path(Path(temp_dir), "env:SLACK_BOT_TOKEN")
+        self.assertNotIn("SLACK_BOT_TOKEN", run.call_args.kwargs["env"])
+
+    def test_send_retains_bot_credential_at_transport(self):
+        with mock.patch.dict(os.environ, {"SLACK_BOT_TOKEN": "test-only-secret"}), mock.patch.object(
+            post.urllib.request, "urlopen", return_value=io.BytesIO(b'{"ok":true,"ts":"1.2"}')
+        ) as urlopen:
+            result = post.send("C123", "", "Ready.", None, {"botCredentialRef": "env:SLACK_BOT_TOKEN"})
+        self.assertTrue(result["ok"])
+        self.assertEqual("Bearer test-only-secret", urlopen.call_args.args[0].get_header("Authorization"))
+
 
 class GateTests(unittest.TestCase):
     def setUp(self):
@@ -263,10 +326,40 @@ class GateTests(unittest.TestCase):
         classify.assert_called_once()
 
     @mock.patch.object(post, "classify", return_value=("error", ["offline"]))
-    def test_classifier_error_becomes_judgment_finding(self, _classify):
+    def test_classifier_error_blocks_even_with_override(self, _classify):
         hard, judgment = post.evaluate("Sweep clean.", None, self.contract, self.config)
+        self.assertIn("classifier-error", finding_ids(hard))
+        self.assertEqual("BLOCKED", post.gate_decision(hard, judgment, True))
+
+    def test_classifier_failure_modes_block_and_valid_fail_can_be_overridden(self):
+        failures = [
+            OSError("missing"),
+            post.subprocess.TimeoutExpired("classifier", 1),
+            mock.Mock(returncode=1, stdout="", stderr="failed"),
+            mock.Mock(returncode=0, stdout="invalid", stderr=""),
+            mock.Mock(returncode=0, stdout='{"verdict":"pass","reasons":["unexpected"]}', stderr=""),
+        ]
+        for result in failures:
+            with self.subTest(result=result), mock.patch.object(post.subprocess, "run", side_effect=result if isinstance(result, Exception) else None, return_value=None if isinstance(result, Exception) else result):
+                hard, judgment = post.evaluate("Ready.", None, self.contract, self.config)
+                self.assertIn("classifier-error", finding_ids(hard))
+                self.assertEqual("BLOCKED", post.gate_decision(hard, judgment, True))
+        with mock.patch.object(post.subprocess, "run", return_value=mock.Mock(returncode=0, stdout='{"verdict":"fail","reasons":["wrong room"]}', stderr="")):
+            hard, judgment = post.evaluate("Ready.", None, self.contract, self.config)
         self.assertEqual([], hard)
-        self.assertIn("classifier-error", finding_ids(judgment))
+        self.assertIn("classifier-fail", finding_ids(judgment))
+        self.assertEqual("OVERRIDDEN", post.gate_decision(hard, judgment, True))
+
+    def test_audit_accepts_reason_code_and_rejects_free_text(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audit_file = Path(temp_dir) / "audit.jsonl"
+            with mock.patch.object(post, "audit_path", return_value=audit_file):
+                with self.assertRaises(ValueError):
+                    post.write_audit("OVERRIDDEN", "C123", "Draft", [], "xoxb-1234567890-abcdefghij")
+                post.write_audit("OVERRIDDEN", "C123", "Draft", [], "classifier-false-positive")
+            event = json.loads(audit_file.read_text(encoding="utf-8"))
+            self.assertEqual("classifier-false-positive", event["overrideReason"])
+            self.assertNotIn("xoxb-1234567890-abcdefghij", audit_file.read_text(encoding="utf-8"))
 
     @mock.patch.object(post, "classify", return_value=("pass", []))
     def test_hard_and_judgment_findings_stay_separate(self, _classify):

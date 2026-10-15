@@ -18,8 +18,10 @@ Put every bot send behind one repository-owned command with three checks:
 | Slack mrkdwn and Block Kit formatting | Block | Never |
 | Mechanical style and channel-aware classifier | Block by default | Logged reason |
 
-The classifier fails closed. A reasoned judgment override may handle an urgent
-misclassification, but it never bypasses content or formatting findings.
+Classifier execution, timeout, unavailable-command, invalid-output, and schema
+errors always block. A predefined, logged reason code may override a valid
+classifier fail verdict or style finding. Content and formatting never allow an
+override.
 
 Attribution follows who wrote the words. Agent-written messages post as the
 bot. A person's own words may post as that person. A person's decision written
@@ -35,6 +37,7 @@ A client hook that blocks obvious raw send calls is useful feedback, but it is
 only defense in depth. Document its client event, config path, input schema,
 blocking behavior, timeout, failure mode, and disable path. Unsupported clients
 use the same gated CLI without the hook.
+Strip the bot credential from classifier and git audit subprocess environments.
 
 ## Activation
 

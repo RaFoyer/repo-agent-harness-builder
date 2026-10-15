@@ -26,6 +26,12 @@ MAX_BLOCKS = 50
 TABLE_MAX_ROWS = 100
 TABLE_MAX_COLS = 20
 TABLE_AGGREGATE_CHARS = 10000
+OVERRIDE_REASONS = {
+    "classifier-false-positive",
+    "style-exception",
+    "audience-exception",
+    "urgent-operational-need",
+}
 
 SLACK_MARKUP_ATOM = re.compile(
     r"<(?:[@#!][^<>|]+|https?://[^<>|]+|mailto:[^<>|]+)(?:\|[^<>]*)?>"
@@ -117,7 +123,7 @@ def strip_code_spans(text: str) -> str:
     return re.sub(r"`[^`\n]*`", lambda match: " " * len(match.group(0)), text)
 
 
-def formatting_findings(text: str) -> list[dict[str, str]]:
+def formatting_findings(text: str, mrkdwn: bool = True) -> list[dict[str, str]]:
     """Return Slack mrkdwn findings without inspecting literal code."""
     findings: list[dict[str, str]] = []
     prose = strip_code_spans(text)
@@ -137,8 +143,11 @@ def formatting_findings(text: str) -> list[dict[str, str]]:
         findings.append({"id": "markdown-heading", "reason": "mrkdwn has no heading syntax"})
     if re.search(r"^\s*\|.*\|\s*$", prose, re.M):
         findings.append({"id": "pipe-table", "reason": "pipe tables render as literal text"})
-    if re.search(r"```[A-Za-z]", text):
+    if mrkdwn and re.search(r"```[A-Za-z]", text):
         findings.append({"id": "fence-language", "reason": "mrkdwn prints code-fence language tags"})
+
+    if not mrkdwn:
+        return findings
 
     without_markup = SLACK_MARKUP_ATOM.sub(" ", prose)
     without_markup = re.sub(r"https?://\S+", " ", without_markup)
@@ -151,6 +160,74 @@ def formatting_findings(text: str) -> list[dict[str, str]]:
         findings.append({"id": "plaintext-mention", "reason": "plaintext @name does not notify a Slack user"})
 
     return findings
+
+
+def visible_block_text(blocks: Any) -> list[tuple[str, str]]:
+    """Collect text Slack renders from supported Block Kit structures."""
+    if not isinstance(blocks, list):
+        return []
+    visible: list[tuple[str, str]] = []
+
+    def add(value: Any, kind: str = "plain_text") -> None:
+        if isinstance(value, str):
+            visible.append((value, kind))
+        elif isinstance(value, dict) and isinstance(value.get("text"), str):
+            visible.append((value["text"], value.get("type", kind)))
+
+    def rich(elements: Any, parent: str = "rich_text") -> None:
+        if not isinstance(elements, list):
+            return
+        for element in elements:
+            if not isinstance(element, dict):
+                continue
+            kind = element.get("type")
+            if isinstance(kind, str) and kind in {"text", "link", "emoji", "user", "channel", "usergroup", "broadcast"}:
+                add(element.get("text") or element.get("url") or element.get("name"), parent)
+            rich(element.get("elements"), "code" if kind == "rich_text_preformatted" else parent)
+
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "section":
+            add(block.get("text"))
+            for field in block.get("fields") if isinstance(block.get("fields"), list) else []:
+                add(field)
+            accessory = block.get("accessory")
+            if isinstance(accessory, dict):
+                add(accessory.get("alt_text"))
+        elif kind == "header":
+            add(block.get("text"))
+        elif kind == "context":
+            for element in block.get("elements") if isinstance(block.get("elements"), list) else []:
+                add(element)
+                if isinstance(element, dict):
+                    add(element.get("alt_text"))
+        elif kind == "rich_text":
+            rich(block.get("elements"))
+        elif kind == "table":
+            for row in block.get("rows") if isinstance(block.get("rows"), list) else []:
+                if isinstance(row, list):
+                    for cell in row:
+                        add(cell, "raw_text")
+        elif kind == "data_visualization":
+            add(block.get("title"))
+            chart = block.get("chart")
+            if isinstance(chart, dict):
+                axis = chart.get("axis_config")
+                if isinstance(axis, dict):
+                    for category in axis.get("categories") if isinstance(axis.get("categories"), list) else []:
+                        add(category)
+                for series in chart.get("series") if isinstance(chart.get("series"), list) else []:
+                    if isinstance(series, dict):
+                        add(series.get("name"))
+                        for point in series.get("data") if isinstance(series.get("data"), list) else []:
+                            if isinstance(point, dict):
+                                add(point.get("label"))
+        elif kind == "image":
+            add(block.get("alt_text"))
+            add(block.get("title"))
+    return visible
 
 
 def block_findings(blocks: Any) -> list[dict[str, str]]:
@@ -169,7 +246,9 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
 
         compact = json.dumps(block, separators=(",", ":"))
         kind = block.get("type")
-        if kind in {"actions", "button"} or '"type":"button"' in compact:
+        if not isinstance(kind, str) or kind not in {"section", "header", "context", "rich_text", "table", "data_visualization", "image", "divider"}:
+            findings.append({"id": "unsupported-block", "reason": f"block {index} has an unsupported type"})
+        if kind == "actions" or kind == "button" or '"type":"button"' in compact:
             findings.append(
                 {
                     "id": "button-without-interactivity",
@@ -180,13 +259,11 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
         if kind == "section":
             text_object = block.get("text") or {}
             body = text_object.get("text", "") if isinstance(text_object, dict) else ""
+            if not isinstance(body, str):
+                body = ""
             if len(body) > SECTION_CHAR_LIMIT:
                 findings.append(
                     {"id": "section-length", "reason": f"section block {index} exceeds {SECTION_CHAR_LIMIT} characters"}
-                )
-            for finding in formatting_findings(body):
-                findings.append(
-                    {"id": f"section-{finding['id']}", "reason": f"section block {index}: {finding['reason']}"}
                 )
 
         if kind == "table":
@@ -233,6 +310,12 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
                                 }
                             )
 
+    for body, kind in visible_block_text(blocks):
+        if kind == "code":
+            continue
+        for finding in formatting_findings(body, mrkdwn=kind == "mrkdwn"):
+            findings.append({"id": f"block-{finding['id']}", "reason": finding["reason"]})
+
     if table_chars > TABLE_AGGREGATE_CHARS:
         findings.append(
             {"id": "table-aggregate-length", "reason": f"table content exceeds {TABLE_AGGREGATE_CHARS} characters"}
@@ -240,25 +323,11 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
     return findings
 
 
-def section_prose(blocks: Any) -> list[str]:
-    """Return prose-bearing section text for style and audience review."""
-    if not isinstance(blocks, list):
-        return []
-    prose: list[str] = []
-    for block in blocks:
-        if not isinstance(block, dict) or block.get("type") != "section":
-            continue
-        text_object = block.get("text")
-        if isinstance(text_object, dict) and isinstance(text_object.get("text"), str):
-            prose.append(text_object["text"])
-    return prose
-
-
 def payload_subject(text: str, blocks: Any) -> str:
     """Build a stable representation for content checks and audit digests."""
     if blocks is None:
         return text
-    return text + "\n" + json.dumps(blocks, sort_keys=True, separators=(",", ":"))
+    return text + "\n" + json.dumps(blocks, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def content_findings(text: str, config: dict[str, Any]) -> list[dict[str, str]]:
@@ -371,6 +440,13 @@ def classifier_input(text: str, channel_contract: dict[str, Any]) -> dict[str, A
     }
 
 
+def child_environment(credential_ref: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    if credential_ref.startswith("env:"):
+        environment.pop(credential_ref.removeprefix("env:"), None)
+    return environment
+
+
 def classify(text: str, channel_contract: dict[str, Any], config: dict[str, Any]) -> tuple[str, list[str]]:
     """Run the configured classifier without a shell and validate strict JSON."""
     command = config.get("classifierCommand")
@@ -388,6 +464,7 @@ def classify(text: str, channel_contract: dict[str, Any], config: dict[str, Any]
             text=True,
             timeout=timeout,
             check=False,
+            env=child_environment(str(config.get("botCredentialRef") or "")),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return "error", [f"classifier unavailable: {error}"]
@@ -418,14 +495,23 @@ def evaluate(
     hard = content_findings(payload_subject(text, blocks), config) + formatting_findings(text)
     if blocks is not None:
         hard += block_findings(blocks)
-    review_text = "\n".join([text, *section_prose(blocks)])
-    judgment = style_findings(review_text, config)
+    block_text = visible_block_text(blocks)
+    review_text = "\n".join([text, *(body for body, _kind in block_text)])
+    style_text = "\n".join([text, *(body for body, kind in block_text if kind != "code")])
+    judgment = style_findings(style_text, config)
     verdict, reasons = classify(review_text, channel_contract, config)
-    if verdict != "pass":
-        judgment.extend(
-            {"id": f"classifier-{verdict}", "reason": reason}
-            for reason in reasons or ["classifier did not return pass"]
+    if verdict == "error":
+        hard.extend(
+            {"id": "classifier-error", "reason": reason}
+            for reason in reasons or ["classifier did not return a valid verdict"]
         )
+    elif verdict == "fail":
+        judgment.extend(
+            {"id": "classifier-fail", "reason": reason}
+            for reason in reasons or ["classifier rejected the draft"]
+        )
+    elif verdict != "pass":
+        hard.append({"id": "classifier-error", "reason": "classifier returned an unknown verdict"})
     return hard, judgment
 
 
@@ -441,7 +527,7 @@ def gate_decision(
     return "PASSED"
 
 
-def audit_path(start: Path | None = None) -> Path:
+def audit_path(start: Path | None = None, credential_ref: str = "") -> Path:
     working_dir = (start or Path.cwd()).resolve()
     try:
         result = subprocess.run(
@@ -451,6 +537,7 @@ def audit_path(start: Path | None = None) -> Path:
             text=True,
             timeout=5,
             check=False,
+            env=child_environment(credential_ref),
         )
     except (OSError, subprocess.TimeoutExpired):
         result = None
@@ -469,8 +556,11 @@ def write_audit(
     findings: list[dict[str, str]],
     override_reason: str = "",
     start: Path | None = None,
+    credential_ref: str = "",
 ) -> None:
-    path = audit_path(start)
+    if override_reason and override_reason not in OVERRIDE_REASONS:
+        raise ValueError("override reason must be a predefined reason code")
+    path = audit_path(start, credential_ref)
     path.parent.mkdir(parents=True, exist_ok=True)
     event = {
         "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -551,7 +641,7 @@ def main() -> int:
     parser.add_argument("--blocks-file")
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--override-judgment", action="store_true")
-    parser.add_argument("--override-reason", default="")
+    parser.add_argument("--override-reason", choices=sorted(OVERRIDE_REASONS), default="")
     args = parser.parse_args()
     config_dir = Path(args.config).resolve().parent
 
@@ -583,25 +673,25 @@ def main() -> int:
     decision = gate_decision(hard, judgment, args.override_judgment)
     if decision == "BLOCKED":
         try:
-            write_audit("BLOCKED", args.channel, audit_subject, all_findings, start=config_dir)
+            write_audit("BLOCKED", args.channel, audit_subject, all_findings, start=config_dir, credential_ref=config["botCredentialRef"])
         except OSError as error:
             print(f"BLOCKED: audit write failed: {error}", file=sys.stderr)
         print("BLOCKED. Nothing was sent.")
-        print_findings("Content or formatting findings:", hard)
+        print_findings("Blocking findings:", hard)
         print_findings("Style or audience findings:", judgment)
         if hard and args.override_judgment:
-            print("The judgment override cannot bypass content or formatting findings.")
+            print("The judgment override cannot bypass content, formatting, or classifier errors.")
         return 2
 
     if not args.check_only and config.get("status") != "active":
         try:
-            write_audit("BLOCKED_INACTIVE", args.channel, audit_subject, [], start=config_dir)
+            write_audit("BLOCKED_INACTIVE", args.channel, audit_subject, [], start=config_dir, credential_ref=config["botCredentialRef"])
         except OSError as error:
             print(f"BLOCKED: audit write failed: {error}", file=sys.stderr)
         print("BLOCKED: gate config is inactive; no message was sent", file=sys.stderr)
         return 2
     try:
-        write_audit(decision, args.channel, audit_subject, judgment, args.override_reason.strip(), start=config_dir)
+        write_audit(decision, args.channel, audit_subject, judgment, args.override_reason.strip(), start=config_dir, credential_ref=config["botCredentialRef"])
     except OSError as error:
         print(f"BLOCKED: pre-send audit write failed: {error}", file=sys.stderr)
         return 2
@@ -614,7 +704,7 @@ def main() -> int:
         result = send(args.channel, args.thread_ts, text, blocks, config)
     except RuntimeError as error:
         try:
-            write_audit("SEND_FAILED", args.channel, audit_subject, [{"id": "transport-error", "reason": str(error)}], start=config_dir)
+            write_audit("SEND_FAILED", args.channel, audit_subject, [{"id": "transport-error", "reason": str(error)}], start=config_dir, credential_ref=config["botCredentialRef"])
         except OSError:
             pass
         print(str(error), file=sys.stderr)
@@ -622,14 +712,14 @@ def main() -> int:
     if not result.get("ok"):
         error_name = str(result.get("error") or "unknown_error")
         try:
-            write_audit("SEND_FAILED", args.channel, audit_subject, [{"id": "slack-error", "reason": error_name}], start=config_dir)
+            write_audit("SEND_FAILED", args.channel, audit_subject, [{"id": "slack-error", "reason": error_name}], start=config_dir, credential_ref=config["botCredentialRef"])
         except OSError:
             pass
         print(f"Slack rejected the send: {error_name}", file=sys.stderr)
         return 1
 
     try:
-        write_audit("SENT", args.channel, audit_subject, [], start=config_dir)
+        write_audit("SENT", args.channel, audit_subject, [], start=config_dir, credential_ref=config["botCredentialRef"])
     except OSError as error:
         print(f"SENT, but the delivery audit write failed: {error}. Do not retry.", file=sys.stderr)
         return 3
