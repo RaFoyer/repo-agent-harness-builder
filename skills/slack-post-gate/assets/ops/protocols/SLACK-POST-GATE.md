@@ -29,6 +29,7 @@ This module is inactive. Before activation, name the owner and configure:
 - the audience, accepted genres, and excluded subjects for every channel
 - non-overridable content patterns
 - a classifier command that follows `ops/slack/classifier-prompt.txt`
+- supported accessory types, owner-reviewed interactivity, and allowed override reason codes
 - credential injection limited to `python3 ops/slack/post.py`
 - audit retention and disable/revoke steps
 
@@ -53,6 +54,7 @@ The hosted human connector and the bot transport are not interchangeable.
 2. Compose for the channel contract in the gate config.
 3. Run the sanctioned poster. Use `--check-only` until a live send is approved.
 4. Block on any content or formatting finding.
+   Do not pass a hard-rejected draft to the classifier.
 5. Block on classifier execution or output errors. Block on style, genre, or a
    valid classifier fail verdict unless an operator supplies a predefined
    judgment override reason code.
@@ -70,8 +72,11 @@ The hosted human connector and the bot transport are not interchangeable.
 - Only configured channel IDs may send.
 - The bot credential must be absent from ambient shells and general agent tools.
 - Client hooks are defense in depth. They do not replace credential isolation.
-- Block Kit buttons remain disabled unless a separate reviewed interaction
-  handler and protocol are active.
+- Interactive section accessories require an owner-reviewed handler and
+  protocol; `interactivityReviewed` remains false in the example config.
+- Only implemented accessory types may be enabled in `supportedAccessories`.
+  Review agent-supplied outbound text, including nested options and dialogs;
+  future provider-generated options are outside this gate's review.
 - Do not claim a table, chart, or new block type works until a person inspects
   the rendered post.
 

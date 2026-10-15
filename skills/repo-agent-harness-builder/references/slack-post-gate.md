@@ -38,6 +38,10 @@ only defense in depth. Document its client event, config path, input schema,
 blocking behavior, timeout, failure mode, and disable path. Unsupported clients
 use the same gated CLI without the hook.
 Strip the bot credential from classifier and git audit subprocess environments.
+Keep hard-rejected drafts out of the classifier. Configure implemented section
+accessory types and value-safe override reason codes in the repository config;
+interactive types require owner-reviewed interactivity. Review all agent-supplied
+outbound accessory text. Future provider-generated options need their own gate.
 
 ## Activation
 

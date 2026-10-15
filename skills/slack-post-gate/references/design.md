@@ -34,8 +34,9 @@ before composing.
 
 ## Content policy
 
-Scan the raw payload, including decoded Unicode and code. A credential pasted
-inside a code fence is still a credential. Start with specific patterns for known
+Scan decoded strings in the raw payload, including Unicode, newlines, quotes,
+backslashes, and code. A credential pasted inside a code fence is still a
+credential. Start with specific patterns for known
 credential forms, then add rules for the target channel:
 
 - internal run or job identifiers
@@ -69,9 +70,13 @@ false positive found in real use.
 Review visible text in supported sections, fields, headers, context, rich text,
 tables, charts, and images. Respect each text type: plain text does not need
 mrkdwn entity escaping, and code is exempt from prose formatting checks.
-Refuse unsupported blocks. Refuse Block Kit buttons unless the repository proves
-a live interactivity endpoint and adds a separate interaction protocol. A button that looks active
-but does nothing is worse than plain instructions. Validate block counts,
+Refuse unsupported blocks and accessory shapes. The configured accessory list
+may enable image, button, overflow, select and multi-select menus, and date/time
+pickers supported by the gate. Interactive accessories also require the owner to
+mark interactivity reviewed after proving a live handler and separate protocol.
+The gate reviews text supplied in the outbound payload, including placeholders,
+options, initial selections, confirmations, and accessibility labels. It cannot
+review options returned later by Slack or an external options provider. Validate block counts,
 section lengths, table dimensions, and any fields used by a new block type.
 
 ## Style and audience judgment
@@ -106,6 +111,8 @@ The reference command contract is:
 
 Invoke the command as an argv array without a shell. Remove the bot credential
 from the classifier and git audit subprocess environments.
+Do not invoke the classifier when content, formatting, or block validation
+already rejected the draft.
 
 ## Capability boundary
 
@@ -125,7 +132,7 @@ Write the decision before sending. Store metadata, not the message body:
 - timestamp and channel
 - decision and finding identifiers
 - draft byte count and digest
-- a predefined override reason code, if used; never free-form reason text
+- a configured, value-safe override reason code, if used; never free-form reason text
 
 Use append mode. Do not read a log and rewrite it in place. If the pre-send
 audit write fails, block. If the delivery succeeds but the follow-up audit write

@@ -136,6 +136,35 @@ class ContentTests(unittest.TestCase):
             hard, _judgment = post.evaluate("Public fallback.", blocks, {}, config)
         self.assertIn("private-name", finding_ids(hard))
 
+    def test_decoded_block_strings_reach_content_rules(self):
+        samples = [
+            (r"ACME\s+CONFIDENTIAL", "ACME\nCONFIDENTIAL"),
+            (r'ACME"CONFIDENTIAL', 'ACME"CONFIDENTIAL'),
+            (r"ACME\\CONFIDENTIAL", r"ACME\CONFIDENTIAL"),
+            ("José", "José"),
+        ]
+        for pattern, value in samples:
+            with self.subTest(value=value):
+                config = {"contentPolicy": {"rules": [{"id": "restricted", "pattern": pattern, "reason": "restricted"}]}}
+                blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": value}}]
+                with mock.patch.object(post, "classify") as classify:
+                    hard, _judgment = post.evaluate("Public fallback.", blocks, {}, config)
+                self.assertIn("restricted", finding_ids(hard))
+                classify.assert_not_called()
+
+    def test_nested_accessory_strings_reach_content_rules(self):
+        config = {
+            "contentPolicy": {"rules": [{"id": "restricted", "pattern": r"ACME\s+CONFIDENTIAL", "reason": "restricted"}]},
+            "blockPolicy": {"supportedAccessories": ["static_select"], "interactivityReviewed": True},
+        }
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": {
+            "type": "static_select", "action_id": "go", "options": [{"text": {"type": "plain_text", "text": "Open"}, "value": "ACME\nCONFIDENTIAL"}],
+        }}]
+        with mock.patch.object(post, "classify") as classify:
+            hard, _judgment = post.evaluate("Ready.", blocks, {}, config)
+        self.assertIn("restricted", finding_ids(hard))
+        classify.assert_not_called()
+
 
 class StyleTests(unittest.TestCase):
     def setUp(self):
@@ -165,6 +194,9 @@ class StyleTests(unittest.TestCase):
 
 
 class BlockKitTests(unittest.TestCase):
+    def setUp(self):
+        self.enabled = {"blockPolicy": {"supportedAccessories": sorted(post.ACCESSORY_TYPES), "interactivityReviewed": True}}
+
     def test_visible_text_reaches_formatting_style_and_classifier(self):
         blocks = [
             {"type": "section", "fields": [{"type": "mrkdwn", "text": "**bold** crucial field"}]},
@@ -174,12 +206,18 @@ class BlockKitTests(unittest.TestCase):
             {"type": "table", "rows": [[{"type": "raw_text", "text": "Table news"}]]},
             {"type": "data_visualization", "title": "Chart news", "chart": {"axis_config": {"categories": ["Level news"]}, "series": [{"name": "Series news", "data": [{"label": "Level news", "value": 1}]}]}},
         ]
-        with mock.patch.object(post, "classify", return_value=("pass", [])) as classify:
+        with mock.patch.object(post, "classify") as classify:
             hard, judgment = post.evaluate("Fallback.", blocks, {}, {"contentPolicy": {"rules": []}})
         self.assertIn("block-markdown-bold", finding_ids(hard))
+        self.assertEqual([], judgment)
+        classify.assert_not_called()
+        blocks[0]["fields"][0]["text"] = "crucial field"
+        with mock.patch.object(post, "classify", return_value=("pass", [])) as classify:
+            hard, judgment = post.evaluate("Fallback.", blocks, {}, {"contentPolicy": {"rules": []}})
+        self.assertEqual([], hard)
         self.assertIn("style-word-crucial", finding_ids(judgment))
         draft = classify.call_args.args[0]
-        for value in ("bold", "Header news", "Context news", "Rich news", "Table news", "Chart news", "Series news", "Level news"):
+        for value in ("crucial field", "Header news", "Context news", "Rich news", "Table news", "Chart news", "Series news", "Level news"):
             self.assertIn(value, draft)
 
     def test_plain_text_and_code_respect_text_type(self):
@@ -195,6 +233,62 @@ class BlockKitTests(unittest.TestCase):
 
     def test_unknown_block_is_refused(self):
         self.assertIn("unsupported-block", finding_ids(post.block_findings([{"type": "video", "title": "Private news"}])))
+
+    def test_supported_accessory_families_obey_interactivity_policy(self):
+        option = {"text": {"type": "plain_text", "text": "Choice"}, "value": "choice"}
+        samples = {
+            "image": {"image_url": "https://example.com/image.png", "alt_text": "Diagram"},
+            "button": {"action_id": "go", "text": {"type": "plain_text", "text": "Open"}},
+            "overflow": {"action_id": "go", "options": [option]},
+            "datepicker": {"action_id": "go", "initial_date": "2026-10-15"},
+            "timepicker": {"action_id": "go", "initial_time": "12:30"},
+            "datetimepicker": {"action_id": "go", "initial_date_time": 1792100000},
+        }
+        for source in post.SELECT_SOURCES:
+            for prefix in ("", "multi_"):
+                kind = f"{prefix}{source}_select"
+                samples[kind] = {"action_id": "go", **({"options": [option]} if source == "static" else {})}
+        for kind, fields in samples.items():
+            with self.subTest(kind=kind):
+                blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": {"type": kind, **fields}}]
+                self.assertEqual([], post.block_findings(blocks, self.enabled))
+                if kind != "image":
+                    self.assertIn("interactivity-unreviewed", finding_ids(post.block_findings(blocks)))
+
+    def test_accessory_text_reaches_judgment_and_classifier(self):
+        option = {"text": {"type": "plain_text", "text": "crucial option"}, "description": {"type": "plain_text", "text": "crucial detail"}, "value": "one"}
+        group = {"label": {"type": "plain_text", "text": "crucial group"}, "options": [option]}
+        confirm = {key: {"type": "plain_text", "text": "crucial " + key} for key in ("title", "text", "confirm", "deny")}
+        accessories = [
+            {"type": "static_select", "action_id": "go", "placeholder": {"type": "plain_text", "text": "crucial placeholder"}, "options": [option], "initial_option": option, "confirm": confirm},
+            {"type": "multi_static_select", "action_id": "go", "option_groups": [group], "initial_options": [option]},
+            {"type": "overflow", "action_id": "go", "options": [option], "confirm": confirm},
+            {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}, "accessibility_label": "crucial label", "confirm": confirm},
+            {"type": "datepicker", "action_id": "go", "placeholder": {"type": "plain_text", "text": "crucial date"}},
+            {"type": "image", "image_url": "https://example.com/i.png", "alt_text": "crucial diagram"},
+        ]
+        for accessory in accessories:
+            with self.subTest(kind=accessory["type"]):
+                blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": accessory}]
+                with mock.patch.object(post, "classify", return_value=("pass", [])) as classify:
+                    hard, judgment = post.evaluate("Ready.", blocks, {}, self.enabled)
+                self.assertEqual([], hard)
+                self.assertIn("style-word-crucial", finding_ids(judgment))
+                self.assertIn("crucial", classify.call_args.args[0])
+
+    def test_accessory_malformed_unknown_and_disabled_types_block(self):
+        cases = [
+            {"type": "mystery", "text": {"type": "plain_text", "text": "Hidden"}},
+            {"type": "static_select", "action_id": "go", "options": [{"text": {"type": "plain_text", "text": 3}, "value": "x"}]},
+            {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}, "unreviewed_label": "Hidden"},
+        ]
+        for accessory in cases:
+            with self.subTest(accessory=accessory):
+                blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": accessory}]
+                self.assertTrue(post.block_findings(blocks, self.enabled))
+        policy = {"blockPolicy": {"supportedAccessories": ["image"], "interactivityReviewed": True}}
+        button = [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}}}]
+        self.assertIn("disabled-accessory", finding_ids(post.block_findings(button, policy)))
 
     def test_button_is_refused(self):
         blocks = [{"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Approve"}}]}]
@@ -362,10 +456,25 @@ class GateTests(unittest.TestCase):
             self.assertNotIn("xoxb-1234567890-abcdefghij", audit_file.read_text(encoding="utf-8"))
 
     @mock.patch.object(post, "classify", return_value=("pass", []))
-    def test_hard_and_judgment_findings_stay_separate(self, _classify):
+    def test_hard_findings_stop_before_judgment(self, classify):
         hard, judgment = post.evaluate("This is **crucial**.", None, self.contract, self.config)
         self.assertIn("markdown-bold", finding_ids(hard))
-        self.assertIn("style-word-crucial", finding_ids(judgment))
+        self.assertEqual([], judgment)
+        classify.assert_not_called()
+
+    def test_every_hard_rejection_stops_before_classifier(self):
+        cases = [
+            ("-----BEGIN PRIVATE KEY-----", None, "private-key-block"),
+            ("This is **bold**.", None, "markdown-bold"),
+            ("Ready.", [{"type": "video", "title": "Unknown"}], "unsupported-block"),
+            ("Ready.", [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}}}], "interactivity-unreviewed"),
+        ]
+        for text, blocks, expected in cases:
+            with self.subTest(expected=expected), mock.patch.object(post, "classify") as classify:
+                hard, judgment = post.evaluate(text, blocks, self.contract, self.config)
+                self.assertIn(expected, finding_ids(hard))
+                self.assertEqual([], judgment)
+                classify.assert_not_called()
 
     def test_override_applies_only_to_judgment(self):
         hard = [{"id": "content", "reason": "forbidden"}]
@@ -464,6 +573,53 @@ class ConfigTests(unittest.TestCase):
         with mock.patch.object(Path, "read_text", return_value=json.dumps(config)):
             with self.assertRaisesRegex(ValueError, "Slack channel ID"):
                 post.load_config(example)
+
+    def test_accessory_and_reason_policy_changes_through_config(self):
+        example = Path(__file__).with_name("post-gate.example.json")
+        config = json.loads(example.read_text(encoding="utf-8"))
+        config["blockPolicy"]["supportedAccessories"] = ["image", "button"]
+        config["blockPolicy"]["interactivityReviewed"] = True
+        config["overrideReasonCodes"] = ["reviewed-exception"]
+        with mock.patch.object(Path, "read_text", return_value=json.dumps(config)):
+            loaded = post.load_config(example)
+        accessory = {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}}
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": accessory}]
+        self.assertEqual([], post.block_findings(blocks, loaded))
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(post, "audit_path", return_value=Path(temp_dir) / "audit.jsonl"):
+            post.write_audit("OVERRIDDEN", "C123", "Ready.", [], "reviewed-exception", allowed_reasons=loaded["overrideReasonCodes"])
+            with self.assertRaises(ValueError):
+                post.write_audit("OVERRIDDEN", "C123", "Ready.", [], "style-exception", allowed_reasons=loaded["overrideReasonCodes"])
+
+    def test_cli_uses_configured_override_reason_without_sending(self):
+        example = Path(__file__).with_name("post-gate.example.json")
+        config = json.loads(example.read_text(encoding="utf-8"))
+        config["overrideReasonCodes"] = ["reviewed-exception"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "gate.json"
+            draft_path = root / "draft.txt"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            draft_path.write_text("This is crucial.", encoding="utf-8")
+            argv = ["post.py", "--config", str(config_path), "--channel", "C_REPLACE_ME", "--text-file", str(draft_path), "--check-only", "--override-judgment", "--override-reason", "reviewed-exception"]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(post, "classify", return_value=("pass", [])), mock.patch.object(post, "write_audit") as audit, mock.patch.object(post, "send") as send, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, post.main())
+            self.assertEqual("reviewed-exception", audit.call_args.args[4])
+            send.assert_not_called()
+
+    def test_invalid_policy_cannot_enable_unimplemented_or_unsafe_values(self):
+        example = Path(__file__).with_name("post-gate.example.json")
+        original = json.loads(example.read_text(encoding="utf-8"))
+        variants = [
+            ("blockPolicy", {"supportedAccessories": ["mystery"], "interactivityReviewed": True}),
+            ("blockPolicy", {"supportedAccessories": ["button"], "interactivityReviewed": "yes"}),
+            ("overrideReasonCodes", ["xoxb-1234567890-abcdefghij"]),
+        ]
+        for field, value in variants:
+            with self.subTest(field=field, value=value):
+                config = {**original, field: value}
+                with mock.patch.object(Path, "read_text", return_value=json.dumps(config)):
+                    with self.assertRaises(ValueError):
+                        post.load_config(example)
 
 
 def run_suite() -> unittest.result.TestResult:

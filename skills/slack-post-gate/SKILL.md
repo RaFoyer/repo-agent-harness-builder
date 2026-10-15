@@ -16,6 +16,7 @@ Build one sanctioned bot-post command with three checks:
 3. Style and audience judgment. Run mechanical prose checks and a channel-aware
    classifier. Classifier errors always block. A valid fail verdict or style
    finding may use a predefined reason code logged before sending.
+Stop before the classifier when content, formatting, or block shape fails.
 
 Attribution follows who wrote the words. Agent-written text posts as the bot.
 A person's own words may post as that person. A person's ruling written up by
@@ -35,6 +36,7 @@ Keep the module inactive until a human approves:
 - the classifier command and its credential boundary
 - the audit location and retention owner
 - the exact command that alone receives the bot credential
+- the supported accessory types, reviewed interactivity handler, and reason codes
 
 Do not treat a hook that matches command text as enforcement. The durable
 control is capability-based: inject the bot credential only into the sanctioned
@@ -61,6 +63,10 @@ channel contract and draft as JSON on stdin and requires strict JSON on stdout.
 Keep the classifier adapter local to the repository so the portable gate does
 not depend on one model vendor or agent client.
 The classifier and git audit subprocesses must not inherit the bot credential.
+Configure supported section accessories and value-safe override reason codes in
+the repository config. The gate checks text supplied in the outbound payload,
+including nested options and dialogs. It cannot review future options supplied
+by a provider after the message is sent.
 
 ## Verification
 

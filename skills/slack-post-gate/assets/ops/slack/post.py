@@ -32,6 +32,12 @@ OVERRIDE_REASONS = {
     "audience-exception",
     "urgent-operational-need",
 }
+SELECT_SOURCES = {"static", "external", "users", "conversations", "channels"}
+ACCESSORY_TYPES = {
+    "image", "button", "overflow", "datepicker", "timepicker", "datetimepicker",
+    *(f"{prefix}{source}_select" for prefix in ("", "multi_") for source in SELECT_SOURCES),
+}
+INTERACTIVE_ACCESSORIES = ACCESSORY_TYPES - {"image"}
 
 SLACK_MARKUP_ATOM = re.compile(
     r"<(?:[@#!][^<>|]+|https?://[^<>|]+|mailto:[^<>|]+)(?:\|[^<>]*)?>"
@@ -162,6 +168,205 @@ def formatting_findings(text: str, mrkdwn: bool = True) -> list[dict[str, str]]:
     return findings
 
 
+def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tuple[list[tuple[str, str]], list[dict[str, str]]]:
+    visible: list[tuple[str, str]] = []
+    findings: list[dict[str, str]] = []
+
+    def reject(path: str) -> None:
+        findings.append({"id": "accessory-shape", "reason": f"invalid accessory {path}"})
+
+    def object_keys(value: Any, path: str, allowed: set[str], required: set[str] = set()) -> bool:
+        if not isinstance(value, dict) or not required <= value.keys() or value.keys() - allowed:
+            reject(path)
+            return False
+        return True
+
+    def string_field(value: Any, path: str, limit: int = 3000) -> None:
+        if not isinstance(value, str) or not value or len(value) > limit:
+            reject(path)
+
+    def text_object(value: Any, path: str, types: set[str] = {"plain_text"}, limit: int = 300) -> None:
+        if not object_keys(value, path, {"type", "text", "emoji", "verbatim"}, {"type", "text"}):
+            return
+        kind = value["type"]
+        body = value["text"]
+        if not isinstance(kind, str) or kind not in types or not isinstance(body, str) or not body or len(body) > limit:
+            reject(path)
+            return
+        if ("emoji" in value and (kind != "plain_text" or not isinstance(value["emoji"], bool))) or (
+            "verbatim" in value and (kind != "mrkdwn" or not isinstance(value["verbatim"], bool))
+        ):
+            reject(path)
+        visible.append((body, kind))
+
+    def option(value: Any, path: str, overflow: bool = False) -> None:
+        allowed = {"text", "value", "description"} | ({"url"} if overflow else set())
+        if not object_keys(value, path, allowed, {"text", "value"}):
+            return
+        text_object(value["text"], path + ".text", limit=75)
+        string_field(value["value"], path + ".value", 150)
+        if "description" in value:
+            text_object(value["description"], path + ".description", limit=75)
+        if "url" in value:
+            string_field(value["url"], path + ".url")
+
+    def options(value: Any, path: str, limit: int = 100, overflow: bool = False) -> None:
+        if not isinstance(value, list) or not 1 <= len(value) <= limit:
+            reject(path)
+            return
+        for index, item in enumerate(value):
+            option(item, f"{path}[{index}]", overflow)
+
+    def groups(value: Any, path: str) -> None:
+        if not isinstance(value, list) or not 1 <= len(value) <= 100:
+            reject(path)
+            return
+        for index, group in enumerate(value):
+            group_path = f"{path}[{index}]"
+            if object_keys(group, group_path, {"label", "options"}, {"label", "options"}):
+                text_object(group["label"], group_path + ".label", limit=75)
+                options(group["options"], group_path + ".options")
+
+    if not isinstance(accessory, dict) or not isinstance(accessory.get("type"), str):
+        reject("type")
+        return visible, findings
+    kind = accessory["type"]
+    if kind not in ACCESSORY_TYPES:
+        findings.append({"id": "unsupported-accessory", "reason": f"unsupported section accessory: {kind}"})
+        return visible, findings
+    policy = (config or {}).get("blockPolicy") or {}
+    if kind not in policy.get("supportedAccessories", ACCESSORY_TYPES):
+        findings.append({"id": "disabled-accessory", "reason": f"section accessory is disabled: {kind}"})
+    if kind in INTERACTIVE_ACCESSORIES and not policy.get("interactivityReviewed", False):
+        findings.append({"id": "interactivity-unreviewed", "reason": "interactive section accessories require owner-reviewed interactivity"})
+
+    common = {"type", "action_id", "confirm", "focus_on_load"}
+    select = kind.endswith("_select")
+    multi = kind.startswith("multi_")
+    source = kind.removeprefix("multi_").removesuffix("_select") if select else ""
+    allowed = set(common)
+    required = {"type", "action_id"}
+    if kind == "image":
+        allowed = {"type", "image_url", "slack_file", "alt_text"}
+        required = {"type", "alt_text"}
+    elif kind == "button":
+        allowed |= {"text", "url", "value", "style", "accessibility_label"}
+        required.add("text")
+    elif kind == "overflow":
+        allowed.add("options")
+        required.add("options")
+    elif select:
+        allowed.add("placeholder")
+        if multi:
+            allowed.add("max_selected_items")
+        if source == "static":
+            allowed |= {"options", "option_groups", "initial_options" if multi else "initial_option"}
+        elif source == "external":
+            allowed |= {"min_query_length", "initial_options" if multi else "initial_option"}
+        else:
+            initial = {"users": "user", "conversations": "conversation", "channels": "channel"}[source]
+            allowed.add("initial_" + (initial + "s" if multi else initial))
+            if source == "conversations":
+                allowed |= {"default_to_current_conversation", "response_url_enabled", "filter"}
+    elif kind in {"datepicker", "timepicker"}:
+        allowed |= {"placeholder", "initial_date" if kind == "datepicker" else "initial_time"}
+    elif kind == "datetimepicker":
+        allowed.add("initial_date_time")
+    if not object_keys(accessory, kind, allowed, required):
+        return visible, findings
+    if kind == "image":
+        string_field(accessory["alt_text"], "alt_text", 2000)
+        if isinstance(accessory["alt_text"], str):
+            visible.append((accessory["alt_text"], "plain_text"))
+        if ("image_url" in accessory) == ("slack_file" in accessory):
+            reject("image source")
+        if "image_url" in accessory:
+            string_field(accessory["image_url"], "image_url")
+        if "slack_file" in accessory:
+            slack_file = accessory["slack_file"]
+            if object_keys(slack_file, "slack_file", {"id", "url"}):
+                if ("id" in slack_file) == ("url" in slack_file):
+                    reject("slack_file source")
+                else:
+                    string_field(next(iter(slack_file.values())), "slack_file source")
+        return visible, findings
+
+    string_field(accessory["action_id"], "action_id", 255)
+    if "focus_on_load" in accessory and not isinstance(accessory["focus_on_load"], bool):
+        reject("focus_on_load")
+    if "confirm" in accessory:
+        confirm = accessory["confirm"]
+        if object_keys(confirm, "confirm", {"title", "text", "confirm", "deny", "style"}, {"title", "text", "confirm", "deny"}):
+            for field in ("title", "text", "confirm", "deny"):
+                text_object(confirm[field], "confirm." + field, {"plain_text", "mrkdwn"} if field == "text" else {"plain_text"})
+            if "style" in confirm and (not isinstance(confirm["style"], str) or confirm["style"] not in {"primary", "danger"}):
+                reject("confirm.style")
+    if kind == "button":
+        text_object(accessory["text"], "button.text", limit=75)
+        for field, limit in (("url", 3000), ("value", 2000), ("accessibility_label", 75)):
+            if field in accessory:
+                string_field(accessory[field], "button." + field, limit)
+                if field == "accessibility_label" and isinstance(accessory[field], str):
+                    visible.append((accessory[field], "plain_text"))
+        if "style" in accessory and (not isinstance(accessory["style"], str) or accessory["style"] not in {"primary", "danger"}):
+            reject("button.style")
+    elif kind == "overflow":
+        options(accessory["options"], "overflow.options", 5, True)
+    elif select:
+        if "placeholder" in accessory:
+            text_object(accessory["placeholder"], "placeholder", limit=150)
+        if source == "static":
+            if ("options" in accessory) == ("option_groups" in accessory):
+                reject("select options")
+            if "options" in accessory:
+                options(accessory["options"], "options")
+            if "option_groups" in accessory:
+                groups(accessory["option_groups"], "option_groups")
+        for field in ("initial_option", "initial_options"):
+            if field in accessory:
+                if field == "initial_option":
+                    option(accessory[field], field)
+                else:
+                    options(accessory[field], field)
+        for field in ("initial_user", "initial_conversation", "initial_channel"):
+            if field in accessory:
+                string_field(accessory[field], field)
+                if isinstance(accessory[field], str):
+                    visible.append((accessory[field], "plain_text"))
+        for field in ("initial_users", "initial_conversations", "initial_channels"):
+            if field in accessory and (not isinstance(accessory[field], list) or not all(isinstance(item, str) and item for item in accessory[field])):
+                reject(field)
+            elif field in accessory:
+                visible.extend((item, "plain_text") for item in accessory[field])
+        for field in ("max_selected_items", "min_query_length"):
+            if field in accessory and (type(accessory[field]) is not int or accessory[field] < (0 if field == "min_query_length" else 1)):
+                reject(field)
+        for field in ("default_to_current_conversation", "response_url_enabled"):
+            if field in accessory and not isinstance(accessory[field], bool):
+                reject(field)
+        if "filter" in accessory:
+            filter_value = accessory["filter"]
+            if object_keys(filter_value, "filter", {"include", "exclude_external_shared_channels", "exclude_bot_users"}):
+                if "include" in filter_value and (not isinstance(filter_value["include"], list) or not all(item in {"im", "mpim", "private", "public"} for item in filter_value["include"] if isinstance(item, str)) or not all(isinstance(item, str) for item in filter_value["include"])):
+                    reject("filter.include")
+                for field in ("exclude_external_shared_channels", "exclude_bot_users"):
+                    if field in filter_value and not isinstance(filter_value[field], bool):
+                        reject("filter." + field)
+    elif kind in {"datepicker", "timepicker"}:
+        if "placeholder" in accessory:
+            text_object(accessory["placeholder"], "placeholder", limit=150)
+        field = "initial_date" if kind == "datepicker" else "initial_time"
+        if field in accessory:
+            pattern = r"\d{4}-\d{2}-\d{2}" if kind == "datepicker" else r"(?:[01]\d|2[0-3]):[0-5]\d"
+            if not isinstance(accessory[field], str) or not re.fullmatch(pattern, accessory[field]):
+                reject(field)
+            else:
+                visible.append((accessory[field], "plain_text"))
+    elif "initial_date_time" in accessory and (type(accessory["initial_date_time"]) is not int or accessory["initial_date_time"] < 0):
+        reject("initial_date_time")
+    return visible, findings
+
+
 def visible_block_text(blocks: Any) -> list[tuple[str, str]]:
     """Collect text Slack renders from supported Block Kit structures."""
     if not isinstance(blocks, list):
@@ -194,8 +399,9 @@ def visible_block_text(blocks: Any) -> list[tuple[str, str]]:
             for field in block.get("fields") if isinstance(block.get("fields"), list) else []:
                 add(field)
             accessory = block.get("accessory")
-            if isinstance(accessory, dict):
-                add(accessory.get("alt_text"))
+            if accessory is not None:
+                accessory_text, _findings = accessory_review(accessory)
+                visible.extend(accessory_text)
         elif kind == "header":
             add(block.get("text"))
         elif kind == "context":
@@ -230,7 +436,7 @@ def visible_block_text(blocks: Any) -> list[tuple[str, str]]:
     return visible
 
 
-def block_findings(blocks: Any) -> list[dict[str, str]]:
+def block_findings(blocks: Any, config: dict[str, Any] | None = None) -> list[dict[str, str]]:
     """Validate high-risk Block Kit constraints used by the reference gate."""
     findings: list[dict[str, str]] = []
     if not isinstance(blocks, list):
@@ -244,11 +450,10 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
             findings.append({"id": "block-type", "reason": f"block {index} is not an object"})
             continue
 
-        compact = json.dumps(block, separators=(",", ":"))
         kind = block.get("type")
         if not isinstance(kind, str) or kind not in {"section", "header", "context", "rich_text", "table", "data_visualization", "image", "divider"}:
             findings.append({"id": "unsupported-block", "reason": f"block {index} has an unsupported type"})
-        if kind == "actions" or kind == "button" or '"type":"button"' in compact:
+        if kind == "actions" or kind == "button":
             findings.append(
                 {
                     "id": "button-without-interactivity",
@@ -257,14 +462,35 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
             )
 
         if kind == "section":
+            if set(block) - {"type", "text", "fields", "accessory", "block_id", "expand"}:
+                findings.append({"id": "section-shape", "reason": f"section block {index} has unsupported fields"})
             text_object = block.get("text") or {}
             body = text_object.get("text", "") if isinstance(text_object, dict) else ""
+            text_objects = ([('body', block["text"])] if "text" in block else []) + [('field', value) for value in (block.get("fields") if isinstance(block.get("fields"), list) else [])]
+            for location, value in text_objects:
+                if not isinstance(value, dict) or not isinstance(value.get("type"), str) or value["type"] not in {"plain_text", "mrkdwn"} or not isinstance(value.get("text"), str) or not value["text"] or set(value) - {"type", "text", "emoji", "verbatim"}:
+                    findings.append({"id": "section-shape", "reason": f"section block {index} has invalid text"})
+                elif ("emoji" in value and (value["type"] != "plain_text" or not isinstance(value["emoji"], bool))) or ("verbatim" in value and (value["type"] != "mrkdwn" or not isinstance(value["verbatim"], bool))):
+                    findings.append({"id": "section-shape", "reason": f"section block {index} has invalid text flags"})
+                elif location == 'field' and len(value["text"]) > 2000:
+                    findings.append({"id": "section-length", "reason": f"section block {index} field exceeds 2000 characters"})
             if not isinstance(body, str):
                 body = ""
             if len(body) > SECTION_CHAR_LIMIT:
                 findings.append(
                     {"id": "section-length", "reason": f"section block {index} exceeds {SECTION_CHAR_LIMIT} characters"}
                 )
+            if "text" not in block and not block.get("fields"):
+                findings.append({"id": "section-shape", "reason": f"section block {index} needs text or fields"})
+            if "fields" in block and (not isinstance(block["fields"], list) or not 1 <= len(block["fields"]) <= 10):
+                findings.append({"id": "section-shape", "reason": f"section block {index} fields are invalid"})
+            if "expand" in block and not isinstance(block["expand"], bool):
+                findings.append({"id": "section-shape", "reason": f"section block {index} expand must be a boolean"})
+            if "block_id" in block and (not isinstance(block["block_id"], str) or not 1 <= len(block["block_id"]) <= 255):
+                findings.append({"id": "section-shape", "reason": f"section block {index} block_id is invalid"})
+            if "accessory" in block:
+                _text, accessory_findings = accessory_review(block["accessory"], config)
+                findings.extend(accessory_findings)
 
         if kind == "table":
             rows = block.get("rows") or []
@@ -324,10 +550,31 @@ def block_findings(blocks: Any) -> list[dict[str, str]]:
 
 
 def payload_subject(text: str, blocks: Any) -> str:
-    """Build a stable representation for content checks and audit digests."""
+    """Build a stable representation for audit digests."""
     if blocks is None:
         return text
     return text + "\n" + json.dumps(blocks, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def payload_strings(text: str, blocks: Any) -> list[str]:
+    strings = [text]
+
+    def visit(value: Any) -> None:
+        if isinstance(value, str):
+            strings.append(value)
+        elif isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    visit(blocks)
+    return strings
+
+
+def safe_reason_code(value: Any) -> bool:
+    return isinstance(value, str) and len(value) <= 48 and re.fullmatch(r"[a-z]+(?:-[a-z]+){0,4}", value) is not None
 
 
 def content_findings(text: str, config: dict[str, Any]) -> list[dict[str, str]]:
@@ -407,6 +654,17 @@ def load_config(path: Path) -> dict[str, Any]:
     channels = config.get("channels")
     if not isinstance(channels, dict) or not channels:
         raise ValueError("config must define at least one channel contract")
+    block_policy = config.get("blockPolicy", {})
+    if not isinstance(block_policy, dict) or set(block_policy) - {"supportedAccessories", "interactivityReviewed"}:
+        raise ValueError("blockPolicy has unknown fields")
+    supported = block_policy.get("supportedAccessories", sorted(ACCESSORY_TYPES))
+    if not isinstance(supported, list) or len(supported) != len(set(str(item) for item in supported)) or not all(isinstance(item, str) and item in ACCESSORY_TYPES for item in supported):
+        raise ValueError("supportedAccessories must list implemented accessory types")
+    if not isinstance(block_policy.get("interactivityReviewed", False), bool):
+        raise ValueError("interactivityReviewed must be a boolean")
+    reasons = config.get("overrideReasonCodes", sorted(OVERRIDE_REASONS))
+    if not isinstance(reasons, list) or not reasons or len(reasons) != len(set(str(item) for item in reasons)) or not all(safe_reason_code(item) for item in reasons):
+        raise ValueError("overrideReasonCodes must be distinct, value-safe reason codes")
     if config["status"] == "active":
         command = config.get("classifierCommand")
         if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
@@ -492,9 +750,14 @@ def evaluate(
     channel_contract: dict[str, Any],
     config: dict[str, Any],
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    hard = content_findings(payload_subject(text, blocks), config) + formatting_findings(text)
+    hard = []
+    for value in payload_strings(text, blocks):
+        hard.extend(content_findings(value, config))
+    hard.extend(formatting_findings(text))
     if blocks is not None:
-        hard += block_findings(blocks)
+        hard += block_findings(blocks, config)
+    if hard:
+        return hard, []
     block_text = visible_block_text(blocks)
     review_text = "\n".join([text, *(body for body, _kind in block_text)])
     style_text = "\n".join([text, *(body for body, kind in block_text if kind != "code")])
@@ -557,8 +820,9 @@ def write_audit(
     override_reason: str = "",
     start: Path | None = None,
     credential_ref: str = "",
+    allowed_reasons: list[str] | None = None,
 ) -> None:
-    if override_reason and override_reason not in OVERRIDE_REASONS:
+    if override_reason and (not safe_reason_code(override_reason) or override_reason not in (allowed_reasons if allowed_reasons is not None else OVERRIDE_REASONS)):
         raise ValueError("override reason must be a predefined reason code")
     path = audit_path(start, credential_ref)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -641,7 +905,7 @@ def main() -> int:
     parser.add_argument("--blocks-file")
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--override-judgment", action="store_true")
-    parser.add_argument("--override-reason", choices=sorted(OVERRIDE_REASONS), default="")
+    parser.add_argument("--override-reason", default="")
     args = parser.parse_args()
     config_dir = Path(args.config).resolve().parent
 
@@ -654,6 +918,9 @@ def main() -> int:
         blocks = read_json(args.blocks_file) if args.blocks_file else None
     except (OSError, ValueError) as error:
         print(f"BLOCKED: {error}", file=sys.stderr)
+        return 2
+    if args.override_reason and args.override_reason not in config.get("overrideReasonCodes", OVERRIDE_REASONS):
+        print("BLOCKED: --override-reason must be a configured reason code", file=sys.stderr)
         return 2
     if not text:
         print("BLOCKED: refusing an empty message", file=sys.stderr)
@@ -691,7 +958,7 @@ def main() -> int:
         print("BLOCKED: gate config is inactive; no message was sent", file=sys.stderr)
         return 2
     try:
-        write_audit(decision, args.channel, audit_subject, judgment, args.override_reason.strip(), start=config_dir, credential_ref=config["botCredentialRef"])
+        write_audit(decision, args.channel, audit_subject, judgment, args.override_reason.strip(), start=config_dir, credential_ref=config["botCredentialRef"], allowed_reasons=config.get("overrideReasonCodes", sorted(OVERRIDE_REASONS)))
     except OSError as error:
         print(f"BLOCKED: pre-send audit write failed: {error}", file=sys.stderr)
         return 2
