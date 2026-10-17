@@ -68,16 +68,21 @@ package names, URLs, and email addresses. Preserve regression tests for each
 false positive found in real use.
 
 Review visible text in supported sections, fields, headers, context, rich text,
-tables, charts, and images. Respect each text type: plain text does not need
-mrkdwn entity escaping, and code is exempt from prose formatting checks.
+tables, charts, and images. Respect each text type: plain text is literal and
+does not use mrkdwn syntax or entity checks. Code is exempt from prose formatting checks.
 Refuse unsupported blocks and accessory shapes. The configured accessory list
-may enable image, button, overflow, select and multi-select menus, and date/time
-pickers supported by the gate. Interactive accessories also require the owner to
+may enable image, button, overflow, select and multi-select menus, checkboxes,
+radio buttons, and date/time pickers supported in sections. Datetime pickers
+require actions or input blocks and are not section accessories. Interactive accessories also require the owner to
 mark interactivity reviewed after proving a live handler and separate protocol.
 The gate reviews text supplied in the outbound payload, including placeholders,
 options, initial selections, confirmations, and accessibility labels. It cannot
 review options returned later by Slack or an external options provider. Validate block counts,
 section lengths, table dimensions, and any fields used by a new block type.
+Initial static selections must exactly match offered options, dates must exist
+on the calendar, and confirmation fields have their own length limits. Keep
+both plain text and mrkdwn confirmation bodies supported, as declared by
+[Slack's SDK contract](https://docs.slack.dev/tools/node-slack-sdk/reference/types/interfaces/ConfirmationDialog/).
 
 ## Style and audience judgment
 

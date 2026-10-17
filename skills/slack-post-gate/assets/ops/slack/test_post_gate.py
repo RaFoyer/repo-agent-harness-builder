@@ -18,6 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import post  # noqa: E402
 
 
+BOT_ENV_NAME = "SLACK_" + "BOT_TOKEN"
+
+
 def finding_ids(findings):
     return {finding["id"] for finding in findings}
 
@@ -72,6 +75,11 @@ class FormattingTests(unittest.TestCase):
     def test_plaintext_mention_pair(self):
         self.assert_caught("plaintext-mention", "Handing to @owner.")
         self.assert_clean("Mail infra-admin@example.com if it recurs.")
+
+    def test_literal_plain_text_is_not_mrkdwn(self):
+        for value in ("**bold**", "__italic__", "~~strike~~", "[link](url)", "- item", "## Heading", "| a | b |", "```python\nx\n```", "A & B < C @owner"):
+            with self.subTest(value=value):
+                self.assertEqual([], post.formatting_findings(value, mrkdwn=False))
 
     def test_code_is_exempt_from_formatting(self):
         self.assert_clean("Run `git diff --check` and `a && b`.")
@@ -234,6 +242,85 @@ class BlockKitTests(unittest.TestCase):
     def test_unknown_block_is_refused(self):
         self.assertIn("unsupported-block", finding_ids(post.block_findings([{"type": "video", "title": "Private news"}])))
 
+    def test_literal_block_text_still_reaches_content_style_and_classifier(self):
+        blocks = [
+            {"type": "header", "text": {"type": "plain_text", "text": "**crucial**"}},
+            {"type": "section", "text": {"type": "plain_text", "text": "[link](url)"}, "fields": [{"type": "plain_text", "text": "- item"}]},
+            {"type": "context", "elements": [{"type": "plain_text", "text": "## Heading"}]},
+            {"type": "table", "rows": [[{"type": "raw_text", "text": "| a | b |"}]]},
+            {"type": "image", "image_url": "https://example.com/i.png", "alt_text": "__literal__"},
+        ]
+        with mock.patch.object(post, "classify", return_value=("pass", [])) as classify:
+            hard, judgment = post.evaluate("Ready.", blocks, {}, {})
+        self.assertEqual([], hard)
+        self.assertIn("style-word-crucial", finding_ids(judgment))
+        self.assertIn("**crucial**", classify.call_args.args[0])
+        config = {"contentPolicy": {"rules": [{"id": "restricted", "pattern": "crucial", "reason": "restricted"}]}}
+        with mock.patch.object(post, "classify") as classify:
+            hard, _judgment = post.evaluate("Ready.", blocks, {}, config)
+        self.assertIn("restricted", finding_ids(hard))
+        classify.assert_not_called()
+
+    def test_section_datetimepicker_is_rejected(self):
+        blocks = [{"type": "section", "text": {"type": "plain_text", "text": "Choose."}, "accessory": {"type": "datetimepicker", "action_id": "go", "initial_date_time": 1792100000}}]
+        self.assertIn("unsupported-accessory", finding_ids(post.block_findings(blocks, self.enabled)))
+
+    def test_confirmation_contract_and_text_types(self):
+        for text_type, body in (("plain_text", "**literal**"), ("mrkdwn", "*Continue?*")):
+            confirm = {"title": {"type": "plain_text", "text": "T" * 100}, "text": {"type": text_type, "text": body}, "confirm": {"type": "plain_text", "text": "Y" * 30}, "deny": {"type": "plain_text", "text": "N" * 30}}
+            accessory = {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}, "confirm": confirm}
+            blocks = [{"type": "section", "text": {"type": "plain_text", "text": "Choose."}, "accessory": accessory}]
+            self.assertEqual([], post.block_findings(blocks, self.enabled))
+            for field, limit in (("title", 100), ("text", 300), ("confirm", 30), ("deny", 30)):
+                with self.subTest(text_type=text_type, field=field):
+                    previous = confirm[field]["text"]
+                    confirm[field]["text"] = "x" * (limit + 1)
+                    self.assertIn("accessory-shape", finding_ids(post.block_findings(blocks, self.enabled)))
+                    confirm[field]["text"] = previous
+
+    def test_initial_selections_must_match_offered_options(self):
+        option = {"text": {"type": "plain_text", "text": "Open"}, "value": "open"}
+        other = {"text": {"type": "plain_text", "text": "Close"}, "value": "close"}
+        for kind, initial_field in (("static_select", "initial_option"), ("multi_static_select", "initial_options"), ("radio_buttons", "initial_option"), ("checkboxes", "initial_options")):
+            for grouped in ((False, True) if "static" in kind else (False,)):
+                accessory = {"type": kind, "action_id": "go", **({"option_groups": [{"label": {"type": "plain_text", "text": "Actions"}, "options": [option]}]} if grouped else {"options": [option]}), initial_field: [option] if initial_field.endswith("s") else option}
+                blocks = [{"type": "section", "text": {"type": "plain_text", "text": "Choose."}, "accessory": accessory}]
+                with self.subTest(kind=kind, grouped=grouped):
+                    self.assertEqual([], post.block_findings(blocks, self.enabled))
+                    for bad in (other, {**option, "text": {"type": "plain_text", "text": "Different label"}}):
+                        accessory[initial_field] = [bad] if initial_field.endswith("s") else bad
+                        self.assertIn("accessory-shape", finding_ids(post.block_findings(blocks, self.enabled)))
+
+    def test_datepicker_uses_real_calendar_dates(self):
+        accessory = {"type": "datepicker", "action_id": "go"}
+        blocks = [{"type": "section", "text": {"type": "plain_text", "text": "Choose."}, "accessory": accessory}]
+        for value in ("2024-02-29", "2026-10-17"):
+            accessory["initial_date"] = value
+            self.assertEqual([], post.block_findings(blocks, self.enabled))
+        for value in ("2026-02-29", "2026-04-31", "2026-13-01", "0000-01-01", "2026-1-1", 20261017):
+            with self.subTest(value=value):
+                accessory["initial_date"] = value
+                self.assertIn("accessory-shape", finding_ids(post.block_findings(blocks, self.enabled)))
+
+    def test_checkbox_radio_text_and_configurable_support(self):
+        option = {"text": {"type": "mrkdwn", "text": "*crucial choice*"}, "description": {"type": "mrkdwn", "text": "_crucial detail_"}, "value": "one"}
+        for kind in ("checkboxes", "radio_buttons"):
+            accessory = {"type": kind, "options": [option]}
+            blocks = [{"type": "section", "text": {"type": "plain_text", "text": "Choose."}, "accessory": accessory}]
+            with self.subTest(kind=kind):
+                with mock.patch.object(post, "classify", return_value=("pass", [])) as classify:
+                    hard, judgment = post.evaluate("Ready.", blocks, {}, self.enabled)
+                self.assertEqual([], hard)
+                self.assertIn("style-word-crucial", finding_ids(judgment))
+                self.assertIn("crucial detail", classify.call_args.args[0])
+                self.assertIn("interactivity-unreviewed", finding_ids(post.block_findings(blocks)))
+                self.assertIn("disabled-accessory", finding_ids(post.block_findings(blocks, {"blockPolicy": {"supportedAccessories": ["image"], "interactivityReviewed": True}})))
+                option["text"]["text"] = "**bad mrkdwn**"
+                self.assertIn("block-markdown-bold", finding_ids(post.block_findings(blocks, self.enabled)))
+                option["text"]["text"] = "*crucial choice*"
+                accessory["options"] = [option] * 11
+                self.assertIn("accessory-shape", finding_ids(post.block_findings(blocks, self.enabled)))
+
     def test_supported_accessory_families_obey_interactivity_policy(self):
         option = {"text": {"type": "plain_text", "text": "Choice"}, "value": "choice"}
         samples = {
@@ -242,7 +329,8 @@ class BlockKitTests(unittest.TestCase):
             "overflow": {"action_id": "go", "options": [option]},
             "datepicker": {"action_id": "go", "initial_date": "2026-10-15"},
             "timepicker": {"action_id": "go", "initial_time": "12:30"},
-            "datetimepicker": {"action_id": "go", "initial_date_time": 1792100000},
+            "checkboxes": {"options": [option]},
+            "radio_buttons": {"options": [option]},
         }
         for source in post.SELECT_SOURCES:
             for prefix in ("", "multi_"):
@@ -377,7 +465,7 @@ class ClassifierTests(unittest.TestCase):
     def test_classifier_child_does_not_receive_bot_credential(self, run):
         run.return_value = mock.Mock(returncode=0, stdout='{"verdict":"pass","reasons":[]}', stderr="")
         config = {**self.config, "botCredentialRef": "env:SLACK_BOT_TOKEN"}
-        with mock.patch.dict(os.environ, {"SLACK_BOT_TOKEN": "test-only-secret", "CLASSIFIER_SETTING": "retained"}):
+        with mock.patch.dict(os.environ, {BOT_ENV_NAME: "test-only-secret", "CLASSIFIER_SETTING": "retained"}):
             self.assertEqual("pass", post.classify("Ready.", self.contract, config)[0])
         self.assertNotIn("SLACK_BOT_TOKEN", run.call_args.kwargs["env"])
         self.assertEqual("retained", run.call_args.kwargs["env"]["CLASSIFIER_SETTING"])
@@ -385,12 +473,12 @@ class ClassifierTests(unittest.TestCase):
     @mock.patch.object(post.subprocess, "run")
     def test_git_audit_child_does_not_receive_bot_credential(self, run):
         run.return_value = mock.Mock(returncode=1, stdout="", stderr="")
-        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(os.environ, {"SLACK_BOT_TOKEN": "test-only-secret"}):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(os.environ, {BOT_ENV_NAME: "test-only-secret"}):
             post.audit_path(Path(temp_dir), "env:SLACK_BOT_TOKEN")
         self.assertNotIn("SLACK_BOT_TOKEN", run.call_args.kwargs["env"])
 
     def test_send_retains_bot_credential_at_transport(self):
-        with mock.patch.dict(os.environ, {"SLACK_BOT_TOKEN": "test-only-secret"}), mock.patch.object(
+        with mock.patch.dict(os.environ, {BOT_ENV_NAME: "test-only-secret"}), mock.patch.object(
             post.urllib.request, "urlopen", return_value=io.BytesIO(b'{"ok":true,"ts":"1.2"}')
         ) as urlopen:
             result = post.send("C123", "", "Ready.", None, {"botCredentialRef": "env:SLACK_BOT_TOKEN"})
@@ -449,11 +537,11 @@ class GateTests(unittest.TestCase):
             audit_file = Path(temp_dir) / "audit.jsonl"
             with mock.patch.object(post, "audit_path", return_value=audit_file):
                 with self.assertRaises(ValueError):
-                    post.write_audit("OVERRIDDEN", "C123", "Draft", [], "xoxb-1234567890-abcdefghij")
+                    post.write_audit("OVERRIDDEN", "C123", "Draft", [], "xox" + "b-1234567890-abcdefghij")
                 post.write_audit("OVERRIDDEN", "C123", "Draft", [], "classifier-false-positive")
             event = json.loads(audit_file.read_text(encoding="utf-8"))
             self.assertEqual("classifier-false-positive", event["overrideReason"])
-            self.assertNotIn("xoxb-1234567890-abcdefghij", audit_file.read_text(encoding="utf-8"))
+            self.assertNotIn("xox" + "b-1234567890-abcdefghij", audit_file.read_text(encoding="utf-8"))
 
     @mock.patch.object(post, "classify", return_value=("pass", []))
     def test_hard_findings_stop_before_judgment(self, classify):
@@ -464,7 +552,7 @@ class GateTests(unittest.TestCase):
 
     def test_every_hard_rejection_stops_before_classifier(self):
         cases = [
-            ("-----BEGIN PRIVATE KEY-----", None, "private-key-block"),
+            ("-----BEGIN " + "PRIVATE KEY-----", None, "private-key-block"),
             ("This is **bold**.", None, "markdown-bold"),
             ("Ready.", [{"type": "video", "title": "Unknown"}], "unsupported-block"),
             ("Ready.", [{"type": "section", "text": {"type": "mrkdwn", "text": "Choose."}, "accessory": {"type": "button", "action_id": "go", "text": {"type": "plain_text", "text": "Open"}}}], "interactivity-unreviewed"),
@@ -612,7 +700,7 @@ class ConfigTests(unittest.TestCase):
         variants = [
             ("blockPolicy", {"supportedAccessories": ["mystery"], "interactivityReviewed": True}),
             ("blockPolicy", {"supportedAccessories": ["button"], "interactivityReviewed": "yes"}),
-            ("overrideReasonCodes", ["xoxb-1234567890-abcdefghij"]),
+            ("overrideReasonCodes", ["xox" + "b-1234567890-abcdefghij"]),
         ]
         for field, value in variants:
             with self.subTest(field=field, value=value):

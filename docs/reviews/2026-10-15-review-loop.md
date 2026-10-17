@@ -46,7 +46,7 @@ registrations were left untouched; their filesystem contents were not audited.
 - `git diff --check`: passed.
 - `python3 scripts/scan-public-tree.py`: passed.
 
-The offline run passed the 37 Slack gate tests. Its intentional disabled-rule
+The initial offline run passed the 37 Slack gate tests. Its intentional disabled-rule
 test failed as expected. The generated CLI suite ran twice, each with 309 tests,
 308 passing, zero failures, and one expected Git-dependent fixture skip.
 Five CLI falsification checks detected deliberately disabled duplicate-flag,
@@ -56,8 +56,24 @@ personal-folder checks passed in that run.
 
 ## Findings and boundaries
 
-No additional material finding emerged from this publication self-review.
-No independent-review result is claimed here before the pipeline runs.
+The initial publication self-review found no additional material issue.
+Independent pipeline review subsequently found credential inheritance into
+child processes, overrideable classifier errors, incomplete decoded-content
+and visible-text review, and unsafe free-form audit reasons. Two preserved
+pipeline repair commits address those findings. A terminal daemon shutdown
+stopped that run before publication; guarded custody recovery preserved both
+repair commits on the feature branch.
+
+The next bounded repair follows the maintainer's direction to keep compatible
+controls broad and configurable. It applies mrkdwn checks only to mrkdwn text,
+validates confirmation lengths, matches initial selections against offered
+options, validates calendar dates, enables configurable checkboxes and radio
+buttons, and rejects datetime pickers in sections. Confirmation bodies retain
+both documented SDK text types. New executable regression tests reproduced
+the failures before the repair. All 62 focused Slack tests and the deliberate
+disabled-rule falsification passed afterward. Fresh full checks and independent
+pipeline validation must still complete before publication.
+
 No human-accepted risk was recorded. The source audit's other suggestions
 remain candidates, not implemented promises.
 

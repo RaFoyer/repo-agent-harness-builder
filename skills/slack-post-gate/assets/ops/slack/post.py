@@ -16,7 +16,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,7 @@ OVERRIDE_REASONS = {
 }
 SELECT_SOURCES = {"static", "external", "users", "conversations", "channels"}
 ACCESSORY_TYPES = {
-    "image", "button", "overflow", "datepicker", "timepicker", "datetimepicker",
+    "image", "button", "overflow", "datepicker", "timepicker", "checkboxes", "radio_buttons",
     *(f"{prefix}{source}_select" for prefix in ("", "multi_") for source in SELECT_SOURCES),
 }
 INTERACTIVE_ACCESSORIES = ACCESSORY_TYPES - {"image"}
@@ -131,6 +131,8 @@ def strip_code_spans(text: str) -> str:
 
 def formatting_findings(text: str, mrkdwn: bool = True) -> list[dict[str, str]]:
     """Return Slack mrkdwn findings without inspecting literal code."""
+    if not mrkdwn:
+        return []
     findings: list[dict[str, str]] = []
     prose = strip_code_spans(text)
 
@@ -149,11 +151,8 @@ def formatting_findings(text: str, mrkdwn: bool = True) -> list[dict[str, str]]:
         findings.append({"id": "markdown-heading", "reason": "mrkdwn has no heading syntax"})
     if re.search(r"^\s*\|.*\|\s*$", prose, re.M):
         findings.append({"id": "pipe-table", "reason": "pipe tables render as literal text"})
-    if mrkdwn and re.search(r"```[A-Za-z]", text):
+    if re.search(r"```[A-Za-z]", text):
         findings.append({"id": "fence-language", "reason": "mrkdwn prints code-fence language tags"})
-
-    if not mrkdwn:
-        return findings
 
     without_markup = SLACK_MARKUP_ATOM.sub(" ", prose)
     without_markup = re.sub(r"https?://\S+", " ", without_markup)
@@ -199,23 +198,38 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
             reject(path)
         visible.append((body, kind))
 
-    def option(value: Any, path: str, overflow: bool = False) -> None:
+    def option(value: Any, path: str, overflow: bool = False, rich: bool = False) -> None:
         allowed = {"text", "value", "description"} | ({"url"} if overflow else set())
         if not object_keys(value, path, allowed, {"text", "value"}):
             return
-        text_object(value["text"], path + ".text", limit=75)
+        types = {"plain_text", "mrkdwn"} if rich else {"plain_text"}
+        text_object(value["text"], path + ".text", types, limit=75)
         string_field(value["value"], path + ".value", 150)
         if "description" in value:
-            text_object(value["description"], path + ".description", limit=75)
+            text_object(value["description"], path + ".description", types, limit=75)
         if "url" in value:
             string_field(value["url"], path + ".url")
 
-    def options(value: Any, path: str, limit: int = 100, overflow: bool = False) -> None:
+    def options(value: Any, path: str, limit: int = 100, overflow: bool = False, rich: bool = False) -> None:
         if not isinstance(value, list) or not 1 <= len(value) <= limit:
             reject(path)
             return
         for index, item in enumerate(value):
-            option(item, f"{path}[{index}]", overflow)
+            option(item, f"{path}[{index}]", overflow, rich)
+
+    def initial_selections(offered: Any, rich: bool = False, limit: int = 100) -> None:
+        for field in ("initial_option", "initial_options"):
+            if field not in accessory:
+                continue
+            value = accessory[field]
+            if field == "initial_option":
+                option(value, field, rich=rich)
+                selected = [value]
+            else:
+                options(value, field, limit, rich=rich)
+                selected = value if isinstance(value, list) else []
+            if offered is not None and any(item not in offered for item in selected):
+                reject(field + " must match offered options")
 
     def groups(value: Any, path: str) -> None:
         if not isinstance(value, list) or not 1 <= len(value) <= 100:
@@ -255,6 +269,11 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
     elif kind == "overflow":
         allowed.add("options")
         required.add("options")
+    elif kind in {"checkboxes", "radio_buttons"}:
+        allowed |= {"options", "initial_options" if kind == "checkboxes" else "initial_option"}
+        required = {"type", "options"}
+        if kind == "checkboxes":
+            allowed.add("visible_to_user_ids")
     elif select:
         allowed.add("placeholder")
         if multi:
@@ -270,8 +289,6 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
                 allowed |= {"default_to_current_conversation", "response_url_enabled", "filter"}
     elif kind in {"datepicker", "timepicker"}:
         allowed |= {"placeholder", "initial_date" if kind == "datepicker" else "initial_time"}
-    elif kind == "datetimepicker":
-        allowed.add("initial_date_time")
     if not object_keys(accessory, kind, allowed, required):
         return visible, findings
     if kind == "image":
@@ -291,14 +308,16 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
                     string_field(next(iter(slack_file.values())), "slack_file source")
         return visible, findings
 
-    string_field(accessory["action_id"], "action_id", 255)
+    if "action_id" in accessory:
+        string_field(accessory["action_id"], "action_id", 255)
     if "focus_on_load" in accessory and not isinstance(accessory["focus_on_load"], bool):
         reject("focus_on_load")
     if "confirm" in accessory:
         confirm = accessory["confirm"]
         if object_keys(confirm, "confirm", {"title", "text", "confirm", "deny", "style"}, {"title", "text", "confirm", "deny"}):
             for field in ("title", "text", "confirm", "deny"):
-                text_object(confirm[field], "confirm." + field, {"plain_text", "mrkdwn"} if field == "text" else {"plain_text"})
+                limit = {"title": 100, "text": 300, "confirm": 30, "deny": 30}[field]
+                text_object(confirm[field], "confirm." + field, {"plain_text", "mrkdwn"} if field == "text" else {"plain_text"}, limit)
             if "style" in confirm and (not isinstance(confirm["style"], str) or confirm["style"] not in {"primary", "danger"}):
                 reject("confirm.style")
     if kind == "button":
@@ -312,6 +331,14 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
             reject("button.style")
     elif kind == "overflow":
         options(accessory["options"], "overflow.options", 5, True)
+    elif kind in {"checkboxes", "radio_buttons"}:
+        options(accessory["options"], "options", 10, rich=True)
+        offered = accessory["options"] if isinstance(accessory["options"], list) else []
+        initial_selections(offered, rich=True, limit=10)
+        if "visible_to_user_ids" in accessory:
+            users = accessory["visible_to_user_ids"]
+            if not isinstance(users, list) or not users or not all(isinstance(user, str) and user for user in users):
+                reject("visible_to_user_ids")
     elif select:
         if "placeholder" in accessory:
             text_object(accessory["placeholder"], "placeholder", limit=150)
@@ -322,12 +349,12 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
                 options(accessory["options"], "options")
             if "option_groups" in accessory:
                 groups(accessory["option_groups"], "option_groups")
-        for field in ("initial_option", "initial_options"):
-            if field in accessory:
-                if field == "initial_option":
-                    option(accessory[field], field)
-                else:
-                    options(accessory[field], field)
+        offered = None
+        if source == "static":
+            offered = list(accessory["options"]) if isinstance(accessory.get("options"), list) else []
+            if isinstance(accessory.get("option_groups"), list):
+                offered += [item for group in accessory["option_groups"] if isinstance(group, dict) and isinstance(group.get("options"), list) for item in group["options"]]
+        initial_selections(offered)
         for field in ("initial_user", "initial_conversation", "initial_channel"):
             if field in accessory:
                 string_field(accessory[field], field)
@@ -361,9 +388,12 @@ def accessory_review(accessory: Any, config: dict[str, Any] | None = None) -> tu
             if not isinstance(accessory[field], str) or not re.fullmatch(pattern, accessory[field]):
                 reject(field)
             else:
+                if kind == "datepicker":
+                    try:
+                        date.fromisoformat(accessory[field])
+                    except ValueError:
+                        reject(field)
                 visible.append((accessory[field], "plain_text"))
-    elif "initial_date_time" in accessory and (type(accessory["initial_date_time"]) is not int or accessory["initial_date_time"] < 0):
-        reject("initial_date_time")
     return visible, findings
 
 
