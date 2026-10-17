@@ -162,9 +162,9 @@ This validates skill discovery, script syntax, package build + manifest safety,
 the generated CLI's full test suite, no-mistakes contracts, and
 personal-folder scope guards. After the repo is public,
 `npm run check:public-install-only` additionally proves public install
-discovery. Feature PRs should go through the no-mistakes gate after local
-checks pass; this meta repository pins that gate to Codex, while generated
-harnesses stay agent-agnostic.
+discovery. Use the normal GitHub PR, CI, and merge workflow after local checks.
+Run no-mistakes only when explicitly requested by the user. This meta repository
+pins that optional gate to Codex, while generated harnesses stay agent-agnostic.
 
 ## Repository layout
 

@@ -29,8 +29,9 @@ The coordinator checked product scope, architecture, security/privacy,
 first-use instructions, package installation, client-adapter compatibility,
 and inactive defaults. These are self-review perspectives, not claims of
 independent reviewers. The four source audits used separate GPT-6.1 Sol agents
-at high effort. Independent code review and GitHub CI are delegated to the
-repository's Codex-pinned no-mistakes pipeline after the source commit.
+at high effort. Independent code review used the repository's Codex-pinned
+no-mistakes pipeline after the initial source commit. The maintainer then
+made that tool opt-in; the final publication uses ordinary GitHub CI.
 
 Publication inventory found that the committed checkout and the current
 default branch had identical trees. All 20 existing local source branches
@@ -71,8 +72,14 @@ options, validates calendar dates, enables configurable checkboxes and radio
 buttons, and rejects datetime pickers in sections. Confirmation bodies retain
 both documented SDK text types. New executable regression tests reproduced
 the failures before the repair. All 62 focused Slack tests and the deliberate
-disabled-rule falsification passed afterward. Fresh full checks and independent
-pipeline validation must still complete before publication.
+disabled-rule falsification passed afterward. Fresh `check:offline`, `check:ci`,
+and `check` runs all passed on the repaired source, including archive project
+installation in the full run. Both skill metadata validators passed. The
+public scanner also caught secret-shaped synthetic test fixtures; the fixtures
+now construct the same runtime samples without changing scanner rules. GitHub
+CI validation remains pending. The maintainer now
+requires explicit opt-in for no-mistakes; this publication uses the normal
+GitHub PR, CI, and merge workflow instead of starting another pipeline run.
 
 No human-accepted risk was recorded. The source audit's other suggestions
 remain candidates, not implemented promises.
@@ -84,7 +91,8 @@ declared authority, credential grants, node scope, and approval gates.
 
 ## Terminal state
 
-Local verification is `ready`. Source publication awaits the no-mistakes
-independent review, push, PR, and GitHub CI stages. Their results belong to the
-pipeline run and PR checks, not this pre-pipeline record. Merge and release
-remain maintainer decisions.
+Local verification is `ready` at the initial source snapshot. Fresh validation,
+push, PR, and GitHub CI remain required for the repaired head. Their results
+belong to the current check logs and PR checks. The maintainer authorized merge
+after successful validation. A release tag or integration activation is outside
+this publication's scope.
