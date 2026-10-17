@@ -55,6 +55,8 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Project tracker | inactive | Add `PROJECT-TRACKING.md` and CLI wrapper when tracker is canonical |
 | CI/branch/deploy | inactive | Add CI and branch-promotion protocols when environments exist |
 | QA/browser | inactive | `ops/protocols/QA-BROWSER.md`, `./{{CLI_NAME}} qa status`; activate for browser/UI apps |
+| Shared client entry blocks | inactive | `ops/protocols/ENTRY-POINTS.md`, `ops/entry-points.json`, `./{{CLI_NAME}} docs entry-sync`; select target files before activation |
+| QA evidence verification | inactive | `ops/protocols/QA-EVIDENCE.md`, `ops/qa-evidence.json`, `./{{CLI_NAME}} qa evidence status`; activate with an owner, required checks, and a complete revision/target-bound evidence producer |
 | Visual artifact review | inactive | `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>`; activate when visual decisions must become tracker scope |
 | Repo-agent operations | inactive | Add repo-owned bootstrap/operator skills and skill drift checks for cross-machine handoff |
 | Design system | inactive | `ops/protocols/DESIGN-SYSTEM.md`, `./{{CLI_NAME}} design status`; activate when UI, UX, component, token, brand, adaptive UI, or generated UI work needs governance |

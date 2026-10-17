@@ -95,6 +95,13 @@ PAT credentials are explicit operator profiles, never ambient Worker defaults.
 The registry stores only safe metadata and environment-variable names, never
 credential values.
 
+Keep stable declared GitHub authority separate from optional runtime activation
+with `githubAuthority.runtimeCapabilities`, a nonempty unique subset of
+`allowedCapabilities`. Both public commands and internal observers enforce it;
+omitting it preserves the declared ceiling. Internal PR JSON observations use
+upstream `gh` through that same isolated profile. Neither configured metadata
+nor a local dry run establishes actual provider permission or raw-tool isolation.
+
 Treat `git` transport separately. `GH_CONFIG_DIR` does not isolate SSH keys,
 credential helpers, remotes, or `git push`. A harness must define a tested
 repository-specific Git transport path before claiming that branch pushes are

@@ -86,9 +86,12 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Multi-agent workflows | use project orchestration; add domain-specific fanout and review rules only as a composing protocol | parallel work or specialist agents are expected |
 | Data/database | schema pointer, access protocol, migration rules | structured data or SQLite/Postgres is used |
 | QA/browser | browser QA protocol, `qa` CLI, artifact/no-masking checks | browser, Playwright, Storybook, or UI evidence matters |
+| Shared client entry blocks | `ENTRY-POINTS.md`, `ops/entry-points.json`, `docs entry-sync`, staged precommit check | selected clients need the same small repository-owned operator block |
+| QA evidence verification | `QA-EVIDENCE.md`, `ops/qa-evidence.json`, `qa evidence status/verify`, refusal tests | acceptance claims need a complete revision/target-bound required-check policy and local proof receipts |
 | Repo-agent operations | bootstrap/operator skills, skill drift checks, handoff archive | cross-machine or cross-agent handoff matters |
 | Provider setup | provider setup protocol and dry-run setup checks | cloud, database, SaaS, or model providers are configured |
 | MCP/connectors | external connector protocol, connector profiles, identity checks | tool integrations are available |
+| Slack outbound post gate | `SLACK-POST-GATE.md`, gated poster, channel contract, paired tests, audit log, optional client-hook adapter | automated agent-authored bot posts need content, mrkdwn, style, and audience checks |
 | QA/release handoff | QA protocol, release notes, acceptance checklist | user-facing changes ship regularly |
 
 ## Not-Applicable Rule

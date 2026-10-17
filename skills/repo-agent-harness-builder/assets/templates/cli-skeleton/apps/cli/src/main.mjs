@@ -18,7 +18,8 @@ import { runErgonomics } from "./ergonomics/index.mjs";
 import { runNoMistakes } from "./no-mistakes/index.mjs";
 import { runLavish } from "./lavish/index.mjs";
 import { runGithub } from "./github/index.mjs";
-import { renderHelpBlock, toonString } from "./util/agent-output.mjs";
+import { runDocs } from "./docs/entry-sync.mjs";
+import { rejectUnexpectedArgs, renderHelpBlock, toonString } from "./util/agent-output.mjs";
 
 export const defaultIO = {
   stdout: (line = "") => console.log(line),
@@ -39,10 +40,13 @@ export async function main(argv = [], io = defaultIO) {
     case "help":
     case "--help":
     case "-h":
+      if (rejectUnexpectedArgs(rest, io, { command: "help" })) return 2;
       io.stdout(renderHelp());
       return 0;
     case "context":
       return runContext(rest, io);
+    case "docs":
+      return runDocs(rest, io);
     case "doctor":
       return runDoctor(rest, io);
     case "checklist":

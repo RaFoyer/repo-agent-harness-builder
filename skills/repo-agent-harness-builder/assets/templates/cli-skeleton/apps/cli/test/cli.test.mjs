@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG, setRepoRootForTests } from "../src/config.mjs";
 import { renderHelp } from "../src/help.mjs";
 import { main } from "../src/main.mjs";
-import { createGithubChildEnvironment, validateProfileRoot, validateRepositoryTarget } from "../src/github/index.mjs";
+import { createGithubChildEnvironment, runRepositoryGithubRead, validateProfileRoot, validateRepositoryTarget } from "../src/github/index.mjs";
 import { runLavish } from "../src/lavish/index.mjs";
 import { collectNoMistakesStatus, runNoMistakes } from "../src/no-mistakes/index.mjs";
 import {
@@ -2125,6 +2125,50 @@ fixtureTest("github dry-run classifies reads without requiring live auth", async
   assert.match(text, /ambient_global_login_used: false/);
 });
 
+fixtureTest("internal GitHub observations use bounded upstream JSON through the activated isolated profile", () => {
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "harness-json-profile-"));
+  const previousHome = process.env.XDG_CONFIG_HOME;
+  const file = path.join(repoRoot, "ops/connections.json");
+  const connections = JSON.parse(fs.readFileSync(file, "utf8"));
+  const profile = connections.connectorProfiles.find((item) => item.id === "example-github-worker");
+  const variable = profile.githubAuthority.runtimeAuth.env;
+  const previousValue = process.env[variable];
+  try {
+    process.env.XDG_CONFIG_HOME = configHome;
+    process.env[variable] = "fixture-auth-value";
+    profile.status = "configured";
+    profile.githubAuthority.runtimeCapabilities = ["github.pr.read"];
+    fs.writeFileSync(file, JSON.stringify(connections));
+    const source = String(CONFIG.repoSlug);
+    const slug = source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+    const root = path.join(configHome, "agent-connectors", `${slug}--${createHash("sha256").update(source).digest("hex").slice(0, 12)}`, "github", profile.id);
+    fs.mkdirSync(root, { recursive: true });
+    let calls = 0;
+    const spawnImpl = (command, args, options) => {
+      calls += 1;
+      assert.equal(command, "gh");
+      assert.deepEqual(args, ["pr", "list", "--json", "number"]);
+      assert.equal(options.env.GH_CONFIG_DIR, root);
+      assert.equal(options.env.GH_REPO, CONFIG.repoSlug);
+      assert.equal(options.env.GH_TOKEN, "fixture-auth-value");
+      assert.equal(options.timeout, 10_000);
+      assert.ok(options.maxBuffer > 0);
+      return { status: 0, stdout: "[]", stderr: "" };
+    };
+    assert.equal(runRepositoryGithubRead(["pr", "list", "--json", "number"], { spawnImpl }).ok, true);
+    assert.equal(calls, 1);
+    profile.githubAuthority.runtimeCapabilities = ["github.pr.create"];
+    fs.writeFileSync(file, JSON.stringify(connections));
+    assert.equal(runRepositoryGithubRead(["pr", "list"], { spawnImpl }).ok, false);
+    assert.equal(runRepositoryGithubRead(["pr", "create"], { spawnImpl }).ok, false);
+    assert.equal(calls, 1);
+  } finally {
+    if (previousHome === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previousHome;
+    if (previousValue === undefined) delete process.env[variable]; else process.env[variable] = previousValue;
+    fs.rmSync(configHome, { recursive: true, force: true });
+  }
+});
+
 fixtureTest("github facade fails closed on unclassified and cross-repository commands", async () => {
   const unknown = capture();
   assert.equal(await main(["github", "run", "--profile", "example-github-worker", "--dry-run", "--", "api", "repos"], unknown.io), 1);
@@ -2260,6 +2304,31 @@ fixtureTest("github writes never treat the tracked orchestration example as live
   const code = await main(["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"], result.io);
   assert.equal(code, 1);
   assert.match(result.err.join("\n"), /missing local:default\/default/);
+});
+
+fixtureTest("guards: github runtime ceiling refuses otherwise-authorized writes", async () => {
+  const registry = validOrchestrationRegistry();
+  const boss = registry.nodes.find((node) => node.id === "boss");
+  boss.authority.allowedExternalActions.push("github.pr.create", "github.profile.example-github-worker");
+  boss.taskBinding = taskBindingForTest(registry, boss);
+  writeOrchestrationRegistry(registry);
+  const args = ["github", "run", "--profile", "example-github-worker", "--node", "boss", "--dry-run", "--", "pr", "create", "--title", "Test"];
+  assert.equal(await main(args, capture().io), 0);
+  const file = path.join(repoRoot, "ops/connections.json");
+  const connections = JSON.parse(fs.readFileSync(file, "utf8"));
+  const profile = connections.connectorProfiles.find((item) => item.id === "example-github-worker");
+  profile.githubAuthority.runtimeCapabilities = ["github.pr.read"];
+  fs.writeFileSync(file, JSON.stringify(connections));
+  const denied = capture();
+  assert.equal(await main(args, denied.io), 1);
+  assert.match(denied.err.join("\n"), /not active at runtime/);
+  const read = capture();
+  assert.equal(await main(["github", "run", "--profile", profile.id, "--dry-run", "--", "pr", "list"], read.io), 0);
+  for (const ceiling of [[], ["github.unknown"], ["github.pr.read", "github.pr.read"], "github.pr.read", null]) {
+    profile.githubAuthority.runtimeCapabilities = ceiling;
+    fs.writeFileSync(file, JSON.stringify(connections));
+    assert.equal(await main(["github", "plan", "--profile", profile.id], capture().io), 1);
+  }
 });
 
 fixtureTest("github writes resolve the selected private orchestration instance from safe environment selectors", async () => {

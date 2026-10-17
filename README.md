@@ -22,6 +22,8 @@ each client is just an adapter around the same contract.
 - setup checklists with `active` / `inactive` / `not-applicable` states
 - value-safe boundaries for secrets, external authority, and connectors,
   including repository-scoped GitHub and connector-authentication profiles
+- strict CLI input validation and `protocols find` discovery across protocols
+  and TOC references, with source attribution
 
 **Optional layers (installed inactive; a human activates each one)**
 
@@ -40,6 +42,14 @@ each client is just an adapter around the same contract.
 - **Review surfaces** — optional Lavish HTML-artifact review and
   tracker-decision capture
 - **Automation** — loops, heartbeats, and review workflows
+- **Slack outbound post gate.** An optional, inactive gate for bot-authored
+  messages with non-overridable content and mrkdwn checks, a logged judgment
+  override, channel-aware classification, and command-scoped bot credentials
+- **Shared client entry blocks.** `docs entry-sync` keeps selected client
+  instructions aligned with `AGENTS.md`; precommit checks the staged versions
+- **QA evidence.** A read-only gate checks required results against an expected
+  revision and target, verifies local artifact digests, and preserves failures
+  when another attempt passes
 
 Harnesses work for software repositories, non-GitHub project folders, and
 personal file-steward folders (Downloads, Documents), and can be exported as a
@@ -85,6 +95,16 @@ instance state.
 npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill repo-agent-harness-builder -g
 ```
 
+Install the optional Slack gate skill separately when a repository automates
+bot posts:
+
+```bash
+npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill slack-post-gate -g
+```
+
+The skill ships inactive templates. Installing it does not authorize a Slack
+send or expose a bot credential.
+
 Add `--agent codex`, `--agent claude-code`, `--agent gemini-cli`, or
 `--agent '*'` to target specific clients. Treat these as convenience installs,
 not an integrity mechanism.
@@ -121,7 +141,7 @@ python3 skills/repo-agent-harness-builder/scripts/build_reference_package.py --o
 
 ## Fleet-owned skills
 
-The shared skills `repo-agent-harness-builder`, `project-orchestration`,
+The shared skills `repo-agent-harness-builder`, `slack-post-gate`, `project-orchestration`,
 `goal-graph-loop`, `goal-chain-loop` (deprecated alias), and
 `codex-native-firstmate` have one fleet-level owner. Generated repositories may
 carry read-only reference snapshots under `.agents/skills/`, but downstream
@@ -142,14 +162,15 @@ This validates skill discovery, script syntax, package build + manifest safety,
 the generated CLI's full test suite, no-mistakes contracts, and
 personal-folder scope guards. After the repo is public,
 `npm run check:public-install-only` additionally proves public install
-discovery. Feature PRs should go through the no-mistakes gate after local
-checks pass; this meta repository pins that gate to Codex, while generated
-harnesses stay agent-agnostic.
+discovery. Use the normal GitHub PR, CI, and merge workflow after local checks.
+Run no-mistakes only when explicitly requested by the user. This meta repository
+pins that optional gate to Codex, while generated harnesses stay agent-agnostic.
 
 ## Repository layout
 
 ```text
-skills/repo-agent-harness-builder/  installable skill, scripts, refs, templates
+skills/repo-agent-harness-builder/  installable builder, scripts, refs, templates
+skills/slack-post-gate/              optional outbound Slack gate skill
 examples/                           usage notes and generated package guidance
 docs/                               review loop and publishing notes
 scripts/check.sh                    local and CI verification

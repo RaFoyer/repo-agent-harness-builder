@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL="$ROOT/skills/repo-agent-harness-builder"
+SLACK_GATE_SKILL="$ROOT/skills/slack-post-gate"
 TMP="$(mktemp -d)"
 SKILLS_CLI_PACKAGE="${SKILLS_CLI_PACKAGE:-skills@1.5.12}"
 trap 'rm -rf "$TMP"' EXIT
@@ -25,6 +26,7 @@ if [ "${PUBLIC_INSTALL_ONLY:-0}" = "1" ]; then
   echo "== public install discovery only =="
   PUBLIC_INSTALL_REPO="${PUBLIC_INSTALL_REPO:-RaFoyer/repo-agent-harness-builder}"
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill repo-agent-harness-builder --agent codex --list
+  run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill slack-post-gate --agent codex --list
   echo "public install discovery passed"
   exit 0
 fi
@@ -32,6 +34,7 @@ fi
 if [ "${SKIP_SKILLS_DISCOVERY:-0}" != "1" ]; then
   echo "== skill discovery =="
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$ROOT" --skill repo-agent-harness-builder --agent codex --list >/dev/null
+  run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$ROOT" --skill slack-post-gate --agent codex --list >/dev/null
 else
   echo "== skill discovery skipped =="
 fi
@@ -40,6 +43,7 @@ if [ "${CHECK_PUBLIC_INSTALL:-0}" = "1" ]; then
   echo "== public install discovery =="
   PUBLIC_INSTALL_REPO="${PUBLIC_INSTALL_REPO:-RaFoyer/repo-agent-harness-builder}"
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill repo-agent-harness-builder --agent codex --list
+  run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill slack-post-gate --agent codex --list
 fi
 
 echo "== python syntax =="
@@ -48,6 +52,12 @@ python3 -m py_compile \
   "$SKILL/scripts/scaffold_harness.py" \
   "$SKILL/scripts/scaffold_personal_harness.py" \
   "$SKILL/scripts/verify_harness.py"
+PYTHONPYCACHEPREFIX="$TMP/slack-gate-pycache" python3 -m py_compile \
+  "$SLACK_GATE_SKILL/assets/ops/slack/post.py" \
+  "$SLACK_GATE_SKILL/assets/ops/slack/test_post_gate.py"
+echo "== Slack post gate =="
+python3 "$SLACK_GATE_SKILL/assets/ops/slack/test_post_gate.py"
+python3 "$SLACK_GATE_SKILL/assets/ops/slack/test_post_gate.py" --falsify
 echo "== workflow guardrails =="
 python3 - "$ROOT/.github/workflows/release.yml" <<'PY'
 import sys
@@ -231,6 +241,7 @@ with zipfile.ZipFile(zip_path) as archive:
         "repo-agent-harness-reference/skills/goal-graph-loop/SKILL.md",
         "repo-agent-harness-reference/skills/goal-chain-loop/SKILL.md",
         "repo-agent-harness-reference/skills/codex-native-firstmate/SKILL.md",
+        "repo-agent-harness-reference/skills/slack-post-gate/SKILL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-boss.toml",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-manager.toml",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-worker.toml",
@@ -347,6 +358,8 @@ python3 "$SKILL/scripts/verify_harness.py" \
   --target "$TMP/generated-repo" \
   --cli-name harness \
   --run-tests
+echo "== harness gate falsification =="
+node "$ROOT/scripts/falsify-harness-gates.mjs" "$TMP/generated-repo"
 for required_path in \
   "ops/protocols/AGENT-ORCHESTRATION.md" \
   "ops/protocols/GOAL-GRAPH.md" \

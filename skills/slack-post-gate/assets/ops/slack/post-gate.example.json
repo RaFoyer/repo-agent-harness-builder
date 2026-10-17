@@ -1,0 +1,36 @@
+{
+  "status": "inactive",
+  "botCredentialRef": "env:SLACK_BOT_TOKEN",
+  "classifierCommand": [],
+  "classifierTimeoutSeconds": 45,
+  "channels": {
+    "C_REPLACE_ME": {
+      "audience": "Name the least technical regular reader and what they need from this room.",
+      "allowedGenres": [
+        "decision with owner and consequence",
+        "release or incident update that changes an action"
+      ],
+      "excludedSubjects": [
+        "debugging narrative",
+        "implementation detail with no audience action"
+      ]
+    }
+  },
+  "contentPolicy": {
+    "rules": [
+      {
+        "id": "internal-reference",
+        "pattern": "\\bINTERNAL-[0-9]{6}\\b",
+        "reason": "internal references are forbidden in this channel"
+      }
+    ]
+  },
+  "stylePolicy": {
+    "allowedDashLinePatterns": []
+  },
+  "blockPolicy": {
+    "supportedAccessories": ["image", "button", "overflow", "static_select", "external_select", "users_select", "conversations_select", "channels_select", "multi_static_select", "multi_external_select", "multi_users_select", "multi_conversations_select", "multi_channels_select", "datepicker", "timepicker", "checkboxes", "radio_buttons"],
+    "interactivityReviewed": false
+  },
+  "overrideReasonCodes": ["classifier-false-positive", "style-exception", "audience-exception", "urgent-operational-need"]
+}

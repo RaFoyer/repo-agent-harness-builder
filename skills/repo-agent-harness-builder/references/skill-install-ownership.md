@@ -6,7 +6,7 @@ Use this when a repository installs or synchronizes agent skills into a client-w
 
 | Class | Examples | Allowed global owner |
 | --- | --- | --- |
-| Shared fleet skill | `repo-agent-harness-builder`, `project-orchestration`, `goal-graph-loop`, `goal-chain-loop`, `codex-native-firstmate` | The skill's authoritative distribution or an explicitly pinned release |
+| Shared fleet skill | `repo-agent-harness-builder`, `slack-post-gate`, `project-orchestration`, `goal-graph-loop`, `goal-chain-loop`, `codex-native-firstmate` | The skill's authoritative distribution or an explicitly pinned release |
 | Project-owned skill | A repository-namespaced bootstrap or operator skill | That repository's approved sync command |
 | Project-local skill | A skill under the target repository's `.agents/skills/` | The target repository harness |
 

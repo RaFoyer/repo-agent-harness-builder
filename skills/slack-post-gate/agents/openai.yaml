@@ -1,0 +1,4 @@
+interface:
+  display_name: "Slack Post Gate"
+  short_description: "Gate automated Slack bot posts before sending"
+  default_prompt: "Use $slack-post-gate to add an inactive, fail-closed outbound Slack bot gate to this repository."

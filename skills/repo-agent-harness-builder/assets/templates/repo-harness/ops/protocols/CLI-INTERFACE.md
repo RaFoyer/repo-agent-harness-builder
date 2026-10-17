@@ -13,6 +13,8 @@ related_protocols:
   - NO-MISTAKES-GATE
   - SESSION-PREFLIGHT
   - PRE-COMMIT
+  - ENTRY-POINTS
+  - QA-EVIDENCE
 ---
 
 # CLI Interface
@@ -26,6 +28,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 - `./{{CLI_NAME}}` prints a compact content-first home view.
 - `./{{CLI_NAME}} help` prints the concise command catalog.
 - Usage errors are structured, actionable, and exit `2`.
+- Typed command boundaries reject duplicate single-value flags, blank or missing values, unknown flags, and values attached to boolean flags before executing tools. Explicit pass-through arguments remain separate from wrapper options.
 - Agent-consumed data and usage errors go to stdout; debug/progress details go to stderr.
 - List and detail output should follow `AGENT-CLI-ERGONOMICS.md`.
 
@@ -37,6 +40,8 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `context` | Print repo facts and canonical docs |
 | `checklist` | Print harness checklist location and module status model |
 | `protocols` | List protocol files and routing |
+| `protocols find <query> [--full]` | Search protocol metadata and TOC references with deterministic ranking and source attribution; discovery is advisory |
+| `docs entry-sync [--write]` | Check selected client blocks against `AGENTS.md`; explicit write replaces only valid blocks |
 | `doctor` | Check local prerequisites and access |
 | `preflight` | Run read-only session-start checks |
 | `verify` | Run the harness verification sequence or preview it with `--dry-run` |
@@ -44,6 +49,8 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `precommit install-hook` | Install the harness-managed git pre-commit hook |
 | `precommit hook-status` | Report whether the managed hook is installed |
 | `qa` | Inspect browser/Playwright/UI QA readiness and artifacts without live credentials |
+| `qa evidence status` | Inspect optional evidence policy without activating it |
+| `qa evidence verify <manifest> --revision <full-sha> --target <id>` | Check all policy-required observations and actual artifact digests; no subset, posting, or release authority |
 | `skills` | Report or sync repo-owned skills when present |
 | `secrets` | Provide value-safe secret posture commands |
 | `connections` | Validate external-authority connection metadata, connector profiles, and setup plans |
@@ -80,6 +87,9 @@ Run:
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} checklist
 ./{{CLI_NAME}} protocols
+./{{CLI_NAME}} protocols find "prepare commit"
+./{{CLI_NAME}} docs entry-sync
+./{{CLI_NAME}} qa evidence status
 ./{{CLI_NAME}} ergonomics status
 ./{{CLI_NAME}} preflight
 ./{{CLI_NAME}} verify --dry-run

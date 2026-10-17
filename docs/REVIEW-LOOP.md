@@ -70,9 +70,10 @@ npm run check:ci
 npm run check
 ```
 
-For feature PRs, prefer the no-mistakes gate after local checks when the
-no-mistakes remote is initialized. Use branch/worktree-aware status before
-starting validation and leave active validations in other branches alone.
+Use no-mistakes only when the user explicitly requests it. Otherwise run the
+required checks, review the change, and use the normal GitHub PR, CI, and merge
+workflow. When requested, use branch/worktree-aware status before starting
+no-mistakes validation and leave active validations in other branches alone.
 
 After the repository is public, the release workflow verifies published release
 assets, then runs mutable source discovery as a post-publish diagnostic.

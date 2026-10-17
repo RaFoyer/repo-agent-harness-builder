@@ -20,6 +20,9 @@ Use this file to decide which durable protocol to read. Load only the protocol n
 | Starting browser-based login, device-code login, copied-code login, or CLI connector authentication | `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, then `./{{CLI_NAME}} connections auth-plan --profile <profile-id>` |
 | Authenticating GitHub, selecting a GitHub account, or using `gh`, `gh-axi`, issues, comments, reviews, PRs, checks, or merges | `ops/protocols/GITHUB-AUTHORITY.md`, `ops/protocols/CONNECTOR-AUTH-PROFILES.md`, then `./{{CLI_NAME}} github plan --profile <profile-id>` |
 | Running repo commands | `ops/protocols/CLI-INTERFACE.md` |
+| Finding a protocol for a task | `./{{CLI_NAME}} protocols find "<task>"`; read the matched source before acting |
+| Keeping selected client entry instructions aligned | `ops/protocols/ENTRY-POINTS.md`, then `./{{CLI_NAME}} docs entry-sync` |
+| Verifying QA acceptance evidence for a revision and target | `ops/protocols/QA-EVIDENCE.md`, then `./{{CLI_NAME}} qa evidence status` |
 | Changing or auditing agent-facing CLI output, command discovery, stdout/stderr behavior, or usage errors | `ops/protocols/AGENT-CLI-ERGONOMICS.md`, `ops/protocols/CLI-INTERFACE.md`, then `./{{CLI_NAME}} ergonomics status` |
 | Preparing a commit | `ops/protocols/PRE-COMMIT.md` |
 | Preparing a PR or validating a branch through no-mistakes | `ops/protocols/NO-MISTAKES-GATE.md`, then `./{{CLI_NAME}} no-mistakes status` |

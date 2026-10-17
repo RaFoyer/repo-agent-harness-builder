@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { CONFIG } from "../config.mjs";
 import { validateCurrentOrchestrationRegistry } from "../orchestration/index.mjs";
 import { readOption } from "../util/args.mjs";
+import { parseCliArgs } from "../util/strict-args.mjs";
 import { redactSecrets } from "../util/secrets.mjs";
 import { renderHelpBlock, renderUsageError, safeLine, toonString } from "../util/agent-output.mjs";
 
@@ -148,14 +149,17 @@ function profileRoot(profile) {
   return path.join(base, "agent-connectors", repoId, subdir, profile.id);
 }
 
-export function runRepositoryGithubRead(args) {
+export function runRepositoryGithubRead(args, { spawnImpl = spawnSync } = {}) {
+  if (classifyCommand(args) !== "github.pr.read" || validateRepositoryTarget(args)) {
+    return { ok: false, status: 1, stdout: "", stderr: "internal observer accepts only repository-scoped PR reads" };
+  }
   const loaded = loadJson("ops/connections.json");
   if (!loaded.ok) return { ok: false, status: 1, stdout: "", stderr: loaded.error };
   const profiles = githubProfiles(loaded.value).filter((profile) => {
     const config = githubConfig(profile);
     return profile.status === "configured"
       && validateProfile(profile).length === 0
-      && config?.allowedCapabilities?.includes("github.pr.read");
+      && runtimeCapabilities(config).includes("github.pr.read");
   });
   if (profiles.length !== 1) {
     return {
@@ -173,8 +177,10 @@ export function runRepositoryGithubRead(args) {
   if (!child.ok) {
     return { ok: false, status: 1, stdout: "", stderr: "selected process-local GitHub credential is unavailable" };
   }
-  const executable = githubConfig(profile).preferredCli === "gh" ? "gh" : "gh-axi";
-  const result = spawnSync(executable, args, {
+  // Public gh-axi output is for agents. Internal observations require gh JSON,
+  // through the same isolated profile and without ambient credential fallback.
+  const executable = "gh";
+  const result = spawnImpl(executable, args, {
     cwd: CONFIG.repoRoot,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -194,6 +200,11 @@ function pathInsideRepo(candidatePath) {
   const resolved = path.resolve(candidatePath);
   const repoRoot = path.resolve(CONFIG.repoRoot);
   return resolved === repoRoot || resolved.startsWith(`${repoRoot}${path.sep}`);
+}
+
+function runtimeCapabilities(config) {
+  const capabilities = config.runtimeCapabilities ?? config.allowedCapabilities;
+  return Array.isArray(capabilities) ? capabilities : [];
 }
 
 function validateProfile(profile) {
@@ -216,6 +227,11 @@ function validateProfile(profile) {
   }
   if (profile.cliAuth?.configRoot?.strategy !== "env" || profile.cliAuth?.configRoot?.env !== "GH_CONFIG_DIR") {
     blockers.push(`${profile.id} must isolate upstream gh with GH_CONFIG_DIR`);
+  }
+  if (config.runtimeCapabilities !== undefined && (!Array.isArray(config.runtimeCapabilities) || !config.runtimeCapabilities.length
+    || new Set(config.runtimeCapabilities).size !== config.runtimeCapabilities.length
+    || config.runtimeCapabilities.some((capability) => typeof capability !== "string" || !(config.allowedCapabilities || []).includes(capability)))) {
+    blockers.push(`${profile.id} runtimeCapabilities must be a non-empty unique subset of allowedCapabilities`);
   }
   if (profile.cliAuth?.profileBoundary !== "repository") blockers.push(`${profile.id} must use a repository profile boundary`);
   if (profile.cliAuth?.globalStatePolicy !== "refuse-global-mutable-state") blockers.push(`${profile.id} must refuse global mutable auth state`);
@@ -310,22 +326,11 @@ function firstRepositoryPositional(args, commandKey) {
 function rejectWrapperArgs(argv, io, command, { run = false } = {}) {
   const boundary = run ? argv.indexOf("--") : argv.length;
   const wrapperArgs = boundary < 0 ? argv : argv.slice(0, boundary);
-  const allowedValueOptions = new Set(run ? ["--profile", "--node", "--approval-ref"] : ["--profile"]);
-  const allowedFlags = new Set(run ? ["--dry-run"] : []);
-  const unexpected = [];
-  for (let index = 0; index < wrapperArgs.length; index += 1) {
-    const arg = wrapperArgs[index];
-    const option = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
-    if (allowedValueOptions.has(option)) {
-      if (!arg.includes("=")) {
-        const next = wrapperArgs[index + 1];
-        if (!next || next.startsWith("--")) unexpected.push(`${arg} requires a value`);
-        else index += 1;
-      }
-    } else if (!allowedFlags.has(arg)) unexpected.push(arg);
-  }
-  if (!unexpected.length) return false;
-  renderUsageError(io, { code: "unexpected-argument", command, message: `Unexpected argument for ${command}`, details: unexpected, hints: [`Run ./${CONFIG.cliName} github help`] });
+  const parsed = parseCliArgs(wrapperArgs, { flags: run
+    ? { "--profile": "value", "--node": "value", "--approval-ref": "value", "--dry-run": "boolean" }
+    : { "--profile": "value" } });
+  if (parsed.ok) return false;
+  renderUsageError(io, { ...parsed, command, hints: [`Run ./${CONFIG.cliName} github help`] });
   return true;
 }
 
@@ -513,6 +518,8 @@ function plan(argv, io) {
   io.stdout(`expected_account_label: ${profile.expectedAccountLabelRef ? "configured" : "not configured"}`);
   io.stdout(`capabilities[${(config.allowedCapabilities || []).length}]:`);
   for (const capability of config.allowedCapabilities || []) io.stdout(`  - ${safeLine(capability)}`);
+  io.stdout(`runtime_capabilities[${runtimeCapabilities(config).length}]:`);
+  for (const capability of runtimeCapabilities(config)) io.stdout(`  - ${safeLine(capability)}`);
   io.stdout("ambient_global_login_used: false");
   io.stdout("starts_auth: false");
   for (const blocker of blockers) io.stderr(`blocker: ${blocker}`);
@@ -522,10 +529,11 @@ function plan(argv, io) {
 function run(argv, io) {
   if (rejectWrapperArgs(argv, io, "github run", { run: true })) return 2;
   const args = extractRunArgs(argv);
-  const profileId = readOption(argv, "--profile");
-  const nodeId = readOption(argv, "--node");
-  const approvalRef = readOption(argv, "--approval-ref");
-  const dryRun = argv.includes("--dry-run");
+  const wrapper = argv.indexOf("--") < 0 ? argv : argv.slice(0, argv.indexOf("--"));
+  const profileId = readOption(wrapper, "--profile");
+  const nodeId = readOption(wrapper, "--node");
+  const approvalRef = readOption(wrapper, "--approval-ref");
+  const dryRun = wrapper.includes("--dry-run");
   if (!profileId || !args.length) {
     renderUsageError(io, {
       code: !profileId ? "missing-profile" : "missing-command",
@@ -550,6 +558,7 @@ function run(argv, io) {
   const blockers = validateProfile(profile);
   if (!capability) blockers.push("GitHub command is not in the fail-closed command capability map");
   if (capability && !(config.allowedCapabilities || []).includes(capability)) blockers.push(`GitHub profile does not allow ${capability}`);
+  if (capability && Array.isArray(runtimeCapabilities(config)) && !runtimeCapabilities(config).includes(capability)) blockers.push(`GitHub capability is not active at runtime: ${capability}`);
   const targetBlocker = validateRepositoryTarget(args);
   if (targetBlocker) blockers.push(targetBlocker);
   const requiresOrchestration = Boolean(capability && (nodeId || !READ_CAPABILITIES.has(capability)));

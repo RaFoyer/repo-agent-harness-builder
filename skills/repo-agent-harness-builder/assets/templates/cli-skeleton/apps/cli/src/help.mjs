@@ -47,6 +47,10 @@ Core commands:
   context              Print repo facts and canonical entry points
   checklist            Print harness setup checklist status model
   protocols            List agent protocol files
+  protocols find <query> [--full]
+                       Find protocols and TOC references with source attribution
+  docs entry-sync [--write]
+                       Check shared client entry blocks; explicitly repair valid blocks
   doctor               Check local prerequisites
   preflight            Run read-only fresh-session checks
   verify [--dry-run]   Run the harness verification sequence
@@ -59,6 +63,9 @@ Core commands:
   qa plan              Print QA lane and evidence guidance
   qa artifacts         List common browser QA artifact locations
   qa no-masking        Detect deterministic E2E route mocking/bypass patterns
+  qa evidence status   Inspect optional QA evidence policy without activating it
+  qa evidence verify <manifest> --revision <full-sha> --target <id>
+                       Verify all required checks and local proof digests
   skills status        Inventory project-local skill ownership
   secrets help         Show value-safe secret handling commands
   connections status   Validate external-authority connection metadata
@@ -114,6 +121,8 @@ Core commands:
 
 Safety posture:
   - preflight is read-only
+  - docs entry-sync is check-only unless --write is supplied; precommit checks staged content and configuration
+  - qa evidence verification is local and read-only; FAIL outranks BLOCKED and PASS, and no subset filter grants acceptance
   - secrets output is value-safe
   - no-mistakes wrappers summarize setup status without printing raw local paths
   - lavish tracker commands are proposal-first and never write to the tracker

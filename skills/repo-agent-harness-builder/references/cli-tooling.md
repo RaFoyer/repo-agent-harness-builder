@@ -12,6 +12,8 @@ The repo CLI is the deterministic spine of the harness. It turns repeated agent 
 | `context` | yes | Print repo facts and canonical docs |
 | `checklist` | yes | Print checklist location and module status model |
 | `protocols` | yes | List protocol routes and files |
+| `protocols find` | yes | Find protocol and TOC references with advisory, source-attributed ranking |
+| `docs entry-sync` | optional | Check selected shared client blocks; explicit write repairs only those blocks |
 | `doctor` | yes | Check local prerequisites, auth, and repo access |
 | `preflight` | yes | Read-only fresh-session checks |
 | `precommit` | yes | Content-aware local commit gate |
@@ -45,6 +47,8 @@ apps/cli/src/main.mjs
 apps/cli/src/help.mjs
 apps/cli/src/util/agent-output.mjs
 apps/cli/src/util/args.mjs
+apps/cli/src/util/strict-args.mjs
+apps/cli/src/util/repo-files.mjs
 apps/cli/src/util/exec.mjs
 apps/cli/src/util/secrets.mjs
 apps/cli/src/commands/context.mjs
@@ -52,6 +56,7 @@ apps/cli/src/commands/checklist.mjs
 apps/cli/src/commands/doctor.mjs
 apps/cli/src/commands/protocols.mjs
 apps/cli/src/commands/self.mjs
+apps/cli/src/docs/entry-sync.mjs
 apps/cli/src/preflight/session.mjs
 apps/cli/src/precommit/checklist.mjs
 apps/cli/src/ergonomics/index.mjs
@@ -65,8 +70,10 @@ apps/cli/src/goals/index.mjs
 apps/cli/src/design/index.mjs
 apps/cli/src/lavish/index.mjs
 apps/cli/src/qa/index.mjs
+apps/cli/src/qa/evidence.mjs
 apps/cli/src/verify/index.mjs
 apps/cli/test/cli.test.mjs
+apps/cli/test/harness-gates.test.mjs
 ```
 
 ## Code Style For Agent-Readable CLIs
@@ -105,6 +112,40 @@ When adding a command:
 6. Run `./{{CLI_NAME}}`, `./{{CLI_NAME}} help`, `./{{CLI_NAME}} ergonomics audit --strict`, and the command's safe/default mode.
 
 If any step is missing, the CLI and docs are out of sync.
+
+## Strict Argument Boundaries
+
+Use `util/strict-args.mjs` for new command boundaries. Declare boolean,
+single-value, and repeatable flags and positional bounds. Reject duplicates,
+blank/missing values, unknown flags, and values attached to boolean flags
+before reading configuration or calling tools. Errors name flags, not values.
+Leading-hyphen values require `--flag=value`; wrappers must separate their own
+options from arguments after `--`. The GitHub wrapper, no-mistakes setup, and
+shared boolean-only argument guard use this parser.
+
+## Shared Client Entry Blocks
+
+`docs entry-sync` is check-only by default. `ops/entry-points.json` selects
+existing Markdown targets; an empty list leaves the module inactive. One
+marked operator block in `AGENTS.md` owns the shared content. `--write`
+validates every target before replacing marked blocks and preserves text
+outside them. Precommit reads target configuration, source, and destinations
+from the Git index when checking staged changes. See `ENTRY-POINTS.md` for
+activation, refusal, partial-I/O failure, and disable behavior.
+
+## QA Evidence Contract
+
+Scaffold `QA-EVIDENCE.md` and inactive `ops/qa-evidence.json` alongside the QA
+commands. `qa evidence status` is safe while inactive. Explicit
+`qa evidence verify <manifest> --revision <full-sha> --target <id>` requires
+an active nonempty required-check policy, checks record identities, and hashes
+bounded local proof files. FAIL outranks BLOCKED and PASS; missing/NOTE-only
+checks cannot pass. Results cannot select a smaller scope or override outcomes
+with a summary. See `QA-EVIDENCE.md` for the exact schema and limits.
+
+The gate verifies supplied evidence, not producer authenticity, omitted runs,
+test quality, or release readiness. Keep posting, execution, and promotion
+outside it. Status checks never activate the module or require credentials.
 
 ## No-Mistakes Command Contract
 
@@ -286,12 +327,20 @@ Scaffold `github` as the repository-scoped GitHub facade. Minimum behavior:
 - `github status`: validate profile shape without reading tokens or requiring
   inactive credentials.
 - `github plan --profile <id>`: show value-safe repository, boundary, tier,
-  credential kind, preferred CLI, and maximum capability metadata.
+  credential kind, preferred CLI, maximum capability metadata, and the separate
+  active runtime capability ceiling.
 - `github run --profile <id> [--node <id>] [--approval-ref <ref>] [--dry-run] -- <GitHub CLI args>`:
   classify the command into one exact `github.*` capability, reject unknown or
   cross-repository targets, intersect profile and node authority, and execute
   with isolated `GH_CONFIG_DIR`, fixed `GH_REPO`, prompts disabled, and no
   ambient token fallback.
+
+Optional `runtimeCapabilities` must be a nonempty unique subset of
+`allowedCapabilities`. Omission preserves the declared ceiling for existing
+profiles. Both agent commands and internal PR observations enforce it. A
+configured ceiling is not proof of actual provider permissions or enforcement
+against raw tools. Internal JSON observations select upstream `gh` within the
+same isolated profile even when the public executor is `gh-axi`.
 
 Write-capable execution requires an active orchestration node that allows both
 the capability and exactly one matching `github.profile.<profile-id>` marker.
@@ -431,6 +480,9 @@ node --test apps/cli/test/*.test.mjs
 ./{{CLI_NAME}} context
 ./{{CLI_NAME}} checklist
 ./{{CLI_NAME}} protocols
+./{{CLI_NAME}} protocols find "prepare commit"
+./{{CLI_NAME}} docs entry-sync
+./{{CLI_NAME}} qa evidence status
 ./{{CLI_NAME}} doctor
 ./{{CLI_NAME}} preflight
 ./{{CLI_NAME}} verify --dry-run
