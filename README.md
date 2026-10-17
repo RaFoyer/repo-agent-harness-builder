@@ -102,8 +102,19 @@ bot posts:
 npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill slack-post-gate -g
 ```
 
-The skill ships inactive templates. Installing it does not authorize a Slack
+The Slack skill ships inactive templates. Installing it does not authorize a
 send or expose a bot credential.
+
+For codebase-grounded UI design with a component library, the optional
+`design-in-code` skill adds an owner-led workflow, Today-first decisions,
+real-component preview adapters and measured visual evidence:
+
+```bash
+npx -y skills@1.5.12 add RaFoyer/repo-agent-harness-builder --skill design-in-code -g
+```
+
+The builder scaffolds its policies inactive. Preview commands print plans;
+browser fixtures, framework rendering and activation remain project-owned.
 
 Add `--agent codex`, `--agent claude-code`, `--agent gemini-cli`, or
 `--agent '*'` to target specific clients. Treat these as convenience installs,
@@ -141,7 +152,7 @@ python3 skills/repo-agent-harness-builder/scripts/build_reference_package.py --o
 
 ## Fleet-owned skills
 
-The shared skills `repo-agent-harness-builder`, `slack-post-gate`, `project-orchestration`,
+The shared skills `repo-agent-harness-builder`, `slack-post-gate`, `design-in-code`, `project-orchestration`,
 `goal-graph-loop`, `goal-chain-loop` (deprecated alias), and
 `codex-native-firstmate` have one fleet-level owner. Generated repositories may
 carry read-only reference snapshots under `.agents/skills/`, but downstream
@@ -171,6 +182,7 @@ pins that optional gate to Codex, while generated harnesses stay agent-agnostic.
 ```text
 skills/repo-agent-harness-builder/  installable builder, scripts, refs, templates
 skills/slack-post-gate/              optional outbound Slack gate skill
+skills/design-in-code/               optional real-component design workflow skill
 examples/                           usage notes and generated package guidance
 docs/                               review loop and publishing notes
 scripts/check.sh                    local and CI verification

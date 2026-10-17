@@ -34,6 +34,7 @@ scripts/build-reference-package.sh
 skills/bootstrap/SKILL.md
 skills/repo-operator/SKILL.md
 skills/slack-post-gate/SKILL.md
+skills/design-in-code/SKILL.md
 ```
 
 ## Entry Points
@@ -57,13 +58,14 @@ skills/slack-post-gate/SKILL.md
 
 Keep installable skills agent-agnostic. Use the `skills/<skill-name>/SKILL.md` layout for GitHub distribution through `npx skills add`, and keep client-specific metadata in small adapter files such as `agents/openai.yaml`.
 
-Use two included skills:
+Use the entry skills and select optional add-ons as needed:
 
 | Skill | Scope |
 | --- | --- |
 | `bootstrap` | Before the repo exists locally: tool setup, account checks, clone/access, first handoff |
 | `repo-operator` | After clone: route to `AGENTS.md`, `AGENTS-TOC.md`, repo CLI, and protocols |
 | `slack-post-gate` | Optional after clone: install an inactive outbound Slack bot gate when the project automates posts |
+| `design-in-code` | Optional after clone: design, implement and verify views with the project's real component library |
 
 The bootstrap skill should not become a shadow copy of repo protocols. Its final move is to transfer authority to the repository.
 

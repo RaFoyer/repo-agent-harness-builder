@@ -54,6 +54,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - Manager-owned ticket-backed implementation graphs, strict-chain topology, merge evidence, fan-in, and handoff: read `references/goal-graph-loop.md`.
 - Hooks, intent authority, generated artifacts, and evidence/provenance maps: read `references/advanced-patterns.md`.
 - Automated Slack bot messages, mrkdwn and Block Kit validation, channel genre checks, and credential-bound send enforcement: read `references/slack-post-gate.md`.
+- Codebase-grounded UI design, view registries, bounded design sessions, real-component previews and measured visual evidence: read `references/design-in-code.md`, then the distribution's `design-in-code` skill.
 
 ## Bundled Assets
 
@@ -62,6 +63,7 @@ node-specific skills. `goal-chain-loop` is a deprecated compatibility alias.
 - `assets/templates/cli-skeleton/`: commented Node CLI facade with `help`, `context`, `checklist`, `protocols`, `docs`, `doctor`, `preflight`, `precommit`, `verify`, `ergonomics`, `qa`, `skills`, `secrets`, `connections`, repository-scoped `github`, `orchestration`, `goals`, `design`, `lavish`, `no-mistakes`, and `self` commands.
 - `assets/templates/personal-harness/`: safe local-folder steward with read-only inventory, plans, receipts, quarantine, and personal protocols.
 - `assets/templates/automation/`: scheduled-work protocol and run-log templates.
+- `assets/templates/repo-harness/scripts/design/`: framework-neutral token comparison, trusted static-render adapter and measured browser-matrix helpers, configured through inactive `ops/design-*.json` policies.
 - `assets/templates/orchestration/`: inactive registry examples, ledgers, and Boss/Manager/Worker prompts with explicit trust, authority, loop ownership, evidence-fingerprint liveness, bounded retries, hybrid direct-owner messaging, optional Boss materialization, and parent reconciliation.
 - `assets/templates/client-adapters/codex-native-firstmate/`: opt-in Codex config examples, role profiles, Firstmate Boss overlay, protocol, and fleet-managed adapter reference snapshot around the portable orchestration core.
 - `assets/templates/goal-graph/`: ticket-backed implementation DAGs, strict-chain topology, repository-merge handoff prompts, and evidence templates that compose with project orchestration.

@@ -21,6 +21,7 @@ REPO_ROOT = SKILL_DIR.parents[1]
 TEMPLATE_DIR = SKILL_DIR / "assets" / "templates" / "onboarding-package"
 CODEX_FIRSTMATE_SKILL_DIR = SKILL_DIR / "assets" / "templates" / "client-adapters" / "codex-native-firstmate" / "skill"
 SLACK_POST_GATE_SKILL_DIR = REPO_ROOT / "skills" / "slack-post-gate"
+DESIGN_IN_CODE_SKILL_DIR = REPO_ROOT / "skills" / "design-in-code"
 PACKAGE_NAME = "repo-agent-harness-reference"
 SKILL_VERSION = "0.1.0"
 MAX_SCANNED_FILE_BYTES = 1_000_000
@@ -235,10 +236,13 @@ def copy_inputs(package_root: Path) -> None:
             "Portable package build requires the sibling slack-post-gate skill. "
             "Run from the full repository checkout or install both skills."
         )
+    if not DESIGN_IN_CODE_SKILL_DIR.is_dir():
+        raise SystemExit("Portable package build requires the sibling design-in-code skill from the full distribution.")
     ensure_no_symlinks(TEMPLATE_DIR)
     ensure_no_symlinks(SKILL_DIR)
     ensure_no_symlinks(CODEX_FIRSTMATE_SKILL_DIR)
     ensure_no_symlinks(SLACK_POST_GATE_SKILL_DIR)
+    ensure_no_symlinks(DESIGN_IN_CODE_SKILL_DIR)
     shutil.copytree(TEMPLATE_DIR, package_root, ignore=ignore)
     skill_dest = package_root / "skill" / SKILL_DIR.name
     shutil.copytree(SKILL_DIR, skill_dest, ignore=ignore)
@@ -246,6 +250,7 @@ def copy_inputs(package_root: Path) -> None:
     shutil.copytree(CODEX_FIRSTMATE_SKILL_DIR, adapter_skill_dest, ignore=ignore)
     slack_gate_skill_dest = package_root / "skills" / "slack-post-gate"
     shutil.copytree(SLACK_POST_GATE_SKILL_DIR, slack_gate_skill_dest, ignore=ignore)
+    shutil.copytree(DESIGN_IN_CODE_SKILL_DIR, package_root / "skills" / "design-in-code", ignore=ignore)
 
 
 def git_value(args: list[str]) -> str | None:

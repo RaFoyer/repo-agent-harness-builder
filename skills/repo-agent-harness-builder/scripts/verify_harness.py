@@ -575,6 +575,9 @@ def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
         "ops/connections.json",
         "ops/entry-points.json",
         "ops/qa-evidence.json",
+        "ops/design-workflow.json",
+        "ops/design-evidence.json",
+        "ops/design-visual-policy.json",
         "ops/orchestration.example.json",
     "ops/github-approvals.json",
         ".agents/skills/project-orchestration/SKILL.md",
@@ -592,7 +595,7 @@ def is_harness_owned_path(rel_path: str, cli_name: str) -> bool:
         "scripts/setup-no-mistakes.sh",
         cli_name,
     }
-    return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/", ".codex/agents/", ".agents/skills/"))
+    return rel_path in owned_exact or rel_path.startswith(("ops/protocols/", "apps/cli/", "scripts/design/", ".codex/agents/", ".agents/skills/"))
 
 
 def validate_evidence_token(target: Path, module: str, token: str, errors: list[str]) -> None:

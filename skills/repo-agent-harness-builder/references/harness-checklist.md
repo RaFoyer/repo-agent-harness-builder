@@ -80,6 +80,7 @@ Scaffold these as `inactive` if they might plausibly be needed later:
 | Lavish review surface | `LAVISH-REVIEW.md`, `lavish` CLI | complex plans, audits, diagrams, QA packets, or PR reviews benefit from HTML artifact feedback and tracker-decision capture |
 | CI/branch/deploy | CI protocol, branch promotion rules, deploy readiness | repo has tests, releases, environments, or deployments |
 | Design system governance | design-system protocol, design status command, source pointers, optional tokens/components, optional review/proof governance | UI, UX, component, token, brand, adaptive UI, or generated UI work may happen |
+| Design in code | `DESIGN-IN-CODE.md`, inactive design policies, registry/session/preview/tracker/evidence commands and project-adapter scripts | design owners work with real components and synthetic app states through implementation and measured verification |
 | Brand identity | brand protocol, approved assets pointer, usage rules | external-facing comms or visual identity matters |
 | Evidence/provenance | evidence map, artifact pointers, provenance rules | audits, reports, or generated artifacts matter |
 | Hooks/intent authority | hook protocol, allowed hook list, failure behavior | agent lifecycle enforcement is useful |

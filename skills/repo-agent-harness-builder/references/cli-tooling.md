@@ -414,6 +414,18 @@ inactive. Minimum inactive behavior:
 - Do not add validation, generation, CI gates, external-system inspection, or
   product-code scanning until the module is active and covered by tests.
 
+The optional design-in-code workflow has separate inactive configuration in
+`ops/design-workflow.json`, `ops/design-visual-policy.json` and
+`ops/design-evidence.json`. Once activated, `design views` lists real registered
+views, `design session <id> [--json]` emits a client-neutral milestone-1 brief,
+and `design preview <id> [--json]` prints a reviewed argv/loopback plan without
+launching it. Ports are explicit and unique, not hash-selected. `design tracker`
+renders to stdout; only `--write` regenerates its artifact, without reading it.
+CI owns the generated-output drift comparison. `design check <manifest>
+--revision <full-sha> --view <id>` verifies QA-EVIDENCE receipts with a separate
+fixed design policy. It does not run a browser or certify visual quality.
+See `design-in-code.md` for adapter interfaces and the installation route.
+
 ## Lavish Command Contract
 
 Scaffold `lavish` as an optional visual review-surface helper when the harness

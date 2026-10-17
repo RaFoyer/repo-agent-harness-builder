@@ -63,6 +63,7 @@ Use `./{{CLI_NAME}}` as the deterministic interface for repeated repository oper
 | `orchestration` | Inspect project hierarchy, lifecycle, trust, authority, eligibility, prompts, and adapter launch contracts |
 | `goals` | Inspect ticket-backed goal graphs, strict-chain compatibility paths, local closeout evidence, and goal-thread prompts |
 | `design` | Report design-system governance status and activation route |
+| `design views/session/preview/tracker/check` | Operate the opt-in real-component design workflow; preview is plan-only and tracker writes are explicit |
 | `lavish` | Check optional Lavish posture, run Lavish review lifecycle commands, check/apply Lavish updates, and draft tracker captures |
 | `ergonomics` | Audit agent-facing CLI output against `AGENT-CLI-ERGONOMICS.md` |
 | `no-mistakes` | Check and initialize the strongly recommended branch-to-PR validation gate |

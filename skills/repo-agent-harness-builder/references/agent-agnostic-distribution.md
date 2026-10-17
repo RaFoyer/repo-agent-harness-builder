@@ -75,7 +75,7 @@ or the client can read the skill through its documented direct-read path.
 ## Global Skill Ownership
 
 Shared fleet skills keep one authoritative distribution. A downstream repository
-must not add `repo-agent-harness-builder`, `slack-post-gate`, `project-orchestration`,
+must not add `repo-agent-harness-builder`, `slack-post-gate`, `design-in-code`, `project-orchestration`,
 `goal-graph-loop`, `goal-chain-loop`, or `codex-native-firstmate` to its own
 global skill-sync allowlist, even when it carries a snapshot for reference.
 

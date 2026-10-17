@@ -7,6 +7,7 @@ owner: repo-maintainers
 last_reviewed: YYYY-MM-DD
 summary: Defines how this repository can adopt a canonical design-system source of truth without making design governance mandatory by default.
 related_protocols:
+  - DESIGN-IN-CODE
   - CLI-INTERFACE
   - QA-BROWSER
   - SOURCE-OF-TRUTH
@@ -73,3 +74,8 @@ Inactive verification:
 ```
 
 Active verification should be repo-specific and documented here before use.
+
+For an owner-led view/module workflow using real components, the optional
+`DESIGN-IN-CODE.md` module supplies a registry, milestone briefs, preview plans,
+tracker and visual-evidence verification. Its policies start inactive; they are
+workflow configuration, not placeholder component or token catalogs.
