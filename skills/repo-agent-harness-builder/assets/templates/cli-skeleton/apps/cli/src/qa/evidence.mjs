@@ -63,9 +63,9 @@ export function evaluateQaEvidence(manifest, policy, { revision, target }) {
   return { verdict, checks, errors: [...new Set(errors)], proofs };
 }
 
-export function verifyQaEvidence(manifestPath, { revision, target, repoRoot = CONFIG.repoRoot } = {}) {
+export function verifyQaEvidence(manifestPath, { revision, target, repoRoot = CONFIG.repoRoot, policyPath = POLICY } = {}) {
   try {
-    const policyFile = readRepositoryFile(repoRoot, POLICY);
+    const policyFile = readRepositoryFile(repoRoot, policyPath);
     const policy = validateEvidencePolicy(JSON.parse(decodeRepositoryText(policyFile.bytes)));
     if (policy.status !== "active") return { verdict: "BLOCKED", checks: [], errors: ["qa-evidence-inactive"] };
     const manifestFile = readRepositoryFile(repoRoot, manifestPath);
@@ -76,7 +76,7 @@ export function verifyQaEvidence(manifestPath, { revision, target, repoRoot = CO
     for (const proof of result.proofs) {
       try {
         repositoryPath(repoRoot, proof.path);
-        if (proof.path === manifestPath || proof.path === POLICY) throw new Error("self-evidence");
+        if (proof.path === manifestPath || proof.path === policyPath) throw new Error("self-evidence");
         if (!cache.has(proof.path)) {
           if (cache.size >= 256) throw new Error("evidence-budget");
           const artifact = readRepositoryFile(repoRoot, proof.path, Math.min(10_000_000, 32_000_000 - totalBytes));

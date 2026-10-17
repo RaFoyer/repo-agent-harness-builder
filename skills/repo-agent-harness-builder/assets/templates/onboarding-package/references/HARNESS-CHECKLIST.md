@@ -74,6 +74,7 @@ Scaffold as inactive when plausible:
 - shared client entry blocks with staged-content checks, inactive until target files are selected
 - QA evidence verification, inactive until required checks and a revision/target-bound producer are configured
 - design system
+- design-in-code workflow, inactive until the component authority, views, synthetic fixtures and visual evidence producer are configured
 - brand identity
 - evidence and provenance maps
 - hooks and intent authority

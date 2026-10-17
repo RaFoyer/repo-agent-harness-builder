@@ -60,6 +60,7 @@ Default: keep plausible optional modules scaffolded as `inactive`. Mark `not-app
 | Visual artifact review | inactive | `./{{CLI_NAME}} lavish tracker capture --issue <id> --artifact <html-file>`; activate when visual decisions must become tracker scope |
 | Repo-agent operations | inactive | Add repo-owned bootstrap/operator skills and skill drift checks for cross-machine handoff |
 | Design system | inactive | `ops/protocols/DESIGN-SYSTEM.md`, `./{{CLI_NAME}} design status`; activate when UI, UX, component, token, brand, adaptive UI, or generated UI work needs governance |
+| Design in code | inactive | `ops/protocols/DESIGN-IN-CODE.md`, `ops/design-workflow.json`, `ops/design-visual-policy.json`, `ops/design-evidence.json`, `scripts/design/`; activate with real source authority, view owners, synthetic fixtures and complete visual evidence |
 | Brand identity | inactive | Add protocol/assets pointer when external-facing work is relevant |
 | Evidence/provenance | inactive | Add evidence map when artifacts or audits matter |
 | Hooks/intent authority | inactive | Add hook protocol when lifecycle enforcement is needed |

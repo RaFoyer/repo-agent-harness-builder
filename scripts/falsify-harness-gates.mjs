@@ -15,7 +15,8 @@ const cases = [
   ["staged entry drift", "docs/entry-sync.mjs", "const changed = plans.filter((plan) => plan.original !== plan.next);", "const changed = [];", "harness-gates.test.mjs", "guards: staged entry drift"],
   ["QA failure precedence", "qa/evidence.mjs", 'outcomes.has("FAIL") ? "FAIL"', 'false ? "FAIL"', "harness-gates.test.mjs", "guards: QA failure precedence"],
   ["QA proof digest", "qa/evidence.mjs", 'if (cache.get(proof.path) !== proof.sha256)', "if (false)", "harness-gates.test.mjs", "QA verification checks actual proof digests"],
-  ["GitHub activation ceiling", "github/index.mjs", "if (capability && Array.isArray(runtimeCapabilities(config)) && !runtimeCapabilities(config).includes(capability))", "if (false)", "cli.test.mjs", "guards: github runtime ceiling"]
+  ["GitHub activation ceiling", "github/index.mjs", "if (capability && Array.isArray(runtimeCapabilities(config)) && !runtimeCapabilities(config).includes(capability))", "if (false)", "cli.test.mjs", "guards: github runtime ceiling"],
+  ["design token comparison", "../../../scripts/design/compare-tokens.mjs", "else if (normalize(expected[name]) !== normalize(actual[name]))", "else if (false)", "design-workflow.test.mjs", "guards: semantic token mismatch"]
 ];
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "harness-falsification-"));

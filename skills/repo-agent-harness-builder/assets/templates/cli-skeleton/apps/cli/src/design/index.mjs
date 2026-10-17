@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
+import { loadDesignWorkflow, runDesignWorkflow } from "./workflow.mjs";
 
 const DESIGN_PROTOCOL = "ops/protocols/DESIGN-SYSTEM.md";
 const HARNESS_CHECKLIST = "ops/HARNESS-CHECKLIST.md";
@@ -65,11 +66,25 @@ Usage:
 
 Commands:
   status   Show design-system governance status and activation route
+  views [--audience <name>] [--module <name>] [--json]
+           List the active design workflow's registered views
+  session <id> [--json]
+           Print a client-neutral brief; stop for milestone-1 approval
+  preview <id> [--json]
+           Print a reviewed local preview plan; never launch or disable auth
+  tracker [--write]
+           Render the tracker to stdout; --write regenerates its configured file
+  check <manifest> --revision <full-sha> --view <id>
+           Verify local visual-evidence receipts against ops/design-evidence.json
+
+Workflow commands require active ops/design-workflow.json. See DESIGN-IN-CODE.md.
 `;
 }
 
 function runStatus(io) {
   io.stdout(`design system: ${protocolStatus()}`);
+  try { io.stdout(`design workflow: ${loadDesignWorkflow().status} (declared, not verified)`); }
+  catch (error) { io.stdout(`design workflow: ${error.code === "ENOENT" ? "not-configured" : "invalid-config"}`); }
   io.stdout(`protocol: ${DESIGN_PROTOCOL}`);
   io.stdout(`checklist: ${HARNESS_CHECKLIST}`);
   io.stdout(`source: ${sourceSummary()}`);
@@ -80,6 +95,12 @@ function runStatus(io) {
 export async function runDesign(argv = [], io) {
   const [command = "status", ...rest] = argv;
   switch (command) {
+    case "views":
+    case "session":
+    case "preview":
+    case "tracker":
+    case "check":
+      return runDesignWorkflow(command, rest, io);
     case "help":
     case "--help":
     case "-h":

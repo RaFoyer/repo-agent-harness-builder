@@ -111,6 +111,7 @@ Core commands:
   goals start-prompt <id>
                        Print a bounded prompt for a goal thread
   design status        Show design-system governance status
+  design views         List configured design views; session/preview/tracker/check are opt-in
   ergonomics status    Audit agent-facing CLI ergonomics
   no-mistakes status   Check no-mistakes validation gate setup
   no-mistakes setup    Initialize no-mistakes and verify post-setup status

@@ -2,7 +2,7 @@ import { CONFIG } from "../config.mjs";
 import { rejectUnexpectedArgs, renderUsageError } from "../util/agent-output.mjs";
 
 const PROJECT_LOCAL_SKILLS = ["project-orchestration", "goal-graph-loop", "goal-chain-loop", "codex-native-firstmate"];
-const SHARED_FLEET_SKILLS = ["repo-agent-harness-builder", "slack-post-gate", ...PROJECT_LOCAL_SKILLS];
+const SHARED_FLEET_SKILLS = ["repo-agent-harness-builder", "slack-post-gate", "design-in-code", ...PROJECT_LOCAL_SKILLS];
 
 function skillInventory() {
   return PROJECT_LOCAL_SKILLS.map((name) => ({ name, path: `.agents/skills/${name}` }));

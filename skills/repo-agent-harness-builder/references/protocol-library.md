@@ -65,6 +65,7 @@ Keep protocols durable. A protocol answers "how work of this kind is done here,"
 | Reviewing complex plans, diagrams, QA packets, or PR summaries as HTML artifacts | `LAVISH-REVIEW.md` if present |
 | Capturing reviewed Lavish decisions before implementation | `LAVISH-REVIEW.md`, plus `PROJECT-TRACKING.md` or `GOAL-GRAPH.md` if active |
 | Changing UI, UX, design systems, components, tokens, brand surfaces, adaptive UI, or generated UI | `DESIGN-SYSTEM.md` if present |
+| Grounding view/module redesigns in the running app and real components | `DESIGN-IN-CODE.md` if present, then design and QA authority |
 | Working with tickets | `PROJECT-TRACKING.md` |
 | Handling credentials | `SECRETS.md` |
 | Sending automated Slack bot messages | `SLACK-POST-GATE.md` if present |

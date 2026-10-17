@@ -27,6 +27,7 @@ if [ "${PUBLIC_INSTALL_ONLY:-0}" = "1" ]; then
   PUBLIC_INSTALL_REPO="${PUBLIC_INSTALL_REPO:-RaFoyer/repo-agent-harness-builder}"
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill repo-agent-harness-builder --agent codex --list
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill slack-post-gate --agent codex --list
+  run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill design-in-code --agent codex --list
   echo "public install discovery passed"
   exit 0
 fi
@@ -35,6 +36,7 @@ if [ "${SKIP_SKILLS_DISCOVERY:-0}" != "1" ]; then
   echo "== skill discovery =="
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$ROOT" --skill repo-agent-harness-builder --agent codex --list >/dev/null
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$ROOT" --skill slack-post-gate --agent codex --list >/dev/null
+  run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$ROOT" --skill design-in-code --agent codex --list >/dev/null
 else
   echo "== skill discovery skipped =="
 fi
@@ -44,6 +46,7 @@ if [ "${CHECK_PUBLIC_INSTALL:-0}" = "1" ]; then
   PUBLIC_INSTALL_REPO="${PUBLIC_INSTALL_REPO:-RaFoyer/repo-agent-harness-builder}"
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill repo-agent-harness-builder --agent codex --list
   run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill slack-post-gate --agent codex --list
+  run_with_retries npx -y "$SKILLS_CLI_PACKAGE" add "$PUBLIC_INSTALL_REPO" --skill design-in-code --agent codex --list
 fi
 
 echo "== python syntax =="
@@ -242,6 +245,7 @@ with zipfile.ZipFile(zip_path) as archive:
         "repo-agent-harness-reference/skills/goal-chain-loop/SKILL.md",
         "repo-agent-harness-reference/skills/codex-native-firstmate/SKILL.md",
         "repo-agent-harness-reference/skills/slack-post-gate/SKILL.md",
+        "repo-agent-harness-reference/skills/design-in-code/SKILL.md",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-boss.toml",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-manager.toml",
         "repo-agent-harness-reference/skill/repo-agent-harness-builder/assets/templates/client-adapters/codex-native-firstmate/repo-root/.codex/agents/firstmate-worker.toml",
